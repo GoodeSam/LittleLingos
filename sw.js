@@ -1,4 +1,4 @@
-const CACHE = 'll-v3';
+const CACHE = 'll-v4';
 const SHELL = [
   './',
   './index.html',
@@ -7,6 +7,9 @@ const SHELL = [
   './icon.svg',
   './icon-maskable.svg',
 ];
+
+// HTML and data files that must always be fresh
+const NETWORK_FIRST = ['/', '/index.html', '/scenarios.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
@@ -27,22 +30,33 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
 
-  e.respondWith(
-    caches.match(e.request).then(cached => {
-      const network = fetch(e.request).then(res => {
+  const isNetworkFirst = e.request.mode === 'navigate' ||
+    NETWORK_FIRST.includes(url.pathname);
+
+  if (isNetworkFirst) {
+    // Network-first: always fetch fresh HTML/data, fall back to cache offline
+    e.respondWith(
+      fetch(e.request).then(res => {
         if (res.ok) {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return res;
-      }).catch(() => {
-        // Offline fallback: return cached index.html for navigation requests
-        if (e.request.mode === 'navigate') {
-          return caches.match('./index.html');
-        }
-        return Response.error();
-      });
-      return cached || network;
-    })
-  );
+      }).catch(() => caches.match(e.request).then(c => c || caches.match('./index.html')))
+    );
+  } else {
+    // Cache-first: icons, fonts, other static assets
+    e.respondWith(
+      caches.match(e.request).then(cached => {
+        const network = fetch(e.request).then(res => {
+          if (res.ok) {
+            const clone = res.clone();
+            caches.open(CACHE).then(c => c.put(e.request, clone));
+          }
+          return res;
+        }).catch(() => Response.error());
+        return cached || network;
+      })
+    );
+  }
 });

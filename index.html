@@ -35,6 +35,8 @@
       --card:    #FFFFFF;
       --shadow:  0 2px 12px rgba(0,0,0,.08);
       --r:       16px;
+      --teal:    #26B2AA;
+      --pink:    #E8769A;
     }
     html, body { height: 100%; background: var(--cream); font-family: -apple-system, "PingFang SC", sans-serif; color: var(--text); }
     body {
@@ -152,14 +154,12 @@
     .scenario-card .s-icon { font-size: 32px; margin-bottom: 8px; }
     .scenario-card .s-name { font-size: 15px; font-weight: 600; }
     .scenario-card .s-count { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .scenario-card { min-height: 120px; }
+    .scenario-card .s-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .scenario-card .s-bar {
-      position: absolute; bottom: 0; left: 0; height: 3px;
+      position: absolute; bottom: 0; left: 0; height: 3px; width: 100%;
       border-radius: 0 0 0 var(--r);
     }
-    .scenario-card[data-id="bath"]     .s-bar { background: var(--blue);   width: 100%; }
-    .scenario-card[data-id="meal"]     .s-bar { background: var(--green);  width: 100%; }
-    .scenario-card[data-id="bedtime"]  .s-bar { background: var(--purple); width: 100%; }
-    .scenario-card[data-id="emotion"]  .s-bar { background: var(--accent); width: 100%; }
 
     /* ── Saved quick row ─────────────────────────────── */
     .saved-row {
@@ -521,39 +521,14 @@
     <div class="today-icon" id="todayIcon">🛁</div>
     <div class="today-text">
       <strong id="todayScenarioName">今日推荐：洗澡时间</strong>
-      <span>3 个短句，2 分钟学完</span>
+      <span id="todaySubtitle">5 个短句，2 分钟学完</span>
     </div>
     <button class="today-btn" id="todayBtn" onclick="openTodayScenario()">开始 →</button>
   </div>
 
-  <!-- Scenarios -->
+  <!-- Scenarios — rendered by renderScenarioGrid() -->
   <div class="section-title">选择场景</div>
-  <div class="scenario-grid">
-    <div class="scenario-card" role="button" tabindex="0" data-id="bath" onclick="openScenario('bath')">
-      <div class="s-icon">🛁</div>
-      <div class="s-name">洗澡时间</div>
-      <div class="s-count" id="cnt-bath">12 个短句</div>
-      <div class="s-bar"></div>
-    </div>
-    <div class="scenario-card" role="button" tabindex="0" data-id="meal" onclick="openScenario('meal')">
-      <div class="s-icon">🍚</div>
-      <div class="s-name">吃饭时间</div>
-      <div class="s-count" id="cnt-meal">14 个短句</div>
-      <div class="s-bar"></div>
-    </div>
-    <div class="scenario-card" role="button" tabindex="0" data-id="bedtime" onclick="openScenario('bedtime')">
-      <div class="s-icon">🌙</div>
-      <div class="s-name">睡前时间</div>
-      <div class="s-count" id="cnt-bedtime">11 个短句</div>
-      <div class="s-bar"></div>
-    </div>
-    <div class="scenario-card" role="button" tabindex="0" data-id="emotion" onclick="openScenario('emotion')">
-      <div class="s-icon">🤗</div>
-      <div class="s-name">情绪安慰</div>
-      <div class="s-count" id="cnt-emotion">10 个短句</div>
-      <div class="s-bar"></div>
-    </div>
-  </div>
+  <div class="scenario-grid" id="scenarioGrid"></div>
 
   <!-- Saved quick row -->
   <div class="saved-row">
@@ -656,6 +631,7 @@
 <!-- ════════════════════════════════════════════════════
      DATA & LOGIC
 ═══════════════════════════════════════════════════════ -->
+<script src="./scenarios.js"></script>
 <script>
 // ── State ─────────────────────────────────────────────
 let currentAge = "1-2";
@@ -683,144 +659,61 @@ function saveUsedToday() {
 let savedPhrases = safeParseArray("ll_saved");
 let usedToday = loadUsedToday();
 
-// ── Phrase Data ────────────────────────────────────────
-const scenarios = {
-  bath: {
-    icon: "🛁", name: "洗澡时间",
-    phrases: {
-      "0-1": [
-        { id:"b01", en:"Bath time!", zh:"洗澡时间！", tip:"在你抱起宝宝走向浴室时重复说，建立条件反射。" },
-        { id:"b02", en:"Warm water. Nice and warm.", zh:"温温的水，暖暖的。", tip:"用平静舒缓的语气，让宝宝感受安全感。" },
-        { id:"b03", en:"Kick kick kick!", zh:"踢踢踢！", tip:"轻轻带动宝宝的小脚在水里踢动，边说边做。" },
-        { id:"b04", en:"In you go!", zh:"进去咯！", tip:"放入浴盆时说，声调轻快，配合动作。" },
-        { id:"b05", en:"Look at the bubbles!", zh:"看泡泡！", tip:"手指指向泡沫，吸引宝宝视线，培养注意力。" },
-      ],
-      "1-2": [
-        { id:"b11", en:"Let's splash! Kick kick kick!", zh:"让我们溅水！踢踢踢！", tip:"带动宝宝双脚踢水，重复的节奏帮助宝宝预测和记住词汇。" },
-        { id:"b12", en:"Where's your tummy? There it is!", zh:"肚子在哪里？在这里！", tip:"用游戏方式命名身体部位，这个年龄段效果最好。" },
-        { id:"b13", en:"Scrub scrub scrub! Clean clean clean!", zh:"刷刷刷！干净干净！", tip:"边说边模仿搓洗动作，让宝宝觉得洗澡是游戏。" },
-        { id:"b14", en:"Look at the bubbles! Pop pop!", zh:"看泡泡！啵啵啵！", tip:"手指轻戳泡泡同时说\"pop\"，音效词对宝宝很吸引。" },
-        { id:"b15", en:"Warm water! Is it warm?", zh:"暖和的水！暖不暖？", tip:"鼓励宝宝感受并回应，哪怕只是点头或笑。" },
-        { id:"b16", en:"All done! Squeaky clean!", zh:"洗好了！干净溜溜！", tip:"洗完时说，配合毛巾包裹的动作，形成仪式感。" },
-      ],
-      "2-3": [
-        { id:"b21", en:"Can you wash your tummy? Where's your tummy?", zh:"你能洗肚肚吗？肚肚在哪？", tip:"鼓励宝宝自己动手，培养自主性。" },
-        { id:"b22", en:"What color is your duck?", zh:"你的小鸭子是什么颜色？", tip:"结合玩具提问，自然地教颜色词汇。" },
-        { id:"b23", en:"Close your eyes! Here comes the shampoo!", zh:"闭上眼睛！洗发水来咯！", tip:"提前预告，减少宝宝对洗头的抵触。" },
-        { id:"b24", en:"Should we do your hair now? Okay!", zh:"要洗头发了好吗？好！", tip:"给宝宝\"参与感\"，减少抵触情绪。" },
-        { id:"b25", en:"Are you all clean? Let me check... yes! Squeaky clean!", zh:"洗干净了吗？让我检查……是的！干净啦！", tip:"夸张地检查宝宝的手脚，变成游戏。" },
-      ],
-      "3-6": [
-        { id:"b31", en:"Okay, it's bath time! Can you get undressed by yourself?", zh:"好了，洗澡时间！你能自己脱衣服吗？", tip:"给予自主权，培养独立能力。" },
-        { id:"b32", en:"What toys do you want to bring in the bath?", zh:"你想带什么玩具去洗澡？", tip:"让宝宝做决定，提升参与度。" },
-        { id:"b33", en:"Let's count your toes! One, two, three...", zh:"我们数数脚趾！一、二、三……", tip:"洗脚时数数，寓教于乐。" },
-        { id:"b34", en:"Almost done. Can you rinse your hair by yourself?", zh:"快好了。你能自己冲头发吗？", tip:"大孩子喜欢被信任，逐步让他们承担步骤。" },
-        { id:"b35", en:"Great job washing up! You're so responsible!", zh:"洗得真好！你好负责任！", tip:"具体夸奖行为而非笼统夸\"聪明\"，更有效。" },
-      ],
-    }
-  },
-  meal: {
-    icon: "🍚", name: "吃饭时间",
-    phrases: {
-      "0-1": [
-        { id:"m01", en:"Yummy yummy!", zh:"好好吃！", tip:"用夸张表情和愉快语气说，传递积极情绪。" },
-        { id:"m02", en:"Open wide! Here comes the airplane!", zh:"嘴巴张大！飞机来咯！", tip:"经典喂食游戏，勺子像飞机飞进嘴里。" },
-        { id:"m03", en:"One more bite?", zh:"再吃一口？", tip:"轻柔地询问，不强迫，让宝宝感受饥饱自主。" },
-        { id:"m04", en:"All done? Show me your bowl.", zh:"吃完了？给我看看碗。", tip:"观察宝宝信号，尊重饱腹感。" },
-      ],
-      "1-2": [
-        { id:"m11", en:"Open wide! Here comes the airplane! Vroom!", zh:"嘴巴张大！飞机来咯！呜——", tip:"把勺子当飞机，配合\"呜\"的音效，让吃饭更有趣。" },
-        { id:"m12", en:"Yummy! Do you want more?", zh:"好吃！还要吗？", tip:"饭后询问，让宝宝练习用手势或词语表达需求。" },
-        { id:"m13", en:"All done? Let's clean your hands.", zh:"吃完了？我们洗手手。", tip:"建立饭后洗手的仪式，自然过渡到下一个活动。" },
-        { id:"m14", en:"Mmm, that's broccoli! Green!", zh:"嗯，这是西兰花！绿色的！", tip:"命名食物和颜色，边吃边学词汇最自然。" },
-        { id:"m15", en:"Big bite! Good job!", zh:"大口吃！好棒！", tip:"在宝宝成功吃一口时立即夸奖，强化正向行为。" },
-      ],
-      "2-3": [
-        { id:"m21", en:"What would you like to eat? Rice or noodles?", zh:"你想吃什么？米饭还是面条？", tip:"给出两个选项，让宝宝练习做选择和表达。" },
-        { id:"m22", en:"That's broccoli! Can you say broccoli?", zh:"这是西兰花！你能说西兰花吗？", tip:"鼓励宝宝模仿说新词，不纠正发音，鼓励尝试。" },
-        { id:"m23", en:"Yummy! Is it delicious?", zh:"好吃！好吃吗？", tip:"引导宝宝描述感受，建立味道词汇。" },
-        { id:"m24", en:"Can you use your spoon?", zh:"你能用勺子吃吗？", tip:"鼓励宝宝自己用工具，哪怕会洒也要鼓励。" },
-        { id:"m25", en:"Almost done! Two more bites!", zh:"快吃完了！再吃两口！", tip:"具体数字让宝宝有目标感，比\"再吃一点\"更有效。" },
-      ],
-      "3-6": [
-        { id:"m31", en:"What do you want for breakfast today?", zh:"今天早饭想吃什么？", tip:"培养自主性和表达能力。" },
-        { id:"m32", en:"Let's try the carrots! They help you see in the dark!", zh:"试试胡萝卜！它能让你在黑暗里看得更清楚！", tip:"用有趣的理由介绍新食物，减少抵触。" },
-        { id:"m33", en:"How does it taste? Sweet? Sour? Salty?", zh:"味道怎么样？甜？酸？咸？", tip:"引导宝宝描述味道，丰富感知词汇。" },
-        { id:"m34", en:"Can you help set the table?", zh:"你能帮忙摆碗筷吗？", tip:"让大宝宝参与准备，培养责任感。" },
-        { id:"m35", en:"Good eating! You tried something new today!", zh:"吃得真好！你今天尝试了新东西！", tip:"夸具体行为（尝试），比夸结果更有激励效果。" },
-      ],
-    }
-  },
-  bedtime: {
-    icon: "🌙", name: "睡前时间",
-    phrases: {
-      "0-1": [
-        { id:"d01", en:"Time for sleep, little one.", zh:"睡觉时间了，小宝贝。", tip:"用最柔和的语气，建立睡前信号。" },
-        { id:"d02", en:"Shh... it's sleepy time.", zh:"嘘……要睡觉咯。", tip:"音量逐渐放低，帮宝宝过渡到安静状态。" },
-        { id:"d03", en:"Close your eyes. Good night.", zh:"闭上眼睛。晚安。", tip:"可以轻轻盖上宝宝的眼皮，配合动作。" },
-        { id:"d04", en:"I love you. Sweet dreams.", zh:"我爱你。做个好梦。", tip:"每晚重复相同的话，建立安全感和仪式感。" },
-      ],
-      "1-2": [
-        { id:"d11", en:"It's bedtime! Time to say good night.", zh:"睡觉时间！该说晚安了。", tip:"用轻快但不刺激的语气宣布睡前开始，帮宝宝切换状态。" },
-        { id:"d12", en:"Let's brush your little teeth! Up up up, down down down!", zh:"刷刷小牙齿！上上上，下下下！", tip:"边说边做刷牙动作，节奏感让宝宝更配合。" },
-        { id:"d13", en:"Into your cozy bed! Snuggle in!", zh:"钻进暖暖的小床！裹好好！", tip:"帮宝宝盖好被子时说，配合动作增强词汇理解。" },
-        { id:"d14", en:"I love you so much. Good night, sleep tight!", zh:"妈妈/爸爸好爱你。晚安，睡个好觉！", tip:"每晚用同样的话结束，是宝宝安全感的来源。" },
-        { id:"d15", en:"Let's read one book before sleep. Pick one!", zh:"睡前读一本书。挑一本吧！", tip:"让宝宝自己选书，增加参与感和期待感。" },
-      ],
-      "2-3": [
-        { id:"d21", en:"It's almost bedtime. Let's do five more minutes of playtime.", zh:"快要睡觉了。我们再玩五分钟。", tip:"提前预警比突然终止游戏效果更好，减少哭闹。" },
-        { id:"d22", en:"What was your favorite thing today?", zh:"今天你最喜欢什么？", tip:"睡前回顾一天，帮宝宝建立语言表达和情感处理能力。" },
-        { id:"d23", en:"Let's count the stars! One, two, three...", zh:"我们数星星！一、二、三……", tip:"看窗外或天花板上的贴纸，把入睡引导变成游戏。" },
-        { id:"d24", en:"You had such a good day. I'm proud of you.", zh:"你今天真的很棒。我为你骄傲。", tip:"在宝宝入睡前说正向的话，有助于建立自信心。" },
-        { id:"d25", en:"Close your eyes. I'll be right here.", zh:"闭上眼睛。我就在这里。", tip:"给宝宝安全感，减少分离焦虑。" },
-      ],
-      "3-6": [
-        { id:"d31", en:"Okay, it's time to wind down. What do you need before bed?", zh:"好了，该放松一下了。睡前你需要什么？", tip:"大孩子喜欢被尊重，参与自己的睡前流程。" },
-        { id:"d32", en:"Let's talk about the best part of your day.", zh:"我们聊聊今天最棒的事。", tip:"培养语言表达和情感反思，也帮助大人了解孩子。" },
-        { id:"d33", en:"You were so brave today. Remember when you...?", zh:"你今天好勇敢。还记得你……那一次吗？", tip:"具体回忆一个勇敢时刻，强化孩子的自我认知。" },
-        { id:"d34", en:"Lights out! Sleep is how you grow big and strong!", zh:"关灯！睡觉可以让你长高变强壮！", tip:"用孩子关心的结果（长高）解释睡觉的意义。" },
-        { id:"d35", en:"Good night. I love you to the moon and back.", zh:"晚安。妈妈/爸爸爱你爱到月亮又回来。", tip:"经典睡前表达，来自绘本《I Love You to the Moon and Back》。" },
-      ],
-    }
-  },
-  emotion: {
-    icon: "🤗", name: "情绪安慰",
-    phrases: {
-      "0-1": [
-        { id:"e01", en:"I'm here. You're safe.", zh:"我在这里。你很安全。", tip:"紧紧抱住宝宝，平稳声音比内容更重要。" },
-        { id:"e02", en:"It's okay. It's okay.", zh:"没事的。没事的。", tip:"重复能给宝宝节奏感和安全感。" },
-        { id:"e03", en:"Mommy/Daddy is here.", zh:"妈妈/爸爸在呢。", tip:"强调你的存在，是最基本的安慰。" },
-      ],
-      "1-2": [
-        { id:"e11", en:"I know, I know. It's okay.", zh:"我知道，我知道。没事的。", tip:"先用\"我知道\"认可情绪，不急于解决，宝宝更容易平静。" },
-        { id:"e12", en:"Come here. I've got you.", zh:"过来。我抱着你。", tip:"张开双臂，同时说这句话，让宝宝知道你随时可以接住他。" },
-        { id:"e13", en:"That was scary, wasn't it?", zh:"刚才好吓人，对不对？", tip:"帮宝宝命名情绪，是情绪管理的第一步。" },
-        { id:"e14", en:"Big feelings! Big feelings are okay.", zh:"大情绪！有大情绪是没问题的。", tip:"让宝宝知道情绪本身不是坏事，减少\"情绪羞耻\"。" },
-        { id:"e15", en:"You're safe. I'm right here.", zh:"你很安全。我就在这里。", tip:"在宝宝受惊或受伤时，先建立安全感，再检查伤口。" },
-      ],
-      "2-3": [
-        { id:"e21", en:"I can see you're feeling upset. That's okay.", zh:"我看到你不高兴了。没关系的。", tip:"\"我看到\"比\"你不要哭\"更能让宝宝感到被理解。" },
-        { id:"e22", en:"Do you need a hug?", zh:"需要抱抱吗？", tip:"询问比强迫更好，尊重宝宝的身体自主权。" },
-        { id:"e23", en:"What happened? Tell me.", zh:"发生什么了？告诉我。", tip:"引导宝宝用语言描述，是从哭闹过渡到沟通的关键。" },
-        { id:"e24", en:"It's hard, isn't it? I understand.", zh:"这很难，对不对？我理解。", tip:"表达理解，而不是急于给方案，让宝宝感到被接纳。" },
-        { id:"e25", en:"Let's take a deep breath together. In... and out.", zh:"我们一起深呼吸。吸气……呼气。", tip:"呼吸练习对2岁以上有效，父母带头做，宝宝会跟上。" },
-      ],
-      "3-6": [
-        { id:"e31", en:"It looks like you're feeling angry. Is that right?", zh:"你好像很生气。对吗？", tip:"帮大孩子识别和命名具体情绪，比\"别哭\"有效十倍。" },
-        { id:"e32", en:"It's okay to feel sad. Want to tell me what happened?", zh:"难过是没关系的。想告诉我发生什么事了吗？", tip:"允许情绪存在，再开放地邀请表达。" },
-        { id:"e33", en:"I'm proud of how you handled that.", zh:"你处理那件事的方式让我很骄傲。", tip:"事后肯定孩子的情绪调节行为，比批评更有塑造力。" },
-        { id:"e34", en:"Everyone feels frustrated sometimes. Even me.", zh:"每个人有时都会沮丧。连我也会。", tip:"父母自我袒露，帮孩子正常化自己的情绪。" },
-        { id:"e35", en:"What would make you feel better right now?", zh:"你现在需要什么能好一点？", tip:"教孩子自我觉察和寻求支持，是重要的情绪技能。" },
-      ],
-    }
-  }
-};
+// ── Phrase Data — loaded from scenarios.js ─────────────
+// window.scenarios and window.scenarioOrder are set by scenarios.js
 
-// Today recommendation (rotate by day of week)
-const todayScenarios = ["bath","meal","bedtime","emotion","bath","meal","bedtime"];
-const todayId = todayScenarios[new Date().getDay()];
-document.getElementById("todayIcon").textContent = scenarios[todayId].icon;
-document.getElementById("todayScenarioName").textContent = "今日推荐：" + scenarios[todayId].name;
+// ── Today (day-since-epoch rotation across all 30) ──────
+const todayId = scenarioOrder[Math.floor(Date.now() / 86400000) % scenarioOrder.length];
+
+// ── Scenario Grid ──────────────────────────────────────
+function renderScenarioGrid() {
+  const grid = document.getElementById("scenarioGrid");
+  grid.innerHTML = "";
+  scenarioOrder.forEach(id => {
+    const s = scenarios[id];
+    const count = (s.phrases[currentAge] || []).length;
+    const card = document.createElement("div");
+    card.className = "scenario-card";
+    card.setAttribute("role", "button");
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("data-id", id);
+    card.onclick = () => openScenario(id);
+    const icon = document.createElement("div"); icon.className = "s-icon"; icon.textContent = s.icon;
+    const name = document.createElement("div"); name.className = "s-name"; name.textContent = s.name;
+    const cnt  = document.createElement("div"); cnt.className  = "s-count"; cnt.id = "cnt-" + id;
+    cnt.textContent = count + " 个短句";
+    const bar  = document.createElement("div"); bar.className  = "s-bar";
+    bar.style.background = s.color;
+    card.append(icon, name, cnt, bar);
+    grid.appendChild(card);
+  });
+}
+
+// ── Today Strip ────────────────────────────────────────
+function renderTodayStrip() {
+  const s = scenarios[todayId];
+  const count = (s.phrases[currentAge] || []).length;
+  document.getElementById("todayIcon").textContent = s.icon;
+  document.getElementById("todayScenarioName").textContent = "今日推荐：" + s.name;
+  document.getElementById("todaySubtitle").textContent = count + " 个短句，2 分钟学完";
+}
+
+// ── Age state (single path) ────────────────────────────
+const AGE_LABELS = {"0-1":"0–1岁","1-2":"1–2岁","2-3":"2–3岁","3-6":"3–6岁"};
+
+function setCurrentAge(age) {
+  currentAge = age;
+  document.getElementById("ageBadgeLabel").textContent = AGE_LABELS[age];
+  document.querySelectorAll(".age-picker .age-opt").forEach(e =>
+    e.classList.toggle("active", e.dataset.age === age)
+  );
+  document.querySelectorAll(".age-tab").forEach(t =>
+    t.classList.toggle("active", t.dataset.age === age)
+  );
+  renderScenarioGrid();
+  renderTodayStrip();
+  if (currentScenario) renderPhrases();
+}
 
 // ── Age picker ─────────────────────────────────────────
 function openAgePicker() {
@@ -832,14 +725,8 @@ function closeAgePicker() {
   document.getElementById("agePicker").classList.remove("open");
 }
 function selectAge(el, age) {
-  document.querySelectorAll(".age-picker .age-opt").forEach(e => e.classList.remove("active"));
-  el.classList.add("active");
-  currentAge = age;
-  const labels = {"0-1":"0–1岁","1-2":"1–2岁","2-3":"2–3岁","3-6":"3–6岁"};
-  document.getElementById("ageBadgeLabel").textContent = labels[age];
+  setCurrentAge(age);
   closeAgePicker();
-  // If scenario is open, re-render
-  if (currentScenario) renderPhrases();
 }
 
 // ── Navigation ─────────────────────────────────────────
@@ -888,11 +775,7 @@ function closeScenario() {
 }
 
 function switchAge(age) {
-  currentAge = age;
-  document.querySelectorAll(".age-tab").forEach(t => {
-    t.classList.toggle("active", t.dataset.age === age);
-  });
-  renderPhrases();
+  setCurrentAge(age);
 }
 
 function renderPhrases() {
@@ -1271,6 +1154,8 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Init ───────────────────────────────────────────────
+renderScenarioGrid();
+renderTodayStrip();
 renderSavedChips();
 </script>
 </body>

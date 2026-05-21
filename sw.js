@@ -1,7 +1,8 @@
-const CACHE = 'll-v2';
+const CACHE = 'll-v3';
 const SHELL = [
   './',
   './index.html',
+  './scenarios.js',
   './manifest.json',
   './icon.svg',
   './icon-maskable.svg',

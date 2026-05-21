@@ -68,3 +68,106 @@ introduce the help of Netlify to this program
 
 我的iphone上没有Safari只有Edge，该怎么做step2
 
+我在[https\://littlelingos.netlify.app](https://littlelingos.netlify.app)点击任何地方，都没有反应。如何才能让这些点击有反应
+
+---
+
+用plan模式，在2-3岁里面增加更多的场景，增加至30个日常常用的场景。先给出计划，不直接修改代码。
+
+⏺ Translation: Use plan mode to add more scenarios for ages 2–3,
+
+expanding to 30 common daily-life scenarios. Present the plan
+
+first without modifying code.
+
+⏺ Entered plan mode
+
+Claude is now exploring and designing an implementation approach.
+
+---
+
+运行一段时间后，总会出现：API Error: Claude's response exceeded the 32000 output token maximum. To configure this
+
+```
+ behavior, set the CLAUDE*CODE*MAX*OUTPUT*TOKENS environment
+```
+
+现在该怎么办？
+
+---
+
+```javascript
+After running for a while, I always get: "API Error:
+   Claude's response exceeded the 32000 output token maximum. To
+  configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS
+  environment variable."
+```
+
+---
+
+增加一个界面，用户可以随时提出新的情景需求。
+
+对于用户的翻译，会调用哪一个AI来实现？
+
+对于用户翻译过的内容，询问用户是否添加进情景中，以及是否进入复习计划
+
+先用GPT的API，后续可以用中国国内哪些API，豆包的可以吗
+
+---
+
+# Expand to 30 Scenarios — Implementation Report (2026-05-21)
+
+## What shipped
+
+Live at [https\://littlelingos.netlify.app](https://littlelingos.netlify.app)
+
+|                      | Before                | After                                   |
+| -------------------- | --------------------- | --------------------------------------- |
+| Scenarios            | 4                     | **30**                                  |
+| Total phrases        | 77                    | **597**                                 |
+| Today rotation       | 7 repeating           | **30 rotating** (day-since-epoch)       |
+| Scenario grid        | Hardcoded HTML        | **Dynamic**, JS-generated               |
+| Card phrase counts   | Stale hardcoded       | **Live** per selected age band          |
+| Age state management | Split across 3 places | **Single ****`setCurrentAge()`**   |
+| Content validation   | None                  | **`validate-scenarios.js`** (36 checks) |
+
+## The 26 new scenarios
+
+| Icon | ID       | Chinese |
+| ---- | -------- | ------- |
+| 🌅   | morning  | 起床时间    |
+| 👕   | dress    | 穿衣服     |
+| 🦷   | teeth    | 刷牙时间    |
+| 🫧   | handwash | 洗手时间    |
+| 😴   | nap      | 午睡时间    |
+| 🍎   | snack    | 零食时间    |
+| 🌳   | outdoor  | 户外玩耍    |
+| 📚   | reading  | 亲子阅读    |
+| 🎵   | music    | 音乐律动    |
+| 🎨   | art      | 涂鸦美工    |
+| 🧱   | blocks   | 积木游戏    |
+| 🎭   | pretend  | 角色扮演    |
+| 🚽   | potty    | 如厕训练    |
+| 👋   | goodbye  | 出门告别    |
+| 🚗   | outing   | 外出坐车    |
+| 🛒   | shopping | 超市购物    |
+| 👫   | friends  | 见小朋友    |
+| 🤝   | share    | 分享礼让    |
+| 😊   | manners  | 礼貌用语    |
+| ⚠️   | safety   | 安全规则    |
+| 🤒   | sick     | 生病照顾    |
+| 🧹   | cleanup  | 收拾整理    |
+| 🔍   | discover | 认识世界    |
+| ⭐    | praise   | 表扬鼓励    |
+| 🏃   | exercise | 运动游戏    |
+| 🥄   | kitchen  | 厨房帮忙    |
+
+## Architecture changes
+
+- **`scenarios.js`** — new file, all scenario data extracted from `index.html`. Sets `window.scenarios` and `window.scenarioOrder`. Keeps `index.html` focused on UI logic.
+- **`validate-scenarios.js`** — pre-deploy Node script: checks all 30 IDs present, 4 age bands each, unique phrase IDs, no bare unescaped double-quotes. Run with `node validate-scenarios.js`.
+- **`renderScenarioGrid()`** — generates all 30 cards from `scenarioOrder`; replaces hardcoded HTML.
+- **`renderTodayStrip()`** — updates icon, name, and live phrase count from the current age selection.
+- **`setCurrentAge(age)`** — single function that updates badge, picker, age tabs, grid counts, today strip, and phrase list in one call.
+- **`sw.js`** — bumped to `ll-v3`, added `scenarios.js` to offline shell cache.
+

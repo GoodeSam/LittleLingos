@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>LittleLingos · 亲子英语小工具</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="./manifest.json" />
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="LittleLingos" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
+
+  <!-- Android / general -->
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#FF7A45" />
+  <meta name="description" content="中国家长的亲子英语日常用语工具" />
+  <style>
+    /* ── Reset & Base ─────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --cream:   #FFF8F2;
+      --warm:    #FFF0E0;
+      --accent:  #FF7A45;
+      --accent2: #FFB347;
+      --green:   #4CAF82;
+      --blue:    #5BA4CF;
+      --purple:  #9B7FD4;
+      --text:    #2D2D2D;
+      --muted:   #7A7A7A;
+      --border:  #EAE0D5;
+      --card:    #FFFFFF;
+      --shadow:  0 2px 12px rgba(0,0,0,.08);
+      --r:       16px;
+    }
+    html, body { height: 100%; background: var(--cream); font-family: -apple-system, "PingFang SC", sans-serif; color: var(--text); }
+    body {
+      display: flex; flex-direction: column;
+      max-width: 430px; margin: 0 auto; min-height: 100vh;
+      /* safe area for iPhone notch / home bar */
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* ── Header ───────────────────────────────────────── */
+    .header {
+      background: linear-gradient(135deg, #FF7A45 0%, #FFB347 100%);
+      padding: 20px 20px 24px;
+      color: #fff;
+      position: relative;
+    }
+    .header-top { display: flex; align-items: center; justify-content: space-between; }
+    .logo { font-size: 20px; font-weight: 700; letter-spacing: -.3px; }
+    .logo span { font-size: 13px; font-weight: 400; opacity: .85; display: block; margin-top: 2px; }
+    .age-badge {
+      background: rgba(255,255,255,.25);
+      border: 1px solid rgba(255,255,255,.4);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .age-badge:active { background: rgba(255,255,255,.35); }
+
+    /* ── Age Picker ───────────────────────────────────── */
+    .age-picker {
+      display: none;
+      background: #fff;
+      border-radius: var(--r) var(--r) 0 0;
+      padding: 20px;
+      position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 100%; max-width: 430px;
+      box-shadow: 0 -4px 24px rgba(0,0,0,.15);
+      z-index: 200;
+    }
+    .age-picker.open { display: block; }
+    .age-picker h3 { font-size: 15px; margin-bottom: 14px; color: var(--muted); }
+    .age-options { display: flex; gap: 10px; flex-wrap: wrap; }
+    .age-opt {
+      flex: 1; min-width: 120px;
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 8px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all .15s;
+    }
+    .age-opt.active { border-color: var(--accent); background: #FFF2EC; color: var(--accent); font-weight: 600; }
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 100; }
+    .overlay.open { display: block; }
+
+    /* ── Today strip ──────────────────────────────────── */
+    .today-strip {
+      background: #fff;
+      margin: 0 16px;
+      margin-top: -12px;
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .today-icon { font-size: 28px; }
+    .today-text { flex: 1; }
+    .today-text strong { font-size: 14px; display: block; }
+    .today-text span { font-size: 12px; color: var(--muted); }
+    .today-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 8px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    /* ── Section Title ───────────────────────────────── */
+    .section-title {
+      padding: 20px 20px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: .5px;
+      text-transform: uppercase;
+    }
+
+    /* ── Scenario Grid ───────────────────────────────── */
+    .scenario-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 0 16px 16px;
+    }
+    .scenario-card {
+      background: var(--card);
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      padding: 18px 14px;
+      cursor: pointer;
+      transition: transform .15s, box-shadow .15s;
+      position: relative;
+      overflow: hidden;
+    }
+    .scenario-card:active { transform: scale(.97); }
+    .scenario-card .s-icon { font-size: 32px; margin-bottom: 8px; }
+    .scenario-card .s-name { font-size: 15px; font-weight: 600; }
+    .scenario-card .s-count { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .scenario-card .s-bar {
+      position: absolute; bottom: 0; left: 0; height: 3px;
+      border-radius: 0 0 0 var(--r);
+    }
+    .scenario-card[data-id="bath"]     .s-bar { background: var(--blue);   width: 100%; }
+    .scenario-card[data-id="meal"]     .s-bar { background: var(--green);  width: 100%; }
+    .scenario-card[data-id="bedtime"]  .s-bar { background: var(--purple); width: 100%; }
+    .scenario-card[data-id="emotion"]  .s-bar { background: var(--accent); width: 100%; }
+
+    /* ── Saved quick row ─────────────────────────────── */
+    .saved-row {
+      margin: 0 16px 20px;
+      background: var(--card);
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      padding: 14px 16px;
+    }
+    .saved-row h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+    .saved-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+    .saved-chips::-webkit-scrollbar { display: none; }
+    .saved-chip {
+      flex-shrink: 0;
+      background: var(--warm);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .saved-empty { font-size: 13px; color: var(--muted); }
+
+    /* ── Bottom Nav ──────────────────────────────────── */
+    .bottom-nav {
+      margin-top: auto;
+      background: #fff;
+      border-top: 1px solid var(--border);
+      display: flex;
+      position: sticky;
+      bottom: 0;
+    }
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 14px;
+      cursor: pointer;
+      font-size: 11px;
+      color: var(--muted);
+      gap: 3px;
+      transition: color .15s;
+    }
+    .nav-item .nav-icon { font-size: 22px; }
+    .nav-item.active { color: var(--accent); }
+
+    /* ── Scenario Detail Screen ──────────────────────── */
+    .screen {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      background: var(--cream);
+      position: fixed;
+      inset: 0;
+      max-width: 430px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 50;
+      overflow-y: auto;
+    }
+    .screen.open { display: flex; }
+
+    .screen-header {
+      padding: 16px 16px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .back-btn {
+      background: var(--warm);
+      border: none;
+      border-radius: 10px;
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .screen-header h2 { font-size: 18px; font-weight: 700; flex: 1; }
+    .screen-header .h-icon { font-size: 26px; }
+
+    /* Phrase list */
+    .phrase-list { padding: 12px 16px 100px; display: flex; flex-direction: column; gap: 12px; }
+    .phrase-card {
+      background: var(--card);
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      cursor: pointer;
+      transition: transform .15s;
+    }
+    .phrase-card:active { transform: scale(.98); }
+    .phrase-en { font-size: 17px; font-weight: 600; line-height: 1.4; }
+    .phrase-zh { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .phrase-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+      align-items: center;
+    }
+    .play-btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 8px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .play-btn.playing { background: var(--accent2); }
+    .save-btn, .used-btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .save-btn.saved { border-color: var(--accent); color: var(--accent); background: #FFF2EC; }
+    .used-btn.used  { border-color: var(--green);  color: var(--green);  background: #F0FAF5; }
+
+    /* Tip expandable */
+    .phrase-tip {
+      margin-top: 10px;
+      background: #FFFBF5;
+      border-left: 3px solid var(--accent2);
+      border-radius: 0 8px 8px 0;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: #5A4A35;
+      line-height: 1.6;
+      display: none;
+    }
+    .phrase-tip.open { display: block; }
+    .tip-toggle { font-size: 12px; color: var(--accent2); margin-top: 8px; cursor: pointer; background: none; border: none; padding: 0; }
+
+    /* Audio progress bar */
+    .audio-bar {
+      height: 3px; background: var(--border); border-radius: 3px; margin-top: 10px; display: none;
+    }
+    .audio-fill { height: 100%; background: var(--accent); border-radius: 3px; width: 0%; transition: width .3s linear; }
+
+    /* Age tabs inside screen */
+    .age-tabs {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px 4px;
+      overflow-x: auto;
+    }
+    .age-tabs::-webkit-scrollbar { display: none; }
+    .age-tab {
+      flex-shrink: 0;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .age-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+    /* Saved screen */
+    .saved-screen-list { padding: 12px 16px 100px; display: flex; flex-direction: column; gap: 10px; }
+    .saved-item {
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 14px 16px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .saved-item-text { flex: 1; }
+    .saved-item-en { font-size: 15px; font-weight: 600; }
+    .saved-item-zh { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .saved-item-badge {
+      font-size: 11px;
+      background: var(--warm);
+      border-radius: 8px;
+      padding: 3px 8px;
+      color: var(--accent);
+      margin-top: 6px;
+      display: inline-block;
+    }
+    .unsave-btn {
+      background: none; border: none; font-size: 20px; cursor: pointer; color: var(--accent); padding: 0;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .empty-state .e-icon { font-size: 48px; margin-bottom: 12px; }
+
+    /* Translate screen */
+    .translate-section { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .translate-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    textarea {
+      width: 100%; border: 1px solid var(--border); border-radius: 12px;
+      padding: 14px; font-size: 15px; font-family: inherit;
+      resize: none; background: #fff; color: var(--text);
+      outline: none; transition: border-color .15s;
+    }
+    textarea:focus { border-color: var(--accent); }
+    .translate-btn {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      color: #fff; border: none; border-radius: 12px;
+      padding: 15px; font-size: 16px; font-weight: 600;
+      cursor: pointer; width: 100%;
+    }
+    .translate-result {
+      background: #fff;
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      display: none;
+    }
+    .translate-result.show { display: block; }
+    .result-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .result-en { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 8px; }
+    .result-tip { font-size: 12px; color: #5A4A35; background: #FFFBF5; border-radius: 8px; padding: 8px 10px; margin-top: 8px; line-height: 1.6; }
+    .result-actions { display: flex; gap: 10px; margin-top: 12px; }
+    .result-actions button {
+      flex: 1; border: 1px solid var(--border); background: #fff;
+      border-radius: 10px; padding: 10px; font-size: 13px; cursor: pointer;
+    }
+    .ai-disclaimer { font-size: 11px; color: var(--muted); text-align: center; padding: 0 20px; line-height: 1.5; }
+
+    /* ── Install banner ──────────────────────────────── */
+    .install-banner {
+      display: none;
+      background: linear-gradient(135deg, #FF7A45 0%, #FFB347 100%);
+      color: #fff;
+      padding: 14px 16px;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      position: sticky; top: 0; z-index: 300;
+    }
+    .install-banner.show { display: flex; }
+    .install-banner .ib-text { flex: 1; line-height: 1.5; }
+    .install-banner .ib-text strong { display: block; font-size: 14px; }
+    .install-btn {
+      background: #fff; color: var(--accent);
+      border: none; border-radius: 10px;
+      padding: 8px 14px; font-size: 13px; font-weight: 600;
+      cursor: pointer; white-space: nowrap;
+    }
+    .install-close {
+      background: none; border: none; color: rgba(255,255,255,.7);
+      font-size: 20px; cursor: pointer; padding: 0 4px;
+    }
+
+    /* iOS install sheet */
+    .ios-sheet {
+      display: none; position: fixed; inset: 0; z-index: 400;
+      background: rgba(0,0,0,.5); align-items: flex-end;
+    }
+    .ios-sheet.open { display: flex; }
+    .ios-sheet-inner {
+      background: #fff; border-radius: 20px 20px 0 0;
+      padding: 24px 24px calc(24px + env(safe-area-inset-bottom));
+      width: 100%; max-width: 430px; margin: 0 auto;
+    }
+    .ios-sheet h3 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+    .ios-sheet p { font-size: 14px; color: var(--muted); line-height: 1.7; margin-bottom: 16px; }
+    .ios-step { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .ios-step .step-num {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: var(--accent); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; flex-shrink: 0;
+    }
+    .ios-step .step-text { font-size: 14px; line-height: 1.5; }
+    .ios-close-btn {
+      width: 100%; background: var(--warm); border: none;
+      border-radius: 12px; padding: 14px; font-size: 15px;
+      font-weight: 600; color: var(--accent); cursor: pointer; margin-top: 4px;
+    }
+
+    /* ── Offline toast ───────────────────────────────── */
+    .offline-toast {
+      position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+      background: #2D2D2D; color: #fff;
+      padding: 10px 20px; border-radius: 20px;
+      font-size: 13px; z-index: 500;
+      opacity: 0; pointer-events: none;
+      transition: opacity .3s;
+    }
+    .offline-toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<!-- Install banner (Android) -->
+<div class="install-banner" id="installBanner">
+  <div class="ib-text">
+    <strong>安装到主屏幕</strong>
+    像 App 一样使用，随时打开
+  </div>
+  <button class="install-btn" id="installBtn">安装</button>
+  <button class="install-close" onclick="dismissInstall()">×</button>
+</div>
+
+<!-- iOS install sheet -->
+<div class="ios-sheet" id="iosSheet" onclick="closeIosSheet()">
+  <div class="ios-sheet-inner" onclick="event.stopPropagation()">
+    <h3>📲 安装到主屏幕</h3>
+    <p>把 LittleLingos 安装为 App，下次直接从桌面打开，全屏使用。</p>
+    <div class="ios-step">
+      <div class="step-num">1</div>
+      <div class="step-text">点击底部的 <strong>分享按钮</strong> 「□↑」</div>
+    </div>
+    <div class="ios-step">
+      <div class="step-num">2</div>
+      <div class="step-text">向下滚动，选择 <strong>「添加到主屏幕」</strong></div>
+    </div>
+    <div class="ios-step">
+      <div class="step-num">3</div>
+      <div class="step-text">点击右上角 <strong>「添加」</strong>，完成！</div>
+    </div>
+    <button class="ios-close-btn" onclick="closeIosSheet()">明白了</button>
+  </div>
+</div>
+
+<!-- Offline toast -->
+<div class="offline-toast" id="offlineToast">📴 离线模式 — 已缓存内容可正常使用</div>
+
+<!-- ════════════════════════════════════════════════════
+     HOME SCREEN
+═══════════════════════════════════════════════════════ -->
+<div id="homeScreen" style="display:flex; flex-direction:column; min-height:100vh;">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-top">
+      <div class="logo">
+        LittleLingos
+        <span>亲子英语日常用语</span>
+      </div>
+      <div class="age-badge" onclick="openAgePicker()">
+        宝宝 <span id="ageBadgeLabel">1–2岁</span> ▾
+      </div>
+    </div>
+  </div>
+
+  <!-- Today strip -->
+  <div class="today-strip">
+    <div class="today-icon" id="todayIcon">🛁</div>
+    <div class="today-text">
+      <strong id="todayScenarioName">今日推荐：洗澡时间</strong>
+      <span>3 个短句，2 分钟学完</span>
+    </div>
+    <button class="today-btn" id="todayBtn" onclick="openTodayScenario()">开始 →</button>
+  </div>
+
+  <!-- Scenarios -->
+  <div class="section-title">选择场景</div>
+  <div class="scenario-grid">
+    <div class="scenario-card" data-id="bath" onclick="openScenario('bath')">
+      <div class="s-icon">🛁</div>
+      <div class="s-name">洗澡时间</div>
+      <div class="s-count" id="cnt-bath">12 个短句</div>
+      <div class="s-bar"></div>
+    </div>
+    <div class="scenario-card" data-id="meal" onclick="openScenario('meal')">
+      <div class="s-icon">🍚</div>
+      <div class="s-name">吃饭时间</div>
+      <div class="s-count" id="cnt-meal">14 个短句</div>
+      <div class="s-bar"></div>
+    </div>
+    <div class="scenario-card" data-id="bedtime" onclick="openScenario('bedtime')">
+      <div class="s-icon">🌙</div>
+      <div class="s-name">睡前时间</div>
+      <div class="s-count" id="cnt-bedtime">11 个短句</div>
+      <div class="s-bar"></div>
+    </div>
+    <div class="scenario-card" data-id="emotion" onclick="openScenario('emotion')">
+      <div class="s-icon">🤗</div>
+      <div class="s-name">情绪安慰</div>
+      <div class="s-count" id="cnt-emotion">10 个短句</div>
+      <div class="s-bar"></div>
+    </div>
+  </div>
+
+  <!-- Saved quick row -->
+  <div class="saved-row">
+    <h3>♡ 我收藏的短句</h3>
+    <div id="savedChipsArea">
+      <div class="saved-empty">还没有收藏 — 去场景里探索吧！</div>
+    </div>
+  </div>
+
+  <!-- Bottom nav -->
+  <div class="bottom-nav">
+    <div class="nav-item active" onclick="showTab('home')">
+      <span class="nav-icon">🏠</span>首页
+    </div>
+    <div class="nav-item" onclick="showTab('saved')">
+      <span class="nav-icon">♡</span>收藏
+    </div>
+    <div class="nav-item" onclick="showTab('translate')">
+      <span class="nav-icon">🔤</span>翻译
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     SCENARIO DETAIL SCREEN
+═══════════════════════════════════════════════════════ -->
+<div class="screen" id="scenarioScreen">
+  <div class="screen-header">
+    <button class="back-btn" onclick="closeScenario()">←</button>
+    <div class="h-icon" id="scenarioIcon">🛁</div>
+    <h2 id="scenarioTitle">洗澡时间</h2>
+  </div>
+  <div class="age-tabs" id="ageTabs">
+    <div class="age-tab" data-age="0-1" onclick="switchAge('0-1')">0–1岁</div>
+    <div class="age-tab active" data-age="1-2" onclick="switchAge('1-2')">1–2岁</div>
+    <div class="age-tab" data-age="2-3" onclick="switchAge('2-3')">2–3岁</div>
+    <div class="age-tab" data-age="3-6" onclick="switchAge('3-6')">3–6岁</div>
+  </div>
+  <div class="phrase-list" id="phraseList"></div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     SAVED SCREEN
+═══════════════════════════════════════════════════════ -->
+<div class="screen" id="savedScreen">
+  <div class="screen-header">
+    <button class="back-btn" onclick="showTab('home')">←</button>
+    <h2>♡ 我收藏的</h2>
+  </div>
+  <div class="saved-screen-list" id="savedScreenList"></div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     TRANSLATE SCREEN
+═══════════════════════════════════════════════════════ -->
+<div class="screen" id="translateScreen">
+  <div class="screen-header">
+    <button class="back-btn" onclick="showTab('home')">←</button>
+    <h2>🔤 中文 → 儿童英语</h2>
+  </div>
+  <div class="translate-section">
+    <div>
+      <div class="translate-label">用中文说你想对宝宝说的话</div>
+      <textarea id="zhInput" rows="4" placeholder="例如：宝宝，今天你很棒，不哭了！"></textarea>
+    </div>
+    <div>
+      <div class="translate-label">宝宝年龄</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div class="age-opt active" data-tage="1-2" onclick="selectTranslateAge(this,'1-2')">1–2岁</div>
+        <div class="age-opt" data-tage="2-3" onclick="selectTranslateAge(this,'2-3')">2–3岁</div>
+        <div class="age-opt" data-tage="3-6" onclick="selectTranslateAge(this,'3-6')">3–6岁</div>
+      </div>
+    </div>
+    <button class="translate-btn" onclick="doTranslate()">翻译成儿童英语</button>
+    <div class="translate-result" id="translateResult">
+      <div class="result-label">💡 建议这样对宝宝说：</div>
+      <div class="result-en" id="resultEn"></div>
+      <div class="result-tip" id="resultTip"></div>
+      <div class="result-actions">
+        <button onclick="playResultAudio()">▶ 朗读</button>
+        <button onclick="saveTranslation()">♡ 收藏</button>
+      </div>
+    </div>
+    <div class="ai-disclaimer">⚠ AI 自动生成 — 使用前请先读一读，确认适合宝宝。</div>
+  </div>
+</div>
+
+<!-- Age picker overlay -->
+<div class="overlay" id="overlay" onclick="closeAgePicker()"></div>
+<div class="age-picker" id="agePicker">
+  <h3>宝宝现在多大？</h3>
+  <div class="age-options">
+    <div class="age-opt" data-age="0-1" onclick="selectAge(this,'0-1')">0–1 岁</div>
+    <div class="age-opt active" data-age="1-2" onclick="selectAge(this,'1-2')">1–2 岁</div>
+    <div class="age-opt" data-age="2-3" onclick="selectAge(this,'2-3')">2–3 岁</div>
+    <div class="age-opt" data-age="3-6" onclick="selectAge(this,'3-6')">3–6 岁</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     DATA & LOGIC
+═══════════════════════════════════════════════════════ -->
+<script>
+// ── State ─────────────────────────────────────────────
+let currentAge = "1-2";
+let currentScenario = null;
+let savedPhrases = JSON.parse(localStorage.getItem("ll_saved") || "[]");
+let usedToday    = JSON.parse(localStorage.getItem("ll_used")  || "[]");
+let translateAge = "1-2";
+let currentUtterance = null;
+
+// ── Phrase Data ────────────────────────────────────────
+const scenarios = {
+  bath: {
+    icon: "🛁", name: "洗澡时间",
+    phrases: {
+      "0-1": [
+        { id:"b01", en:"Bath time!", zh:"洗澡时间！", tip:"在你抱起宝宝走向浴室时重复说，建立条件反射。" },
+        { id:"b02", en:"Warm water. Nice and warm.", zh:"温温的水，暖暖的。", tip:"用平静舒缓的语气，让宝宝感受安全感。" },
+        { id:"b03", en:"Kick kick kick!", zh:"踢踢踢！", tip:"轻轻带动宝宝的小脚在水里踢动，边说边做。" },
+        { id:"b04", en:"In you go!", zh:"进去咯！", tip:"放入浴盆时说，声调轻快，配合动作。" },
+        { id:"b05", en:"Look at the bubbles!", zh:"看泡泡！", tip:"手指指向泡沫，吸引宝宝视线，培养注意力。" },
+      ],
+      "1-2": [
+        { id:"b11", en:"Let's splash! Kick kick kick!", zh:"让我们溅水！踢踢踢！", tip:"带动宝宝双脚踢水，重复的节奏帮助宝宝预测和记住词汇。" },
+        { id:"b12", en:"Where's your tummy? There it is!", zh:"肚子在哪里？在这里！", tip:"用游戏方式命名身体部位，这个年龄段效果最好。" },
+        { id:"b13", en:"Scrub scrub scrub! Clean clean clean!", zh:"刷刷刷！干净干净！", tip:"边说边模仿搓洗动作，让宝宝觉得洗澡是游戏。" },
+        { id:"b14", en:"Look at the bubbles! Pop pop!", zh:"看泡泡！啵啵啵！", tip:"手指轻戳泡泡同时说"pop"，音效词对宝宝很吸引。" },
+        { id:"b15", en:"Warm water! Is it warm?", zh:"暖和的水！暖不暖？", tip:"鼓励宝宝感受并回应，哪怕只是点头或笑。" },
+        { id:"b16", en:"All done! Squeaky clean!", zh:"洗好了！干净溜溜！", tip:"洗完时说，配合毛巾包裹的动作，形成仪式感。" },
+      ],
+      "2-3": [
+        { id:"b21", en:"Can you wash your tummy? Where's your tummy?", zh:"你能洗肚肚吗？肚肚在哪？", tip:"鼓励宝宝自己动手，培养自主性。" },
+        { id:"b22", en:"What color is your duck?", zh:"你的小鸭子是什么颜色？", tip:"结合玩具提问，自然地教颜色词汇。" },
+        { id:"b23", en:"Close your eyes! Here comes the shampoo!", zh:"闭上眼睛！洗发水来咯！", tip:"提前预告，减少宝宝对洗头的抵触。" },
+        { id:"b24", en:"Should we do your hair now? Okay!", zh:"要洗头发了好吗？好！", tip:"给宝宝"参与感"，减少抵触情绪。" },
+        { id:"b25", en:"Are you all clean? Let me check... yes! Squeaky clean!", zh:"洗干净了吗？让我检查……是的！干净啦！", tip:"夸张地检查宝宝的手脚，变成游戏。" },
+      ],
+      "3-6": [
+        { id:"b31", en:"Okay, it's bath time! Can you get undressed by yourself?", zh:"好了，洗澡时间！你能自己脱衣服吗？", tip:"给予自主权，培养独立能力。" },
+        { id:"b32", en:"What toys do you want to bring in the bath?", zh:"你想带什么玩具去洗澡？", tip:"让宝宝做决定，提升参与度。" },
+        { id:"b33", en:"Let's count your toes! One, two, three...", zh:"我们数数脚趾！一、二、三……", tip:"洗脚时数数，寓教于乐。" },
+        { id:"b34", en:"Almost done. Can you rinse your hair by yourself?", zh:"快好了。你能自己冲头发吗？", tip:"大孩子喜欢被信任，逐步让他们承担步骤。" },
+        { id:"b35", en:"Great job washing up! You're so responsible!", zh:"洗得真好！你好负责任！", tip:"具体夸奖行为而非笼统夸"聪明"，更有效。" },
+      ],
+    }
+  },
+  meal: {
+    icon: "🍚", name: "吃饭时间",
+    phrases: {
+      "0-1": [
+        { id:"m01", en:"Yummy yummy!", zh:"好好吃！", tip:"用夸张表情和愉快语气说，传递积极情绪。" },
+        { id:"m02", en:"Open wide! Here comes the airplane!", zh:"嘴巴张大！飞机来咯！", tip:"经典喂食游戏，勺子像飞机飞进嘴里。" },
+        { id:"m03", en:"One more bite?", zh:"再吃一口？", tip:"轻柔地询问，不强迫，让宝宝感受饥饱自主。" },
+        { id:"m04", en:"All done? Show me your bowl.", zh:"吃完了？给我看看碗。", tip:"观察宝宝信号，尊重饱腹感。" },
+      ],
+      "1-2": [
+        { id:"m11", en:"Open wide! Here comes the airplane! Vroom!", zh:"嘴巴张大！飞机来咯！呜——", tip:"把勺子当飞机，配合"呜"的音效，让吃饭更有趣。" },
+        { id:"m12", en:"Yummy! Do you want more?", zh:"好吃！还要吗？", tip:"饭后询问，让宝宝练习用手势或词语表达需求。" },
+        { id:"m13", en:"All done? Let's clean your hands.", zh:"吃完了？我们洗手手。", tip:"建立饭后洗手的仪式，自然过渡到下一个活动。" },
+        { id:"m14", en:"Mmm, that's broccoli! Green!", zh:"嗯，这是西兰花！绿色的！", tip:"命名食物和颜色，边吃边学词汇最自然。" },
+        { id:"m15", en:"Big bite! Good job!", zh:"大口吃！好棒！", tip:"在宝宝成功吃一口时立即夸奖，强化正向行为。" },
+      ],
+      "2-3": [
+        { id:"m21", en:"What would you like to eat? Rice or noodles?", zh:"你想吃什么？米饭还是面条？", tip:"给出两个选项，让宝宝练习做选择和表达。" },
+        { id:"m22", en:"That's broccoli! Can you say broccoli?", zh:"这是西兰花！你能说西兰花吗？", tip:"鼓励宝宝模仿说新词，不纠正发音，鼓励尝试。" },
+        { id:"m23", en:"Yummy! Is it delicious?", zh:"好吃！好吃吗？", tip:"引导宝宝描述感受，建立味道词汇。" },
+        { id:"m24", en:"Can you use your spoon?", zh:"你能用勺子吃吗？", tip:"鼓励宝宝自己用工具，哪怕会洒也要鼓励。" },
+        { id:"m25", en:"Almost done! Two more bites!", zh:"快吃完了！再吃两口！", tip:"具体数字让宝宝有目标感，比"再吃一点"更有效。" },
+      ],
+      "3-6": [
+        { id:"m31", en:"What do you want for breakfast today?", zh:"今天早饭想吃什么？", tip:"培养自主性和表达能力。" },
+        { id:"m32", en:"Let's try the carrots! They help you see in the dark!", zh:"试试胡萝卜！它能让你在黑暗里看得更清楚！", tip:"用有趣的理由介绍新食物，减少抵触。" },
+        { id:"m33", en:"How does it taste? Sweet? Sour? Salty?", zh:"味道怎么样？甜？酸？咸？", tip:"引导宝宝描述味道，丰富感知词汇。" },
+        { id:"m34", en:"Can you help set the table?", zh:"你能帮忙摆碗筷吗？", tip:"让大宝宝参与准备，培养责任感。" },
+        { id:"m35", en:"Good eating! You tried something new today!", zh:"吃得真好！你今天尝试了新东西！", tip:"夸具体行为（尝试），比夸结果更有激励效果。" },
+      ],
+    }
+  },
+  bedtime: {
+    icon: "🌙", name: "睡前时间",
+    phrases: {
+      "0-1": [
+        { id:"d01", en:"Time for sleep, little one.", zh:"睡觉时间了，小宝贝。", tip:"用最柔和的语气，建立睡前信号。" },
+        { id:"d02", en:"Shh... it's sleepy time.", zh:"嘘……要睡觉咯。", tip:"音量逐渐放低，帮宝宝过渡到安静状态。" },
+        { id:"d03", en:"Close your eyes. Good night.", zh:"闭上眼睛。晚安。", tip:"可以轻轻盖上宝宝的眼皮，配合动作。" },
+        { id:"d04", en:"I love you. Sweet dreams.", zh:"我爱你。做个好梦。", tip:"每晚重复相同的话，建立安全感和仪式感。" },
+      ],
+      "1-2": [
+        { id:"d11", en:"It's bedtime! Time to say good night.", zh:"睡觉时间！该说晚安了。", tip:"用轻快但不刺激的语气宣布睡前开始，帮宝宝切换状态。" },
+        { id:"d12", en:"Let's brush your little teeth! Up up up, down down down!", zh:"刷刷小牙齿！上上上，下下下！", tip:"边说边做刷牙动作，节奏感让宝宝更配合。" },
+        { id:"d13", en:"Into your cozy bed! Snuggle in!", zh:"钻进暖暖的小床！裹好好！", tip:"帮宝宝盖好被子时说，配合动作增强词汇理解。" },
+        { id:"d14", en:"I love you so much. Good night, sleep tight!", zh:"妈妈/爸爸好爱你。晚安，睡个好觉！", tip:"每晚用同样的话结束，是宝宝安全感的来源。" },
+        { id:"d15", en:"Let's read one book before sleep. Pick one!", zh:"睡前读一本书。挑一本吧！", tip:"让宝宝自己选书，增加参与感和期待感。" },
+      ],
+      "2-3": [
+        { id:"d21", en:"It's almost bedtime. Let's do five more minutes of playtime.", zh:"快要睡觉了。我们再玩五分钟。", tip:"提前预警比突然终止游戏效果更好，减少哭闹。" },
+        { id:"d22", en:"What was your favorite thing today?", zh:"今天你最喜欢什么？", tip:"睡前回顾一天，帮宝宝建立语言表达和情感处理能力。" },
+        { id:"d23", en:"Let's count the stars! One, two, three...", zh:"我们数星星！一、二、三……", tip:"看窗外或天花板上的贴纸，把入睡引导变成游戏。" },
+        { id:"d24", en:"You had such a good day. I'm proud of you.", zh:"你今天真的很棒。我为你骄傲。", tip:"在宝宝入睡前说正向的话，有助于建立自信心。" },
+        { id:"d25", en:"Close your eyes. I'll be right here.", zh:"闭上眼睛。我就在这里。", tip:"给宝宝安全感，减少分离焦虑。" },
+      ],
+      "3-6": [
+        { id:"d31", en:"Okay, it's time to wind down. What do you need before bed?", zh:"好了，该放松一下了。睡前你需要什么？", tip:"大孩子喜欢被尊重，参与自己的睡前流程。" },
+        { id:"d32", en:"Let's talk about the best part of your day.", zh:"我们聊聊今天最棒的事。", tip:"培养语言表达和情感反思，也帮助大人了解孩子。" },
+        { id:"d33", en:"You were so brave today. Remember when you...?", zh:"你今天好勇敢。还记得你……那一次吗？", tip:"具体回忆一个勇敢时刻，强化孩子的自我认知。" },
+        { id:"d34", en:"Lights out! Sleep is how you grow big and strong!", zh:"关灯！睡觉可以让你长高变强壮！", tip:"用孩子关心的结果（长高）解释睡觉的意义。" },
+        { id:"d35", en:"Good night. I love you to the moon and back.", zh:"晚安。妈妈/爸爸爱你爱到月亮又回来。", tip:"经典睡前表达，来自绘本《I Love You to the Moon and Back》。" },
+      ],
+    }
+  },
+  emotion: {
+    icon: "🤗", name: "情绪安慰",
+    phrases: {
+      "0-1": [
+        { id:"e01", en:"I'm here. You're safe.", zh:"我在这里。你很安全。", tip:"紧紧抱住宝宝，平稳声音比内容更重要。" },
+        { id:"e02", en:"It's okay. It's okay.", zh:"没事的。没事的。", tip:"重复能给宝宝节奏感和安全感。" },
+        { id:"e03", en:"Mommy/Daddy is here.", zh:"妈妈/爸爸在呢。", tip:"强调你的存在，是最基本的安慰。" },
+      ],
+      "1-2": [
+        { id:"e11", en:"I know, I know. It's okay.", zh:"我知道，我知道。没事的。", tip:"先用"我知道"认可情绪，不急于解决，宝宝更容易平静。" },
+        { id:"e12", en:"Come here. I've got you.", zh:"过来。我抱着你。", tip:"张开双臂，同时说这句话，让宝宝知道你随时可以接住他。" },
+        { id:"e13", en:"That was scary, wasn't it?", zh:"刚才好吓人，对不对？", tip:"帮宝宝命名情绪，是情绪管理的第一步。" },
+        { id:"e14", en:"Big feelings! Big feelings are okay.", zh:"大情绪！有大情绪是没问题的。", tip:"让宝宝知道情绪本身不是坏事，减少"情绪羞耻"。" },
+        { id:"e15", en:"You're safe. I'm right here.", zh:"你很安全。我就在这里。", tip:"在宝宝受惊或受伤时，先建立安全感，再检查伤口。" },
+      ],
+      "2-3": [
+        { id:"e21", en:"I can see you're feeling upset. That's okay.", zh:"我看到你不高兴了。没关系的。", tip:""我看到"比"你不要哭"更能让宝宝感到被理解。" },
+        { id:"e22", en:"Do you need a hug?", zh:"需要抱抱吗？", tip:"询问比强迫更好，尊重宝宝的身体自主权。" },
+        { id:"e23", en:"What happened? Tell me.", zh:"发生什么了？告诉我。", tip:"引导宝宝用语言描述，是从哭闹过渡到沟通的关键。" },
+        { id:"e24", en:"It's hard, isn't it? I understand.", zh:"这很难，对不对？我理解。", tip:"表达理解，而不是急于给方案，让宝宝感到被接纳。" },
+        { id:"e25", en:"Let's take a deep breath together. In... and out.", zh:"我们一起深呼吸。吸气……呼气。", tip:"呼吸练习对2岁以上有效，父母带头做，宝宝会跟上。" },
+      ],
+      "3-6": [
+        { id:"e31", en:"It looks like you're feeling angry. Is that right?", zh:"你好像很生气。对吗？", tip:"帮大孩子识别和命名具体情绪，比"别哭"有效十倍。" },
+        { id:"e32", en:"It's okay to feel sad. Want to tell me what happened?", zh:"难过是没关系的。想告诉我发生什么事了吗？", tip:"允许情绪存在，再开放地邀请表达。" },
+        { id:"e33", en:"I'm proud of how you handled that.", zh:"你处理那件事的方式让我很骄傲。", tip:"事后肯定孩子的情绪调节行为，比批评更有塑造力。" },
+        { id:"e34", en:"Everyone feels frustrated sometimes. Even me.", zh:"每个人有时都会沮丧。连我也会。", tip:"父母自我袒露，帮孩子正常化自己的情绪。" },
+        { id:"e35", en:"What would make you feel better right now?", zh:"你现在需要什么能好一点？", tip:"教孩子自我觉察和寻求支持，是重要的情绪技能。" },
+      ],
+    }
+  }
+};
+
+// Today recommendation (rotate by day of week)
+const todayScenarios = ["bath","meal","bedtime","emotion","bath","meal","bedtime"];
+const todayId = todayScenarios[new Date().getDay()];
+document.getElementById("todayIcon").textContent = scenarios[todayId].icon;
+document.getElementById("todayScenarioName").textContent = "今日推荐：" + scenarios[todayId].name;
+
+// ── Age picker ─────────────────────────────────────────
+function openAgePicker() {
+  document.getElementById("overlay").classList.add("open");
+  document.getElementById("agePicker").classList.add("open");
+}
+function closeAgePicker() {
+  document.getElementById("overlay").classList.remove("open");
+  document.getElementById("agePicker").classList.remove("open");
+}
+function selectAge(el, age) {
+  document.querySelectorAll(".age-picker .age-opt").forEach(e => e.classList.remove("active"));
+  el.classList.add("active");
+  currentAge = age;
+  const labels = {"0-1":"0–1岁","1-2":"1–2岁","2-3":"2–3岁","3-6":"3–6岁"};
+  document.getElementById("ageBadgeLabel").textContent = labels[age];
+  closeAgePicker();
+  // If scenario is open, re-render
+  if (currentScenario) renderPhrases();
+}
+
+// ── Navigation ─────────────────────────────────────────
+function showTab(tab) {
+  document.getElementById("homeScreen").style.display = "none";
+  document.getElementById("scenarioScreen").classList.remove("open");
+  document.getElementById("savedScreen").classList.remove("open");
+  document.getElementById("translateScreen").classList.remove("open");
+
+  if (tab === "home") {
+    document.getElementById("homeScreen").style.display = "flex";
+    renderSavedChips();
+  } else if (tab === "saved") {
+    document.getElementById("savedScreen").classList.add("open");
+    renderSavedScreen();
+  } else if (tab === "translate") {
+    document.getElementById("translateScreen").classList.add("open");
+  }
+}
+
+// ── Scenario ───────────────────────────────────────────
+function openTodayScenario() { openScenario(todayId); }
+
+function openScenario(id) {
+  currentScenario = id;
+  const s = scenarios[id];
+  document.getElementById("scenarioIcon").textContent = s.icon;
+  document.getElementById("scenarioTitle").textContent = s.name;
+
+  // Set active age tab
+  document.querySelectorAll(".age-tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.age === currentAge);
+  });
+
+  renderPhrases();
+  document.getElementById("scenarioScreen").classList.add("open");
+}
+
+function closeScenario() {
+  document.getElementById("scenarioScreen").classList.remove("open");
+  currentScenario = null;
+}
+
+function switchAge(age) {
+  currentAge = age;
+  document.querySelectorAll(".age-tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.age === age);
+  });
+  renderPhrases();
+}
+
+function renderPhrases() {
+  const list = document.getElementById("phraseList");
+  const phrases = scenarios[currentScenario].phrases[currentAge] || [];
+  list.innerHTML = "";
+  phrases.forEach(p => {
+    const isSaved = savedPhrases.some(s => s.id === p.id);
+    const isUsed  = usedToday.includes(p.id);
+    const card = document.createElement("div");
+    card.className = "phrase-card";
+    card.id = "card-" + p.id;
+    card.innerHTML = `
+      <div class="phrase-en">${p.en}</div>
+      <div class="phrase-zh">${p.zh}</div>
+      <div class="phrase-actions">
+        <button class="play-btn" id="play-${p.id}" onclick="speakPhrase('${p.id}', this)">▶ 朗读</button>
+        <button class="save-btn ${isSaved?'saved':''}" id="save-${p.id}" onclick="toggleSave('${p.id}')">
+          ${isSaved ? '♡ 已收藏' : '♡ 收藏'}
+        </button>
+        <button class="used-btn ${isUsed?'used':''}" id="used-${p.id}" onclick="markUsed('${p.id}')">
+          ${isUsed ? '✓ 用了！' : '今天用了'}
+        </button>
+      </div>
+      <div class="audio-bar" id="bar-${p.id}"><div class="audio-fill" id="fill-${p.id}"></div></div>
+      <button class="tip-toggle" onclick="toggleTip('${p.id}')">💡 使用提示</button>
+      <div class="phrase-tip" id="tip-${p.id}">${p.tip}</div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+// ── Speech ─────────────────────────────────────────────
+// Cached voice — loaded once, reused
+let cachedVoice = null;
+
+function getEnglishVoice() {
+  if (cachedVoice) return cachedVoice;
+  const voices = speechSynthesis.getVoices();
+  cachedVoice = (
+    voices.find(v => (v.name.includes("Samantha") || v.name.includes("Karen") || v.name.includes("Moira")) && v.lang.startsWith("en-")) ||
+    voices.find(v => v.lang.startsWith("en-US")) ||
+    voices.find(v => v.lang.startsWith("en")) ||
+    null
+  );
+  return cachedVoice;
+}
+
+function speakPhrase(id, btn) {
+  if (!window.speechSynthesis) { alert("该浏览器不支持语音合成，请使用 Safari 或 Chrome"); return; }
+  window.speechSynthesis.cancel();
+
+  const phrase = findPhrase(id);
+  if (!phrase) return;
+
+  const say = () => {
+    const utter = new SpeechSynthesisUtterance(phrase.en);
+    utter.lang = "en-US";
+    utter.rate = 0.82;
+    utter.pitch = 1.1;
+    const v = getEnglishVoice();
+    if (v) utter.voice = v;
+
+    btn.classList.add("playing");
+    btn.textContent = "⏸ 播放中";
+
+    const bar  = document.getElementById("bar-"  + id);
+    const fill = document.getElementById("fill-" + id);
+    if (bar) bar.style.display = "block";
+
+    let start = null;
+    const estimatedMs = Math.max(phrase.en.length * 75, 1200);
+
+    function animateFill(ts) {
+      if (!start) start = ts;
+      const pct = Math.min(((ts - start) / estimatedMs) * 100, 95);
+      if (fill) fill.style.width = pct + "%";
+      if (pct < 95) requestAnimationFrame(animateFill);
+    }
+    requestAnimationFrame(animateFill);
+
+    utter.onend = () => {
+      btn.classList.remove("playing");
+      btn.textContent = "▶ 朗读";
+      if (fill) fill.style.width = "100%";
+      setTimeout(() => { if (bar) bar.style.display = "none"; if (fill) fill.style.width = "0%"; }, 500);
+    };
+    utter.onerror = () => {
+      btn.classList.remove("playing");
+      btn.textContent = "▶ 朗读";
+      if (bar) bar.style.display = "none";
+    };
+
+    speechSynthesis.speak(utter);
+  };
+
+  // Voices may not be loaded yet on mobile — wait if needed
+  if (speechSynthesis.getVoices().length > 0) {
+    say();
+  } else {
+    speechSynthesis.onvoiceschanged = () => { cachedVoice = null; say(); };
+  }
+}
+
+// ── Save ───────────────────────────────────────────────
+function toggleSave(id) {
+  const phrase = findPhrase(id);
+  if (!phrase) return;
+  const idx = savedPhrases.findIndex(s => s.id === id);
+  if (idx > -1) {
+    savedPhrases.splice(idx, 1);
+  } else {
+    savedPhrases.push({ ...phrase, scenario: currentScenario, age: currentAge });
+  }
+  localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+  const btn = document.getElementById("save-" + id);
+  if (btn) {
+    const isSaved = savedPhrases.some(s => s.id === id);
+    btn.className = "save-btn" + (isSaved ? " saved" : "");
+    btn.textContent = isSaved ? "♡ 已收藏" : "♡ 收藏";
+  }
+}
+
+function markUsed(id) {
+  if (!usedToday.includes(id)) {
+    usedToday.push(id);
+    localStorage.setItem("ll_used", JSON.stringify(usedToday));
+  }
+  const btn = document.getElementById("used-" + id);
+  if (btn) { btn.className = "used-btn used"; btn.textContent = "✓ 用了！"; }
+}
+
+function toggleTip(id) {
+  const tip = document.getElementById("tip-" + id);
+  if (tip) tip.classList.toggle("open");
+}
+
+// ── Saved screen ───────────────────────────────────────
+function renderSavedChips() {
+  const area = document.getElementById("savedChipsArea");
+  if (!savedPhrases.length) {
+    area.innerHTML = '<div class="saved-empty">还没有收藏 — 去场景里探索吧！</div>';
+    return;
+  }
+  area.innerHTML = '<div class="saved-chips">' +
+    savedPhrases.map(p => `<div class="saved-chip" onclick="openScenario('${p.scenario}')">${scenarios[p.scenario].icon} ${p.en}</div>`).join("") +
+    '</div>';
+}
+
+function renderSavedScreen() {
+  const list = document.getElementById("savedScreenList");
+  if (!savedPhrases.length) {
+    list.innerHTML = `<div class="empty-state"><div class="e-icon">💡</div>去场景里收藏喜欢的短句<br>下次可以快速找到</div>`;
+    return;
+  }
+  list.innerHTML = savedPhrases.map(p => `
+    <div class="saved-item">
+      <div class="saved-item-text">
+        <div class="saved-item-en">${p.en}</div>
+        <div class="saved-item-zh">${p.zh}</div>
+        <span class="saved-item-badge">${scenarios[p.scenario]?.icon} ${scenarios[p.scenario]?.name}</span>
+      </div>
+      <button class="unsave-btn" onclick="removeSaved('${p.id}')">×</button>
+    </div>
+  `).join("");
+}
+
+function removeSaved(id) {
+  savedPhrases = savedPhrases.filter(s => s.id !== id);
+  localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+  renderSavedScreen();
+}
+
+// ── Translate ──────────────────────────────────────────
+const translateResponses = {
+  "1-2": [
+    { pattern: /勇敢|不哭/,   en: "You're so brave! No crying — wow!", tip: "1–2岁宝宝听到"brave"的语气比内容更重要，夸张地竖起大拇指效果更好。" },
+    { pattern: /吃饭|吃东西/, en: "Yummy! Time to eat! Open wide!", tip: "配合张嘴的动作一起说，宝宝更容易模仿。" },
+    { pattern: /睡觉|睡了/,   en: "Sleepy time! Close your eyes.", tip: "音量放低，语速放慢，配合轻摇或抚背。" },
+    { pattern: /爱你/,        en: "I love you SO much! Big hug!", tip: "可以配合夸张的拥抱动作，强化情感连接。" },
+  ],
+  "2-3": [
+    { pattern: /勇敢|不哭/,   en: "You were so brave! I'm proud of you!", tip: "具体说出你骄傲的行为，比泛泛地夸更有效。" },
+    { pattern: /吃饭|吃东西/, en: "Time to eat! What do you want?", tip: "给宝宝选择权，减少吃饭时的抵触。" },
+    { pattern: /睡觉|睡了/,   en: "Bedtime! Let's get cozy.", tip: "用"cozy"（舒适）让睡觉听起来很吸引人。" },
+    { pattern: /爱你/,        en: "I love you to the moon and back!", tip: "经典绘本短句，孩子会很快学会回应你。" },
+  ],
+  "3-6": [
+    { pattern: /勇敢|不哭/,   en: "That took courage! I saw how brave you were.", tip: "大孩子欣赏被认真对待，具体观察比泛夸更有力量。" },
+    { pattern: /吃饭|吃东西/, en: "Dinner time! Can you help set the table?", tip: "给大孩子任务，让吃饭变成参与感的活动。" },
+    { pattern: /睡觉|睡了/,   en: "Time to wind down. What was the best part of your day?", tip: "睡前回顾一天，帮孩子处理情绪和建立语言能力。" },
+    { pattern: /爱你/,        en: "I love you — no matter what, always.", tip: ""No matter what"（无论如何）给孩子无条件的安全感。" },
+  ],
+};
+
+// Default fallback translations
+const defaultTranslations = {
+  "1-2": { en: "You did it! Good job! Mommy/Daddy is here.", tip: "1–2岁宝宝最需要的是简短、积极、有你存在感的话。" },
+  "2-3": { en: "That's great! I'm so happy with you!", tip: "2–3岁宝宝能理解更完整的句子，但仍然喜欢简单直接的夸奖。" },
+  "3-6": { en: "You're doing wonderful. I'm really proud of you!", tip: "大孩子喜欢听具体的肯定，搭配你为什么骄傲效果更好。" },
+};
+
+function selectTranslateAge(el, age) {
+  document.querySelectorAll(".age-opt").forEach(e => e.classList.remove("active"));
+  el.classList.add("active");
+  translateAge = age;
+}
+
+function doTranslate() {
+  const zh = document.getElementById("zhInput").value.trim();
+  if (!zh) { alert("请输入中文内容"); return; }
+
+  const options = translateResponses[translateAge] || [];
+  let result = null;
+  for (const opt of options) {
+    if (opt.pattern.test(zh)) { result = opt; break; }
+  }
+  if (!result) result = defaultTranslations[translateAge];
+
+  document.getElementById("resultEn").textContent = result.en;
+  document.getElementById("resultTip").textContent = "💡 " + result.tip;
+  document.getElementById("translateResult").classList.add("show");
+}
+
+function playResultAudio() {
+  const text = document.getElementById("resultEn").textContent;
+  if (!text || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = "en-US"; utter.rate = 0.85; utter.pitch = 1.1;
+  const voices = speechSynthesis.getVoices();
+  const v = voices.find(v => v.lang.startsWith("en"));
+  if (v) utter.voice = v;
+  speechSynthesis.speak(utter);
+}
+
+function saveTranslation() {
+  const en = document.getElementById("resultEn").textContent;
+  const zh = document.getElementById("zhInput").value.trim();
+  const fakeId = "t_" + Date.now();
+  const alreadySaved = savedPhrases.some(s => s.en === en);
+  if (!alreadySaved) {
+    savedPhrases.push({ id: fakeId, en, zh: zh.slice(0, 30), scenario: "bath", age: translateAge, tip: "" });
+    localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+    alert("已收藏！");
+  } else {
+    alert("已经收藏过了。");
+  }
+}
+
+// ── Util ───────────────────────────────────────────────
+function findPhrase(id) {
+  for (const sid in scenarios) {
+    for (const age in scenarios[sid].phrases) {
+      const found = scenarios[sid].phrases[age].find(p => p.id === id);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+// ── Service Worker ─────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+
+// ── Offline / Online toast ─────────────────────────────
+function showOfflineToast(msg) {
+  const t = document.getElementById('offlineToast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+window.addEventListener('offline', () => showOfflineToast('📴 离线模式 — 已缓存内容可正常使用'));
+window.addEventListener('online',  () => showOfflineToast('✅ 已恢复网络连接'));
+
+// ── Install prompt ─────────────────────────────────────
+let deferredInstallPrompt = null;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                     window.navigator.standalone === true;
+
+if (!isStandalone) {
+  if (isIOS) {
+    // Show iOS install banner after 3s if not already installed
+    setTimeout(() => {
+      if (!localStorage.getItem('ll_ios_install_dismissed')) {
+        document.getElementById('installBanner').classList.add('show');
+        document.getElementById('installBtn').textContent = '查看步骤';
+        document.getElementById('installBtn').onclick = openIosSheet;
+      }
+    }, 3000);
+  } else {
+    // Android / Chrome: listen for beforeinstallprompt
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      if (!localStorage.getItem('ll_install_dismissed')) {
+        setTimeout(() => document.getElementById('installBanner').classList.add('show'), 2000);
+      }
+    });
+    document.getElementById('installBtn').addEventListener('click', async () => {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      if (outcome === 'accepted') document.getElementById('installBanner').classList.remove('show');
+      deferredInstallPrompt = null;
+    });
+  }
+}
+
+function dismissInstall() {
+  document.getElementById('installBanner').classList.remove('show');
+  localStorage.setItem(isIOS ? 'll_ios_install_dismissed' : 'll_install_dismissed', '1');
+}
+function openIosSheet()  { document.getElementById('iosSheet').classList.add('open'); }
+function closeIosSheet() { document.getElementById('iosSheet').classList.remove('open'); }
+
+// ── Warm up voices on load ─────────────────────────────
+if (window.speechSynthesis) {
+  const warmUp = () => { speechSynthesis.getVoices(); };
+  warmUp();
+  speechSynthesis.onvoiceschanged = warmUp;
+}
+
+// ── Init ───────────────────────────────────────────────
+renderSavedChips();
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "LittleLingos · 亲子英语",
+  "short_name": "LittleLingos",
+  "description": "中国家长的亲子英语日常用语工具",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFF8F2",
+  "theme_color": "#FF7A45",
+  "lang": "zh-CN",
+  "categories": ["education", "parenting"],
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

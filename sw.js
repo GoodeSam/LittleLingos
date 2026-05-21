@@ -1,4 +1,4 @@
-const CACHE = 'll-v1';
+const CACHE = 'll-v2';
 const SHELL = [
   './',
   './index.html',
@@ -22,7 +22,6 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Only handle same-origin GET requests
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
@@ -35,6 +34,12 @@ self.addEventListener('fetch', e => {
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return res;
+      }).catch(() => {
+        // Offline fallback: return cached index.html for navigation requests
+        if (e.request.mode === 'navigate') {
+          return caches.match('./index.html');
+        }
+        return Response.error();
       });
       return cached || network;
     })

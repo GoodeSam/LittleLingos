@@ -30,7 +30,12 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# HTML — always revalidate
+# HTML — always revalidate (covers both "/" and "/index.html")
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
 [[headers]]
   for = "/*.html"
   [headers.values]

@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>LittleLingos · 亲子英语小工具</title>
 
   <!-- PWA manifest -->
@@ -225,7 +225,7 @@
     .screen.open { display: flex; }
 
     .screen-header {
-      padding: 16px 16px 14px;
+      padding: calc(16px + env(safe-area-inset-top)) 16px 14px;
       display: flex;
       align-items: center;
       gap: 12px;
@@ -248,7 +248,7 @@
     .screen-header .h-icon { font-size: 26px; }
 
     /* Phrase list */
-    .phrase-list { padding: 12px 16px 100px; display: flex; flex-direction: column; gap: 12px; }
+    .phrase-list { padding: 12px 16px calc(100px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; }
     .phrase-card {
       background: var(--card);
       border-radius: var(--r);
@@ -330,7 +330,7 @@
     .age-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 
     /* Saved screen */
-    .saved-screen-list { padding: 12px 16px 100px; display: flex; flex-direction: column; gap: 10px; }
+    .saved-screen-list { padding: 12px 16px calc(100px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
     .saved-item {
       background: var(--card);
       border-radius: 12px;
@@ -471,7 +471,7 @@
     像 App 一样使用，随时打开
   </div>
   <button class="install-btn" id="installBtn">安装</button>
-  <button class="install-close" onclick="dismissInstall()">×</button>
+  <button class="install-close" aria-label="关闭" onclick="dismissInstall()">×</button>
 </div>
 
 <!-- iOS install sheet -->
@@ -529,25 +529,25 @@
   <!-- Scenarios -->
   <div class="section-title">选择场景</div>
   <div class="scenario-grid">
-    <div class="scenario-card" data-id="bath" onclick="openScenario('bath')">
+    <div class="scenario-card" role="button" tabindex="0" data-id="bath" onclick="openScenario('bath')">
       <div class="s-icon">🛁</div>
       <div class="s-name">洗澡时间</div>
       <div class="s-count" id="cnt-bath">12 个短句</div>
       <div class="s-bar"></div>
     </div>
-    <div class="scenario-card" data-id="meal" onclick="openScenario('meal')">
+    <div class="scenario-card" role="button" tabindex="0" data-id="meal" onclick="openScenario('meal')">
       <div class="s-icon">🍚</div>
       <div class="s-name">吃饭时间</div>
       <div class="s-count" id="cnt-meal">14 个短句</div>
       <div class="s-bar"></div>
     </div>
-    <div class="scenario-card" data-id="bedtime" onclick="openScenario('bedtime')">
+    <div class="scenario-card" role="button" tabindex="0" data-id="bedtime" onclick="openScenario('bedtime')">
       <div class="s-icon">🌙</div>
       <div class="s-name">睡前时间</div>
       <div class="s-count" id="cnt-bedtime">11 个短句</div>
       <div class="s-bar"></div>
     </div>
-    <div class="scenario-card" data-id="emotion" onclick="openScenario('emotion')">
+    <div class="scenario-card" role="button" tabindex="0" data-id="emotion" onclick="openScenario('emotion')">
       <div class="s-icon">🤗</div>
       <div class="s-name">情绪安慰</div>
       <div class="s-count" id="cnt-emotion">10 个短句</div>
@@ -565,13 +565,13 @@
 
   <!-- Bottom nav -->
   <div class="bottom-nav">
-    <div class="nav-item active" onclick="showTab('home')">
+    <div class="nav-item active" role="button" tabindex="0" data-tab="home" onclick="showTab('home')">
       <span class="nav-icon">🏠</span>首页
     </div>
-    <div class="nav-item" onclick="showTab('saved')">
+    <div class="nav-item" role="button" tabindex="0" data-tab="saved" onclick="showTab('saved')">
       <span class="nav-icon">♡</span>收藏
     </div>
-    <div class="nav-item" onclick="showTab('translate')">
+    <div class="nav-item" role="button" tabindex="0" data-tab="translate" onclick="showTab('translate')">
       <span class="nav-icon">🔤</span>翻译
     </div>
   </div>
@@ -660,10 +660,28 @@
 // ── State ─────────────────────────────────────────────
 let currentAge = "1-2";
 let currentScenario = null;
-let savedPhrases = JSON.parse(localStorage.getItem("ll_saved") || "[]");
-let usedToday    = JSON.parse(localStorage.getItem("ll_used")  || "[]");
 let translateAge = "1-2";
 let currentUtterance = null;
+
+function safeParseArray(key) {
+  try { const v = JSON.parse(localStorage.getItem(key)); return Array.isArray(v) ? v : []; }
+  catch { return []; }
+}
+
+function loadUsedToday() {
+  try {
+    const meta = JSON.parse(localStorage.getItem("ll_used_meta") || "{}");
+    if (meta.date === new Date().toDateString() && Array.isArray(meta.ids)) return meta.ids;
+  } catch {}
+  return [];
+}
+
+function saveUsedToday() {
+  localStorage.setItem("ll_used_meta", JSON.stringify({ date: new Date().toDateString(), ids: usedToday }));
+}
+
+let savedPhrases = safeParseArray("ll_saved");
+let usedToday = loadUsedToday();
 
 // ── Phrase Data ────────────────────────────────────────
 const scenarios = {
@@ -840,6 +858,10 @@ function showTab(tab) {
   } else if (tab === "translate") {
     document.getElementById("translateScreen").classList.add("open");
   }
+
+  document.querySelectorAll(".nav-item[data-tab]").forEach(el => {
+    el.classList.toggle("active", el.dataset.tab === tab);
+  });
 }
 
 // ── Scenario ───────────────────────────────────────────
@@ -997,7 +1019,7 @@ function toggleSave(id) {
 function markUsed(id) {
   if (!usedToday.includes(id)) {
     usedToday.push(id);
-    localStorage.setItem("ll_used", JSON.stringify(usedToday));
+    saveUsedToday();
   }
   const btn = document.getElementById("used-" + id);
   if (btn) { btn.className = "used-btn used"; btn.textContent = "✓ 用了！"; }
@@ -1011,31 +1033,73 @@ function toggleTip(id) {
 // ── Saved screen ───────────────────────────────────────
 function renderSavedChips() {
   const area = document.getElementById("savedChipsArea");
+  area.innerHTML = '';
   if (!savedPhrases.length) {
-    area.innerHTML = '<div class="saved-empty">还没有收藏 — 去场景里探索吧！</div>';
+    const empty = document.createElement('div');
+    empty.className = 'saved-empty';
+    empty.textContent = '还没有收藏 — 去场景里探索吧！';
+    area.appendChild(empty);
     return;
   }
-  area.innerHTML = '<div class="saved-chips">' +
-    savedPhrases.map(p => `<div class="saved-chip" onclick="openScenario('${p.scenario}')">${scenarios[p.scenario].icon} ${p.en}</div>`).join("") +
-    '</div>';
+  const row = document.createElement('div');
+  row.className = 'saved-chips';
+  savedPhrases.forEach(p => {
+    const chip = document.createElement('div');
+    chip.className = 'saved-chip';
+    const s = scenarios[p.scenario];
+    chip.textContent = (s ? s.icon + ' ' : '🔤 ') + p.en;
+    if (s) chip.onclick = () => openScenario(p.scenario);
+    row.appendChild(chip);
+  });
+  area.appendChild(row);
 }
 
 function renderSavedScreen() {
   const list = document.getElementById("savedScreenList");
+  list.innerHTML = '';
   if (!savedPhrases.length) {
-    list.innerHTML = `<div class="empty-state"><div class="e-icon">💡</div>去场景里收藏喜欢的短句<br>下次可以快速找到</div>`;
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.innerHTML = '<div class="e-icon">💡</div>';
+    empty.appendChild(document.createTextNode('去场景里收藏喜欢的短句'));
+    empty.appendChild(document.createElement('br'));
+    empty.appendChild(document.createTextNode('下次可以快速找到'));
+    list.appendChild(empty);
     return;
   }
-  list.innerHTML = savedPhrases.map(p => `
-    <div class="saved-item">
-      <div class="saved-item-text">
-        <div class="saved-item-en">${p.en}</div>
-        <div class="saved-item-zh">${p.zh}</div>
-        <span class="saved-item-badge">${scenarios[p.scenario]?.icon} ${scenarios[p.scenario]?.name}</span>
-      </div>
-      <button class="unsave-btn" onclick="removeSaved('${p.id}')">×</button>
-    </div>
-  `).join("");
+  savedPhrases.forEach(p => {
+    const item = document.createElement('div');
+    item.className = 'saved-item';
+
+    const textDiv = document.createElement('div');
+    textDiv.className = 'saved-item-text';
+
+    const enDiv = document.createElement('div');
+    enDiv.className = 'saved-item-en';
+    enDiv.textContent = p.en;
+
+    const zhDiv = document.createElement('div');
+    zhDiv.className = 'saved-item-zh';
+    zhDiv.textContent = p.zh;
+
+    const badge = document.createElement('span');
+    badge.className = 'saved-item-badge';
+    const s = scenarios[p.scenario];
+    badge.textContent = s ? (s.icon + ' ' + s.name) : '🔤 翻译';
+
+    const unsaveBtn = document.createElement('button');
+    unsaveBtn.className = 'unsave-btn';
+    unsaveBtn.textContent = '×';
+    unsaveBtn.setAttribute('aria-label', '取消收藏');
+    unsaveBtn.onclick = () => removeSaved(p.id);
+
+    textDiv.appendChild(enDiv);
+    textDiv.appendChild(zhDiv);
+    textDiv.appendChild(badge);
+    item.appendChild(textDiv);
+    item.appendChild(unsaveBtn);
+    list.appendChild(item);
+  });
 }
 
 function removeSaved(id) {
@@ -1074,7 +1138,7 @@ const defaultTranslations = {
 };
 
 function selectTranslateAge(el, age) {
-  document.querySelectorAll(".age-opt").forEach(e => e.classList.remove("active"));
+  document.querySelectorAll("[data-tage]").forEach(e => e.classList.remove("active"));
   el.classList.add("active");
   translateAge = age;
 }
@@ -1113,7 +1177,7 @@ function saveTranslation() {
   const fakeId = "t_" + Date.now();
   const alreadySaved = savedPhrases.some(s => s.en === en);
   if (!alreadySaved) {
-    savedPhrases.push({ id: fakeId, en, zh: zh.slice(0, 30), scenario: "bath", age: translateAge, tip: "" });
+    savedPhrases.push({ id: fakeId, en, zh: zh.slice(0, 30), scenario: "__translate__", age: translateAge, tip: "" });
     localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
     alert("已收藏！");
   } else {
@@ -1197,6 +1261,14 @@ if (window.speechSynthesis) {
   warmUp();
   speechSynthesis.onvoiceschanged = warmUp;
 }
+
+// ── Keyboard support for role=button divs ──────────────
+document.addEventListener('keydown', e => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.getAttribute('role') === 'button') {
+    e.preventDefault();
+    e.target.click();
+  }
+});
 
 // ── Init ───────────────────────────────────────────────
 renderSavedChips();

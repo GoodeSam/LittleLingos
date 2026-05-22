@@ -215,9 +215,11 @@
       flex: 1;
       background: var(--cream);
       position: fixed;
-      inset: 0;
-      max-width: 430px;
+      top: 0;
+      bottom: 0;
       left: 50%;
+      width: 100vw;
+      max-width: 430px;
       transform: translateX(-50%);
       z-index: 50;
       overflow-y: auto;
@@ -277,6 +279,17 @@
       display: flex; align-items: center; gap: 6px;
     }
     .play-btn.playing { background: var(--accent2); }
+    .play-btn-slow {
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .play-btn-slow.playing { background: #4A8AB0; }
     .save-btn, .used-btn {
       border: 1px solid var(--border);
       background: #fff;
@@ -788,11 +801,15 @@ function renderPhrases() {
     const card = document.createElement("div");
     card.className = "phrase-card";
     card.id = "card-" + p.id;
+    const slowBtn = currentAge === "0-1"
+      ? `<button class="play-btn-slow" id="slow-${p.id}" onclick="speakPhrase('${p.id}', this, 0.6)">🐢 慢速</button>`
+      : "";
     card.innerHTML = `
       <div class="phrase-en">${p.en}</div>
       <div class="phrase-zh">${p.zh}</div>
       <div class="phrase-actions">
         <button class="play-btn" id="play-${p.id}" onclick="speakPhrase('${p.id}', this)">▶ 朗读</button>
+        ${slowBtn}
         <button class="save-btn ${isSaved?'saved':''}" id="save-${p.id}" onclick="toggleSave('${p.id}')">
           ${isSaved ? '♡ 已收藏' : '♡ 收藏'}
         </button>
@@ -824,17 +841,27 @@ function getEnglishVoice() {
   return cachedVoice;
 }
 
-function speakPhrase(id, btn) {
+function speakPhrase(id, btn, rate) {
   if (!window.speechSynthesis) { alert("该浏览器不支持语音合成，请使用 Safari 或 Chrome"); return; }
   window.speechSynthesis.cancel();
+
+  // Reset any previously playing button
+  document.querySelectorAll('.play-btn.playing, .play-btn-slow.playing').forEach(b => {
+    b.classList.remove("playing");
+    b.textContent = b.classList.contains("play-btn-slow") ? "🐢 慢速" : "▶ 朗读";
+  });
 
   const phrase = findPhrase(id);
   if (!phrase) return;
 
+  const spokenRate = rate || 0.82;
+  const isSlow = spokenRate < 0.75;
+  const idleLabel = isSlow ? "🐢 慢速" : "▶ 朗读";
+
   const say = () => {
     const utter = new SpeechSynthesisUtterance(phrase.en);
     utter.lang = "en-US";
-    utter.rate = 0.82;
+    utter.rate = spokenRate;
     utter.pitch = 1.1;
     const v = getEnglishVoice();
     if (v) utter.voice = v;
@@ -847,7 +874,7 @@ function speakPhrase(id, btn) {
     if (bar) bar.style.display = "block";
 
     let start = null;
-    const estimatedMs = Math.max(phrase.en.length * 75, 1200);
+    const estimatedMs = Math.max(phrase.en.length * 75 * (0.82 / spokenRate), 1200);
 
     function animateFill(ts) {
       if (!start) start = ts;
@@ -859,13 +886,13 @@ function speakPhrase(id, btn) {
 
     utter.onend = () => {
       btn.classList.remove("playing");
-      btn.textContent = "▶ 朗读";
+      btn.textContent = idleLabel;
       if (fill) fill.style.width = "100%";
       setTimeout(() => { if (bar) bar.style.display = "none"; if (fill) fill.style.width = "0%"; }, 500);
     };
     utter.onerror = () => {
       btn.classList.remove("playing");
-      btn.textContent = "▶ 朗读";
+      btn.textContent = idleLabel;
       if (bar) bar.style.display = "none";
     };
 

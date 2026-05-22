@@ -826,8 +826,8 @@ function renderPhrases() {
 }
 
 // ── Speech ─────────────────────────────────────────────
-// Cached voice — loaded once, reused
 let cachedVoice = null;
+let currentAudio = null; // active HTMLAudioElement, if any
 
 function getEnglishVoice() {
   if (cachedVoice) return cachedVoice;
@@ -841,69 +841,92 @@ function getEnglishVoice() {
   return cachedVoice;
 }
 
-function speakPhrase(id, btn, rate) {
-  if (!window.speechSynthesis) { alert("该浏览器不支持语音合成，请使用 Safari 或 Chrome"); return; }
+function stopAllAudio() {
   window.speechSynthesis.cancel();
-
-  // Reset any previously playing button
+  if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
   document.querySelectorAll('.play-btn.playing, .play-btn-slow.playing').forEach(b => {
     b.classList.remove("playing");
     b.textContent = b.classList.contains("play-btn-slow") ? "🐢 慢速" : "▶ 朗读";
   });
+  document.querySelectorAll('.audio-bar').forEach(b => b.style.display = "none");
+  document.querySelectorAll('.audio-fill').forEach(f => f.style.width = "0%");
+}
+
+function speakPhrase(id, btn, rate) {
+  stopAllAudio();
 
   const phrase = findPhrase(id);
   if (!phrase) return;
 
-  const spokenRate = rate || 0.82;
+  const spokenRate = rate ?? 0.82;
   const isSlow = spokenRate < 0.75;
   const idleLabel = isSlow ? "🐢 慢速" : "▶ 朗读";
+  const suffix = isSlow ? "slow_wbw" : "normal";
+  const bar  = document.getElementById("bar-"  + id);
+  const fill = document.getElementById("fill-" + id);
 
-  const say = () => {
-    const utter = new SpeechSynthesisUtterance(phrase.en);
-    utter.lang = "en-US";
-    utter.rate = spokenRate;
-    utter.pitch = 1.1;
-    const v = getEnglishVoice();
-    if (v) utter.voice = v;
-
+  function onStart() {
     btn.classList.add("playing");
     btn.textContent = "⏸ 播放中";
-
-    const bar  = document.getElementById("bar-"  + id);
-    const fill = document.getElementById("fill-" + id);
     if (bar) bar.style.display = "block";
+  }
+  function onEnd() {
+    btn.classList.remove("playing");
+    btn.textContent = idleLabel;
+    if (fill) fill.style.width = "100%";
+    setTimeout(() => { if (bar) bar.style.display = "none"; if (fill) fill.style.width = "0%"; }, 500);
+    currentAudio = null;
+  }
 
-    let start = null;
-    const estimatedMs = Math.max(phrase.en.length * 75 * (0.82 / spokenRate), 1200);
+  // ── Try Azure MP3 first ──────────────────────────────
+  const mp3 = new Audio(`./audio/${id}_${suffix}.mp3`);
+  currentAudio = mp3;
 
-    function animateFill(ts) {
-      if (!start) start = ts;
-      const pct = Math.min(((ts - start) / estimatedMs) * 100, 95);
-      if (fill) fill.style.width = pct + "%";
-      if (pct < 95) requestAnimationFrame(animateFill);
-    }
-    requestAnimationFrame(animateFill);
+  mp3.addEventListener("canplaythrough", () => {
+    onStart();
+    mp3.play().catch(() => fallbackTTS());
+  }, { once: true });
 
-    utter.onend = () => {
-      btn.classList.remove("playing");
-      btn.textContent = idleLabel;
-      if (fill) fill.style.width = "100%";
-      setTimeout(() => { if (bar) bar.style.display = "none"; if (fill) fill.style.width = "0%"; }, 500);
+  mp3.addEventListener("timeupdate", () => {
+    if (mp3.duration && fill) fill.style.width = (mp3.currentTime / mp3.duration * 100) + "%";
+  });
+
+  mp3.addEventListener("ended", onEnd, { once: true });
+
+  mp3.addEventListener("error", () => {
+    currentAudio = null;
+    fallbackTTS();
+  }, { once: true });
+
+  mp3.load();
+
+  // ── Browser TTS fallback ─────────────────────────────
+  function fallbackTTS() {
+    if (!window.speechSynthesis) return;
+    const spokenRate = rate ?? 0.82;
+    const say = () => {
+      const utter = new SpeechSynthesisUtterance(phrase.en);
+      utter.lang = "en-US";
+      utter.rate = spokenRate;
+      utter.pitch = 1.1;
+      const v = getEnglishVoice();
+      if (v) utter.voice = v;
+
+      onStart();
+      let start = null;
+      const estimatedMs = Math.max(phrase.en.length * 75 * (0.82 / spokenRate), 1200);
+      function animateFill(ts) {
+        if (!start) start = ts;
+        const pct = Math.min(((ts - start) / estimatedMs) * 100, 95);
+        if (fill) fill.style.width = pct + "%";
+        if (pct < 95) requestAnimationFrame(animateFill);
+      }
+      requestAnimationFrame(animateFill);
+      utter.onend  = onEnd;
+      utter.onerror = () => { btn.classList.remove("playing"); btn.textContent = idleLabel; if (bar) bar.style.display = "none"; };
+      speechSynthesis.speak(utter);
     };
-    utter.onerror = () => {
-      btn.classList.remove("playing");
-      btn.textContent = idleLabel;
-      if (bar) bar.style.display = "none";
-    };
-
-    speechSynthesis.speak(utter);
-  };
-
-  // Voices may not be loaded yet on mobile — wait if needed
-  if (speechSynthesis.getVoices().length > 0) {
-    say();
-  } else {
-    speechSynthesis.onvoiceschanged = () => { cachedVoice = null; say(); };
+    speechSynthesis.getVoices().length > 0 ? say() : (speechSynthesis.onvoiceschanged = () => { cachedVoice = null; say(); });
   }
 }
 

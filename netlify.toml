@@ -30,6 +30,12 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+# Audio files — long-lived cache (filename includes phrase ID, never changes)
+[[headers]]
+  for = "/audio/*.mp3"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
 # HTML — always revalidate (covers both "/" and "/index.html")
 [[headers]]
   for = "/"

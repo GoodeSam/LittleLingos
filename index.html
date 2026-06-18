@@ -411,6 +411,59 @@
     }
     .ai-disclaimer { font-size: 11px; color: var(--muted); text-align: center; padding: 0 20px; line-height: 1.5; }
 
+    /* ── Tier filter tabs ────────────────────────────── */
+    .tier-tabs { display: flex; gap: 8px; padding: 8px 16px 4px; overflow-x: auto; }
+    .tier-tabs::-webkit-scrollbar { display: none; }
+    .tier-tab {
+      flex-shrink: 0; background: #fff; border: 1px solid var(--border);
+      border-radius: 20px; padding: 5px 13px; font-size: 12px; cursor: pointer; transition: all .15s;
+    }
+    .tier-tab.active { border-color: var(--text); background: var(--text); color: #fff; font-weight: 600; }
+    .tier-tab[data-tier="starter"].active { background: var(--green); border-color: var(--green); }
+    .tier-tab[data-tier="basic"].active   { background: var(--blue);  border-color: var(--blue); }
+    .tier-tab[data-tier="expressive"].active { background: var(--purple); border-color: var(--purple); }
+
+    /* ── Coaching chips ──────────────────────────────── */
+    .coaching-chips { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+    .coaching-chip {
+      font-size: 11px; border-radius: 8px; padding: 5px 10px;
+      cursor: pointer; border: 1px solid; background: #fff; transition: all .15s; user-select: none;
+    }
+    .coaching-chip.why  { color: #2E7D32; border-color: #C8E6C9; }
+    .coaching-chip.why.open  { background: #E8F5E9; }
+    .coaching-chip.next { color: #1565C0; border-color: #BBDEFB; }
+    .coaching-chip.next.open { background: #E3F2FD; }
+    .coaching-chip.fb   { color: #6A1B9A; border-color: #E1BEE7; }
+    .coaching-chip.fb.open   { background: #F3E5F5; }
+    .coaching-panel {
+      display: none; font-size: 12px; line-height: 1.65; margin-top: 6px;
+      padding: 8px 12px; border-radius: 8px; color: var(--text);
+    }
+    .coaching-panel.why-panel  { background: #E8F5E9; }
+    .coaching-panel.next-panel { background: #E3F2FD; }
+    .coaching-panel.fb-panel   { background: #F3E5F5; }
+    .coaching-panel.open { display: block; }
+
+    /* ── Scenario mastery badge ──────────────────────── */
+    .s-used { font-size: 11px; color: var(--green); margin-top: 4px; font-weight: 600; }
+
+    /* ── Today progress bar ──────────────────────────── */
+    .today-progress {
+      display: none; margin: 0 16px 12px; padding: 12px 14px;
+      background: #fff; border-radius: var(--r); box-shadow: var(--shadow);
+    }
+    .today-progress.show { display: block; }
+    .today-progress-label {
+      font-size: 11px; color: var(--muted); margin-bottom: 8px;
+      font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+    }
+    .today-progress-icons { display: flex; gap: 8px; flex-wrap: wrap; }
+    .today-badge {
+      display: flex; align-items: center; gap: 4px;
+      background: var(--warm); border-radius: 20px; padding: 4px 10px; font-size: 12px;
+    }
+    .today-badge-count { color: var(--green); font-weight: 700; }
+
     /* ── Install banner ──────────────────────────────── */
     .install-banner {
       display: none;
@@ -539,6 +592,12 @@
     <button class="today-btn" id="todayBtn" onclick="openTodayScenario()">开始 →</button>
   </div>
 
+  <!-- Today progress (shown when any phrase used) -->
+  <div class="today-progress" id="todayProgress">
+    <div class="today-progress-label">今天已用</div>
+    <div class="today-progress-icons" id="todayProgressIcons"></div>
+  </div>
+
   <!-- Scenarios — rendered by renderScenarioGrid() -->
   <div class="section-title">选择场景</div>
   <div class="scenario-grid" id="scenarioGrid"></div>
@@ -579,6 +638,12 @@
     <div class="age-tab active" data-age="1-2" onclick="switchAge('1-2')">1–2岁</div>
     <div class="age-tab" data-age="2-3" onclick="switchAge('2-3')">2–3岁</div>
     <div class="age-tab" data-age="3-6" onclick="switchAge('3-6')">3–6岁</div>
+  </div>
+  <div class="tier-tabs" id="tierTabs">
+    <div class="tier-tab active" data-tier="all"        onclick="filterTier('all')">全部</div>
+    <div class="tier-tab"        data-tier="starter"    onclick="filterTier('starter')">🌱 入门句</div>
+    <div class="tier-tab"        data-tier="basic"      onclick="filterTier('basic')">🌿 基础句</div>
+    <div class="tier-tab"        data-tier="expressive" onclick="filterTier('expressive')">🌳 进阶句</div>
   </div>
   <div class="phrase-list" id="phraseList"></div>
 </div>
@@ -651,6 +716,7 @@ let currentAge = "1-2";
 let currentScenario = null;
 let translateAge = "1-2";
 let currentUtterance = null;
+let currentTier = "all";
 
 function safeParseArray(key) {
   try { const v = JSON.parse(localStorage.getItem(key)); return Array.isArray(v) ? v : []; }
@@ -678,13 +744,32 @@ let usedToday = loadUsedToday();
 // ── Today (day-since-epoch rotation across all 30) ──────
 const todayId = scenarioOrder[Math.floor(Date.now() / 86400000) % scenarioOrder.length];
 
+// ── Tier helpers ───────────────────────────────────────
+function getPhraseTier(p, index, total) {
+  if (p.tier) return p.tier;
+  const ratio = total <= 1 ? 0 : index / (total - 1);
+  if (ratio < 0.4)  return "starter";
+  if (ratio < 0.75) return "basic";
+  return "expressive";
+}
+
+function filterTier(tier) {
+  currentTier = tier;
+  document.querySelectorAll(".tier-tab").forEach(t =>
+    t.classList.toggle("active", t.dataset.tier === tier)
+  );
+  renderPhrases();
+}
+
 // ── Scenario Grid ──────────────────────────────────────
 function renderScenarioGrid() {
   const grid = document.getElementById("scenarioGrid");
   grid.innerHTML = "";
   scenarioOrder.forEach(id => {
     const s = scenarios[id];
-    const count = (s.phrases[currentAge] || []).length;
+    const agePhrases = s.phrases[currentAge] || [];
+    const count = agePhrases.length;
+    const usedCount = usedToday.filter(uid => agePhrases.some(p => p.id === uid)).length;
     const card = document.createElement("div");
     card.className = "scenario-card";
     card.setAttribute("role", "button");
@@ -698,7 +783,39 @@ function renderScenarioGrid() {
     const bar  = document.createElement("div"); bar.className  = "s-bar";
     bar.style.background = s.color;
     card.append(icon, name, cnt, bar);
+    if (usedCount > 0) {
+      const used = document.createElement("div"); used.className = "s-used";
+      used.textContent = "✓ 今天说了 " + usedCount + " 句";
+      card.append(used);
+    }
     grid.appendChild(card);
+  });
+}
+
+// ── Today progress ─────────────────────────────────────
+function renderTodayProgress() {
+  const section = document.getElementById("todayProgress");
+  const icons = document.getElementById("todayProgressIcons");
+  if (!usedToday.length) { section.classList.remove("show"); return; }
+
+  const usedMap = new Map();
+  usedToday.forEach(uid => {
+    for (const [sid, s] of Object.entries(scenarios)) {
+      if (Object.values(s.phrases).flat().some(p => p.id === uid)) {
+        usedMap.set(sid, (usedMap.get(sid) || 0) + 1);
+        break;
+      }
+    }
+  });
+
+  if (!usedMap.size) { section.classList.remove("show"); return; }
+  section.classList.add("show");
+  icons.innerHTML = "";
+  usedMap.forEach((count, sid) => {
+    const s = scenarios[sid];
+    const b = document.createElement("div"); b.className = "today-badge";
+    b.innerHTML = s.icon + " " + s.name + " <span class='today-badge-count'>" + count + "句</span>";
+    icons.appendChild(b);
   });
 }
 
@@ -752,6 +869,7 @@ function showTab(tab) {
   if (tab === "home") {
     document.getElementById("homeScreen").style.display = "flex";
     renderSavedChips();
+    renderTodayProgress();
   } else if (tab === "saved") {
     document.getElementById("savedScreen").classList.add("open");
     renderSavedScreen();
@@ -769,14 +887,17 @@ function openTodayScenario() { openScenario(todayId); }
 
 function openScenario(id) {
   currentScenario = id;
+  currentTier = "all";
   const s = scenarios[id];
   document.getElementById("scenarioIcon").textContent = s.icon;
   document.getElementById("scenarioTitle").textContent = s.name;
 
-  // Set active age tab
-  document.querySelectorAll(".age-tab").forEach(t => {
-    t.classList.toggle("active", t.dataset.age === currentAge);
-  });
+  document.querySelectorAll(".age-tab").forEach(t =>
+    t.classList.toggle("active", t.dataset.age === currentAge)
+  );
+  document.querySelectorAll(".tier-tab").forEach(t =>
+    t.classList.toggle("active", t.dataset.tier === "all")
+  );
 
   renderPhrases();
   document.getElementById("scenarioScreen").classList.add("open");
@@ -793,17 +914,44 @@ function switchAge(age) {
 
 function renderPhrases() {
   const list = document.getElementById("phraseList");
-  const phrases = scenarios[currentScenario].phrases[currentAge] || [];
+  const allPhrases = scenarios[currentScenario].phrases[currentAge] || [];
+  const phrases = currentTier === "all"
+    ? allPhrases
+    : allPhrases.filter((p, i) => getPhraseTier(p, i, allPhrases.length) === currentTier);
+
   list.innerHTML = "";
+
+  if (!phrases.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.innerHTML = "<div class='e-icon'>🔍</div>这个年龄段暂无" +
+      (currentTier === "starter" ? "入门句" : currentTier === "basic" ? "基础句" : "进阶句");
+    list.appendChild(empty);
+    return;
+  }
+
   phrases.forEach(p => {
     const isSaved = savedPhrases.some(s => s.id === p.id);
     const isUsed  = usedToday.includes(p.id);
+    const hasCoaching = p.why && p.next && p.fallback;
     const card = document.createElement("div");
     card.className = "phrase-card";
     card.id = "card-" + p.id;
     const slowBtn = currentAge === "0-1"
       ? `<button class="play-btn-slow" id="slow-${p.id}" onclick="speakPhrase('${p.id}', this, 0.6)">🐢 慢速</button>`
       : "";
+    const coachingHtml = hasCoaching
+      ? `<div class="coaching-chips">
+           <button class="coaching-chip why"  onclick="toggleCoach('${p.id}','why')">💡 为什么有效</button>
+           <button class="coaching-chip next" onclick="toggleCoach('${p.id}','next')">💬 接下来说什么</button>
+           <button class="coaching-chip fb"   onclick="toggleCoach('${p.id}','fb')">🔄 没反应时</button>
+         </div>
+         <div class="coaching-panel why-panel"  id="coach-why-${p.id}"></div>
+         <div class="coaching-panel next-panel" id="coach-next-${p.id}"></div>
+         <div class="coaching-panel fb-panel"   id="coach-fb-${p.id}"></div>`
+      : `<button class="tip-toggle" onclick="toggleTip('${p.id}')">💡 使用提示</button>
+         <div class="phrase-tip" id="tip-${p.id}"></div>`;
+
     card.innerHTML = `
       <div class="phrase-en">${p.en}</div>
       <div class="phrase-zh">${p.zh}</div>
@@ -818,11 +966,42 @@ function renderPhrases() {
         </button>
       </div>
       <div class="audio-bar" id="bar-${p.id}"><div class="audio-fill" id="fill-${p.id}"></div></div>
-      <button class="tip-toggle" onclick="toggleTip('${p.id}')">💡 使用提示</button>
-      <div class="phrase-tip" id="tip-${p.id}">${p.tip}</div>
+      ${coachingHtml}
     `;
+
+    // Set text content safely after inserting structure
+    if (hasCoaching) {
+      document.getElementById("coach-why-"  + p.id).textContent = p.why;
+      document.getElementById("coach-next-" + p.id).textContent = p.next;
+      document.getElementById("coach-fb-"   + p.id).textContent = p.fallback;
+    } else {
+      const tipEl = document.getElementById("tip-" + p.id);
+      if (tipEl) tipEl.textContent = p.tip || "";
+    }
+
     list.appendChild(card);
   });
+}
+
+// ── Coaching chip toggle ───────────────────────────────
+function toggleCoach(id, type) {
+  const panel = document.getElementById("coach-" + type + "-" + id);
+  const chip  = panel && panel.previousElementSibling &&
+                panel.closest(".phrase-card").querySelector(".coaching-chip." + type);
+  if (!panel) return;
+
+  // Find the right chip button
+  const chipBtn = document.querySelector(`#card-${id} .coaching-chip.${type}`);
+
+  const wasOpen = panel.classList.contains("open");
+  // Close all panels in this card
+  document.querySelectorAll("#card-" + id + " .coaching-panel").forEach(p => p.classList.remove("open"));
+  document.querySelectorAll("#card-" + id + " .coaching-chip").forEach(c => c.classList.remove("open"));
+
+  if (!wasOpen) {
+    panel.classList.add("open");
+    if (chipBtn) chipBtn.classList.add("open");
+  }
 }
 
 // ── Speech ─────────────────────────────────────────────
@@ -953,6 +1132,8 @@ function markUsed(id) {
   if (!usedToday.includes(id)) {
     usedToday.push(id);
     saveUsedToday();
+    renderScenarioGrid();
+    renderTodayProgress();
   }
   const btn = document.getElementById("used-" + id);
   if (btn) { btn.className = "used-btn used"; btn.textContent = "✓ 用了！"; }
@@ -1215,6 +1396,7 @@ document.addEventListener('keydown', e => {
 renderScenarioGrid();
 renderTodayStrip();
 renderSavedChips();
+renderTodayProgress();
 </script>
 </body>
 </html>

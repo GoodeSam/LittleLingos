@@ -527,6 +527,104 @@
       transition: opacity .3s;
     }
     .offline-toast.show { opacity: 1; }
+
+    /* ── Search (want-to-say) ────────────────────────── */
+    .search-wrap { padding: 12px 16px 0; }
+    .search-input {
+      width: 100%; border: 1.5px solid var(--border); border-radius: 14px;
+      background: var(--card); padding: 12px 14px; font-size: 15px;
+      font-family: inherit; color: var(--text); outline: none;
+      box-shadow: var(--shadow);
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .search-results { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+    #homeScreen.searching .hide-on-search { display: none !important; }
+    .search-result {
+      background: var(--card); border-radius: var(--r); padding: 12px 14px;
+      box-shadow: var(--shadow); cursor: pointer;
+    }
+    .search-result .sr-en { font-size: 15px; font-weight: 700; line-height: 1.35; }
+    .search-result .sr-meta { font-size: 13px; color: var(--muted); margin-top: 3px; }
+    .search-result .sr-badge {
+      display: inline-block; margin-top: 6px; font-size: 11px;
+      background: var(--warm); color: #8A6A45; border-radius: 8px; padding: 2px 8px;
+    }
+    .search-empty { text-align: center; color: var(--muted); font-size: 13px; padding: 14px 0 4px; }
+    .search-ai-btn {
+      border: none; border-radius: 14px; padding: 13px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      color: #fff; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
+    }
+
+    /* Jump-to-phrase highlight */
+    @keyframes flashCard {
+      0%, 55% { box-shadow: 0 0 0 3px var(--accent); }
+      100%    { box-shadow: var(--shadow); }
+    }
+    .phrase-card.flash { animation: flashCard 2.2s ease-out; }
+
+    /* ── Review strip (home) ─────────────────────────── */
+    .review-strip {
+      display: none; align-items: center; gap: 8px;
+      margin: 12px 16px 0; padding: 12px 14px;
+      background: var(--card); border-left: 4px solid var(--teal);
+      border-radius: var(--r); box-shadow: var(--shadow);
+      font-size: 14px; font-weight: 600; cursor: pointer;
+    }
+    .review-strip.show { display: flex; }
+
+    /* ── Review card (saved screen) ──────────────────── */
+    .review-area { padding: 12px 16px 0; }
+    .review-card {
+      background: var(--card); border-radius: var(--r); padding: 16px;
+      box-shadow: var(--shadow); border-top: 4px solid var(--teal);
+    }
+    .review-head {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 13px; color: var(--muted); margin-bottom: 12px;
+    }
+    .review-zh { font-size: 18px; font-weight: 700; line-height: 1.5; }
+    .review-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .review-answer { display: none; margin-top: 12px; }
+    .review-answer.open { display: block; }
+    .review-en { font-size: 17px; font-weight: 700; color: var(--accent); line-height: 1.4; }
+    .review-tip {
+      font-size: 12px; color: #5A4A35; background: #FFFBF5;
+      border-radius: 8px; padding: 8px 10px; margin-top: 8px; line-height: 1.6;
+    }
+    .review-actions { display: flex; gap: 10px; margin-top: 14px; }
+    .review-actions button {
+      flex: 1; border: none; border-radius: 12px; padding: 12px;
+      font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
+    }
+    .review-btn-reveal {
+      display: block; width: 100%; margin-top: 12px;
+      border: none; border-radius: 12px; padding: 12px;
+      font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
+      background: var(--warm); color: var(--accent);
+    }
+    .review-btn-again  { background: var(--warm); color: #8A6A45; }
+    .review-btn-good   { background: var(--green); color: #fff; }
+    .review-btn-play   { background: var(--blue); color: #fff; flex: 0 0 auto; padding: 12px 16px !important; }
+    .review-done {
+      text-align: center; color: var(--muted); font-size: 13px;
+      padding: 12px; background: var(--card); border-radius: var(--r); box-shadow: var(--shadow);
+    }
+    .saved-item-tip { font-size: 12px; color: #5A4A35; margin-top: 4px; line-height: 1.5; }
+
+    /* ── Nav badge (due review count) ────────────────── */
+    .nav-item { position: relative; }
+    .nav-badge {
+      display: none; position: absolute; top: 4px; right: 50%; margin-right: -22px;
+      min-width: 16px; height: 16px; padding: 0 4px;
+      background: #E85D4A; color: #fff; border-radius: 8px;
+      font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+    }
+    .nav-badge.show { display: block; }
+
+    /* ── Preset matches (translate screen) ───────────── */
+    .preset-matches { display: flex; flex-direction: column; gap: 8px; }
+    .preset-matches-label { font-size: 13px; font-weight: 600; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -583,8 +681,19 @@
     </div>
   </div>
 
+  <!-- Search: type what you want to say → jump to preset phrases -->
+  <div class="search-wrap">
+    <input id="searchInput" class="search-input" type="search" autocomplete="off"
+           placeholder="🔍 想对宝宝说什么？如：睡觉、吃饭、勇敢"
+           oninput="onSearchInput()" />
+    <div class="search-results" id="searchResults"></div>
+  </div>
+
+  <!-- Review reminder -->
+  <div class="review-strip hide-on-search" id="reviewStrip" role="button" tabindex="0" onclick="showTab('saved')"></div>
+
   <!-- Today strip -->
-  <div class="today-strip">
+  <div class="today-strip hide-on-search">
     <div class="today-icon" id="todayIcon">🛁</div>
     <div class="today-text">
       <strong id="todayScenarioName">今日推荐：洗澡时间</strong>
@@ -594,17 +703,17 @@
   </div>
 
   <!-- Today progress (shown when any phrase used) -->
-  <div class="today-progress" id="todayProgress">
+  <div class="today-progress hide-on-search" id="todayProgress">
     <div class="today-progress-label">今天已用</div>
     <div class="today-progress-icons" id="todayProgressIcons"></div>
   </div>
 
   <!-- Scenarios — rendered by renderScenarioGrid() -->
-  <div class="section-title">选择场景</div>
-  <div class="scenario-grid" id="scenarioGrid"></div>
+  <div class="section-title hide-on-search">选择场景</div>
+  <div class="scenario-grid hide-on-search" id="scenarioGrid"></div>
 
   <!-- Saved quick row -->
-  <div class="saved-row">
+  <div class="saved-row hide-on-search">
     <h3>♡ 我收藏的短句</h3>
     <div id="savedChipsArea">
       <div class="saved-empty">还没有收藏 — 去场景里探索吧！</div>
@@ -617,7 +726,7 @@
       <span class="nav-icon">🏠</span>首页
     </div>
     <div class="nav-item" role="button" tabindex="0" data-tab="saved" onclick="showTab('saved')">
-      <span class="nav-icon">♡</span>收藏
+      <span class="nav-icon">♡</span>收藏<span class="nav-badge" id="navBadge"></span>
     </div>
     <div class="nav-item" role="button" tabindex="0" data-tab="translate" onclick="showTab('translate')">
       <span class="nav-icon">🔤</span>翻译
@@ -655,8 +764,9 @@
 <div class="screen" id="savedScreen">
   <div class="screen-header">
     <button class="back-btn" onclick="showTab('home')">←</button>
-    <h2>♡ 我收藏的</h2>
+    <h2>♡ 收藏 · 复习</h2>
   </div>
+  <div class="review-area" id="reviewArea"></div>
   <div class="saved-screen-list" id="savedScreenList"></div>
 </div>
 
@@ -693,6 +803,7 @@
       </div>
     </div>
     <div class="ai-disclaimer" id="aiDisclaimer">⚠ AI 即时生成，未经人工审核 — 使用前请先读一读，确认适合宝宝。</div>
+    <div class="preset-matches" id="presetMatches"></div>
   </div>
 </div>
 
@@ -739,6 +850,19 @@ function saveUsedToday() {
 
 let savedPhrases = safeParseArray("ll_saved");
 let usedToday = loadUsedToday();
+
+// Spaced-repetition intervals (days). rv.s = successful review count;
+// rv.due = next review timestamp. Entries saved before the review feature
+// get default fields so they enter the queue immediately.
+const REVIEW_INTERVALS = [1, 3, 7, 14, 30];
+(function migrateSaved() {
+  let changed = false;
+  savedPhrases.forEach(p => {
+    if (!p.rv) { p.rv = { s: 0, due: Date.now() }; changed = true; }
+    if (!p.savedAt) { p.savedAt = Date.now(); changed = true; }
+  });
+  if (changed) localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+})();
 
 // ── Phrase Data — loaded from scenarios.js ─────────────
 // window.scenarios and window.scenarioOrder are set by scenarios.js
@@ -872,9 +996,11 @@ function showTab(tab) {
     document.getElementById("homeScreen").style.display = "flex";
     renderSavedChips();
     renderTodayProgress();
+    renderReviewStrip();
   } else if (tab === "saved") {
     document.getElementById("savedScreen").classList.add("open");
     renderSavedScreen();
+    renderReviewArea();
   } else if (tab === "translate") {
     document.getElementById("translateScreen").classList.add("open");
   }
@@ -1023,7 +1149,7 @@ function getEnglishVoice() {
 }
 
 function stopAllAudio() {
-  window.speechSynthesis.cancel();
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
   if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
   document.querySelectorAll('.play-btn.playing, .play-btn-slow.playing').forEach(b => {
     b.classList.remove("playing");
@@ -1119,7 +1245,8 @@ function toggleSave(id) {
   if (idx > -1) {
     savedPhrases.splice(idx, 1);
   } else {
-    savedPhrases.push({ ...phrase, scenario: currentScenario, age: currentAge });
+    savedPhrases.push({ ...phrase, scenario: currentScenario, age: currentAge,
+                        savedAt: Date.now(), rv: { s: 0, due: Date.now() } });
   }
   localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
   const btn = document.getElementById("save-" + id);
@@ -1128,6 +1255,7 @@ function toggleSave(id) {
     btn.className = "save-btn" + (isSaved ? " saved" : "");
     btn.textContent = isSaved ? "♡ 已收藏" : "♡ 收藏";
   }
+  updateNavBadge();
 }
 
 function markUsed(id) {
@@ -1198,6 +1326,13 @@ function renderSavedScreen() {
     zhDiv.className = 'saved-item-zh';
     zhDiv.textContent = p.zh;
 
+    let tipDiv = null;
+    if (p.tip) {
+      tipDiv = document.createElement('div');
+      tipDiv.className = 'saved-item-tip';
+      tipDiv.textContent = '💡 ' + p.tip;
+    }
+
     const badge = document.createElement('span');
     badge.className = 'saved-item-badge';
     const s = scenarios[p.scenario];
@@ -1211,6 +1346,7 @@ function renderSavedScreen() {
 
     textDiv.appendChild(enDiv);
     textDiv.appendChild(zhDiv);
+    if (tipDiv) textDiv.appendChild(tipDiv);
     textDiv.appendChild(badge);
     item.appendChild(textDiv);
     item.appendChild(unsaveBtn);
@@ -1222,6 +1358,146 @@ function removeSaved(id) {
   savedPhrases = savedPhrases.filter(s => s.id !== id);
   localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
   renderSavedScreen();
+  renderReviewArea();
+}
+
+// ── Review queue (spaced repetition) ───────────────────
+let reviewQueue = [];
+
+function dueReviews() {
+  const now = Date.now();
+  return savedPhrases.filter(p => p.rv && p.rv.due <= now);
+}
+
+function updateNavBadge() {
+  const badge = document.getElementById("navBadge");
+  const n = dueReviews().length;
+  badge.textContent = n > 99 ? "99+" : String(n);
+  badge.classList.toggle("show", n > 0);
+}
+
+function renderReviewStrip() {
+  const strip = document.getElementById("reviewStrip");
+  const n = dueReviews().length;
+  strip.textContent = `📅 今天有 ${n} 句待复习，趁热练一练 →`;
+  strip.classList.toggle("show", n > 0);
+}
+
+function renderReviewArea() {
+  const area = document.getElementById("reviewArea");
+  area.innerHTML = "";
+  reviewQueue = dueReviews();
+  updateNavBadge();
+  if (!savedPhrases.length) return;
+  if (!reviewQueue.length) {
+    const done = document.createElement("div");
+    done.className = "review-done";
+    done.textContent = "✅ 今天的复习完成了 — 短句到期后会出现在这里";
+    area.appendChild(done);
+    return;
+  }
+  renderReviewCard();
+}
+
+function renderReviewCard() {
+  const area = document.getElementById("reviewArea");
+  area.innerHTML = "";
+  const item = reviewQueue[0];
+  const s = scenarios[item.scenario];
+
+  const card = document.createElement("div");
+  card.className = "review-card";
+
+  const head = document.createElement("div");
+  head.className = "review-head";
+  const left = document.createElement("span");
+  left.textContent = "📅 今日复习 · 还剩 " + reviewQueue.length + " 句";
+  const right = document.createElement("span");
+  right.textContent = s ? s.icon + " " + s.name : "🔤 AI 翻译";
+  head.append(left, right);
+
+  const zh = document.createElement("div");
+  zh.className = "review-zh";
+  zh.textContent = item.zh;
+
+  const hint = document.createElement("div");
+  hint.className = "review-hint";
+  hint.textContent = "先回想英语怎么说，再显示答案";
+
+  const answer = document.createElement("div");
+  answer.className = "review-answer";
+  const en = document.createElement("div");
+  en.className = "review-en";
+  en.textContent = item.en;
+  answer.appendChild(en);
+  if (item.tip) {
+    const tip = document.createElement("div");
+    tip.className = "review-tip";
+    tip.textContent = "💡 " + item.tip;
+    answer.appendChild(tip);
+  }
+  const actions = document.createElement("div");
+  actions.className = "review-actions";
+  const playBtn = document.createElement("button");
+  playBtn.className = "review-btn-play";
+  playBtn.textContent = "▶";
+  playBtn.setAttribute("aria-label", "朗读");
+  playBtn.onclick = () => playReviewAudio(item);
+  const againBtn = document.createElement("button");
+  againBtn.className = "review-btn-again";
+  againBtn.textContent = "还要练";
+  againBtn.onclick = () => reviewAnswer(false);
+  const goodBtn = document.createElement("button");
+  goodBtn.className = "review-btn-good";
+  goodBtn.textContent = "记住了";
+  goodBtn.onclick = () => reviewAnswer(true);
+  actions.append(playBtn, againBtn, goodBtn);
+  answer.appendChild(actions);
+
+  const revealBtn = document.createElement("button");
+  revealBtn.className = "review-btn-reveal";
+  revealBtn.textContent = "显示英文";
+  revealBtn.onclick = () => {
+    answer.classList.add("open");
+    revealBtn.style.display = "none";
+    playReviewAudio(item);
+  };
+
+  card.append(head, zh, hint, revealBtn, answer);
+  area.appendChild(card);
+}
+
+function reviewAnswer(remembered) {
+  const item = reviewQueue.shift();
+  const now = Date.now();
+  if (remembered) {
+    item.rv.s = Math.min((item.rv.s || 0) + 1, REVIEW_INTERVALS.length);
+    const days = REVIEW_INTERVALS[Math.min(item.rv.s - 1, REVIEW_INTERVALS.length - 1)];
+    item.rv.due = now + days * 86400000;
+  } else {
+    // Back to stage 0, stays due — comes around again this session
+    item.rv.s = 0;
+    item.rv.due = now;
+    reviewQueue.push(item);
+  }
+  localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+  updateNavBadge();
+  renderReviewStrip();
+  if (reviewQueue.length) renderReviewCard();
+  else renderReviewArea();
+}
+
+function playReviewAudio(item) {
+  stopAllAudio();
+  // Scenario phrases have Azure MP3s named by id; AI translations don't
+  if (item.id && !String(item.id).startsWith("t_")) {
+    const mp3 = new Audio(`./audio/${item.id}_normal.mp3`);
+    currentAudio = mp3;
+    mp3.addEventListener("error", () => { currentAudio = null; speakText(item.en); }, { once: true });
+    mp3.play().catch(() => speakText(item.en));
+  } else {
+    speakText(item.en);
+  }
 }
 
 // ── Translate ──────────────────────────────────────────
@@ -1267,7 +1543,10 @@ function localTranslate(zh) {
   return defaultTranslations[translateAge];
 }
 
+let lastTranslateResult = null;
+
 function showTranslateResult(result, disclaimer) {
+  lastTranslateResult = result;
   document.getElementById("resultEn").textContent = result.en;
   document.getElementById("resultZh").textContent = result.zh || "";
   document.getElementById("resultTip").textContent = "💡 " + result.tip;
@@ -1278,6 +1557,8 @@ function showTranslateResult(result, disclaimer) {
 async function doTranslate() {
   const zh = document.getElementById("zhInput").value.trim();
   if (!zh) { alert("请输入中文内容"); return; }
+
+  renderPresetMatches(zh);
 
   const btn = document.querySelector(".translate-btn");
   btn.disabled = true;
@@ -1307,31 +1588,154 @@ async function doTranslate() {
   }
 }
 
-function playResultAudio() {
-  const text = document.getElementById("resultEn").textContent;
+function speakText(text, rate) {
   if (!text || !window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = "en-US"; utter.rate = 0.85; utter.pitch = 1.1;
-  const voices = speechSynthesis.getVoices();
-  const v = voices.find(v => v.lang.startsWith("en"));
+  utter.lang = "en-US"; utter.rate = rate || 0.85; utter.pitch = 1.1;
+  const v = getEnglishVoice();
   if (v) utter.voice = v;
   speechSynthesis.speak(utter);
 }
 
+function playResultAudio() {
+  speakText(document.getElementById("resultEn").textContent);
+}
+
 function saveTranslation() {
-  const en = document.getElementById("resultEn").textContent;
-  const zh = document.getElementById("resultZh").textContent ||
-             document.getElementById("zhInput").value.trim();
-  const fakeId = "t_" + Date.now();
-  const alreadySaved = savedPhrases.some(s => s.en === en);
-  if (!alreadySaved) {
-    savedPhrases.push({ id: fakeId, en, zh: zh.slice(0, 30), scenario: "__translate__", age: translateAge, tip: "" });
-    localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
-    alert("已收藏！");
-  } else {
-    alert("已经收藏过了。");
+  if (!lastTranslateResult) return;
+  const r = lastTranslateResult;
+  if (savedPhrases.some(s => s.en === r.en)) { alert("已经收藏过了。"); return; }
+  savedPhrases.push({
+    id: "t_" + Date.now(),
+    en: r.en,
+    zh: r.zh || document.getElementById("zhInput").value.trim(),
+    tip: r.tip || "",
+    scenario: "__translate__",
+    age: translateAge,
+    source: r.source || "local",
+    savedAt: Date.now(),
+    rv: { s: 0, due: Date.now() },
+  });
+  localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+  updateNavBadge();
+  alert("已收藏！去「收藏 · 复习」页可以反复练习。");
+}
+
+// ── Search: want-to-say → preset phrases ───────────────
+let searchIndex = null;
+
+function buildSearchIndex() {
+  searchIndex = [];
+  scenarioOrder.forEach(sid => {
+    const s = scenarios[sid];
+    Object.entries(s.phrases).forEach(([age, list]) => {
+      list.forEach(p => searchIndex.push({ sid, sname: s.name, sicon: s.icon, age, p }));
+    });
+  });
+}
+
+function searchPhrases(q, limit) {
+  if (!searchIndex) buildSearchIndex();
+  const qLower = q.toLowerCase();
+  const scored = [];
+  searchIndex.forEach(e => {
+    let score = 0;
+    if (e.p.zh.includes(q)) score += 100;
+    if (e.sname.includes(q)) score += 50;
+    if ((e.p.tip || "").includes(q)) score += 30;
+    if (e.p.en.toLowerCase().includes(qLower)) score += 20;
+    if (!score) return;
+    if (e.age === currentAge) score += 25;
+    scored.push({ e, score });
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit).map(x => x.e);
+}
+
+function buildResultRow(e) {
+  const row = document.createElement("div");
+  row.className = "search-result";
+  row.setAttribute("role", "button");
+  row.setAttribute("tabindex", "0");
+  row.onclick = () => jumpToPhrase(e.sid, e.age, e.p.id);
+
+  const top = document.createElement("div");
+  top.className = "sr-en";
+  top.textContent = e.p.en;
+
+  const bottom = document.createElement("div");
+  bottom.className = "sr-meta";
+  bottom.textContent = e.p.zh;
+
+  const badge = document.createElement("span");
+  badge.className = "sr-badge";
+  badge.textContent = `${e.sicon} ${e.sname} · ${AGE_LABELS[e.age]}`;
+
+  row.append(top, bottom, badge);
+  return row;
+}
+
+function onSearchInput() {
+  const q = document.getElementById("searchInput").value.trim();
+  const panel = document.getElementById("searchResults");
+  const home = document.getElementById("homeScreen");
+  panel.innerHTML = "";
+
+  if (!q) {
+    home.classList.remove("searching");
+    return;
   }
+  home.classList.add("searching");
+
+  const results = searchPhrases(q, 20);
+  results.forEach(e => panel.appendChild(buildResultRow(e)));
+
+  if (!results.length) {
+    const empty = document.createElement("div");
+    empty.className = "search-empty";
+    empty.textContent = "预设短语里没找到相关表达";
+    panel.appendChild(empty);
+  }
+  if (results.length < 3) {
+    const aiBtn = document.createElement("button");
+    aiBtn.className = "search-ai-btn";
+    aiBtn.textContent = `🤖 让 AI 帮你说「${q}」 →`;
+    aiBtn.onclick = () => goTranslateWithQuery(q);
+    panel.appendChild(aiBtn);
+  }
+}
+
+function jumpToPhrase(sid, age, pid) {
+  showTab("home");
+  setCurrentAge(age);
+  openScenario(sid);
+  requestAnimationFrame(() => {
+    const card = document.getElementById("card-" + pid);
+    if (!card) return;
+    card.scrollIntoView({ block: "center" });
+    card.classList.add("flash");
+    setTimeout(() => card.classList.remove("flash"), 2200);
+  });
+}
+
+function goTranslateWithQuery(q) {
+  showTab("translate");
+  document.getElementById("zhInput").value = q;
+  doTranslate();
+}
+
+// Reviewed presets beat AI output — surface them next to the AI result.
+function renderPresetMatches(q) {
+  const box = document.getElementById("presetMatches");
+  box.innerHTML = "";
+  const matches = searchPhrases(q, 3);
+  if (!matches.length) return;
+  const label = document.createElement("div");
+  label.className = "preset-matches-label";
+  label.textContent = "✅ 场景里已有现成的表达（人工审核过）：";
+  box.appendChild(label);
+  matches.forEach(e => box.appendChild(buildResultRow(e)));
 }
 
 // ── Util ───────────────────────────────────────────────
@@ -1432,6 +1836,8 @@ renderScenarioGrid();
 renderTodayStrip();
 renderSavedChips();
 renderTodayProgress();
+renderReviewStrip();
+updateNavBadge();
 </script>
 </body>
 </html>

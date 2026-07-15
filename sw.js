@@ -1,4 +1,4 @@
-const CACHE = 'll-v7';
+const CACHE = 'll-v8';
 const SHELL = [
   './',
   './index.html',

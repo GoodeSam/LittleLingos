@@ -1,7 +1,10 @@
 [build]
   publish = "."
 
-# No build command — pure static site
+# No build command — static site + serverless functions
+
+[functions]
+  directory = "netlify/functions"
 
 [[headers]]
   for = "/*"

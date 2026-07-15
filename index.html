@@ -403,6 +403,7 @@
     .translate-result.show { display: block; }
     .result-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
     .result-en { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 8px; }
+    .result-zh { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 4px; }
     .result-tip { font-size: 12px; color: #5A4A35; background: #FFFBF5; border-radius: 8px; padding: 8px 10px; margin-top: 8px; line-height: 1.6; }
     .result-actions { display: flex; gap: 10px; margin-top: 12px; }
     .result-actions button {
@@ -684,13 +685,14 @@
     <div class="translate-result" id="translateResult">
       <div class="result-label">💡 建议这样对宝宝说：</div>
       <div class="result-en" id="resultEn"></div>
+      <div class="result-zh" id="resultZh"></div>
       <div class="result-tip" id="resultTip"></div>
       <div class="result-actions">
         <button onclick="playResultAudio()">▶ 朗读</button>
         <button onclick="saveTranslation()">♡ 收藏</button>
       </div>
     </div>
-    <div class="ai-disclaimer">⚠ AI 自动生成 — 使用前请先读一读，确认适合宝宝。</div>
+    <div class="ai-disclaimer" id="aiDisclaimer">⚠ AI 即时生成，未经人工审核 — 使用前请先读一读，确认适合宝宝。</div>
   </div>
 </div>
 
@@ -1257,20 +1259,52 @@ function selectTranslateAge(el, age) {
   translateAge = age;
 }
 
-function doTranslate() {
+function localTranslate(zh) {
+  const options = translateResponses[translateAge] || [];
+  for (const opt of options) {
+    if (opt.pattern.test(zh)) return opt;
+  }
+  return defaultTranslations[translateAge];
+}
+
+function showTranslateResult(result, disclaimer) {
+  document.getElementById("resultEn").textContent = result.en;
+  document.getElementById("resultZh").textContent = result.zh || "";
+  document.getElementById("resultTip").textContent = "💡 " + result.tip;
+  document.getElementById("aiDisclaimer").textContent = disclaimer;
+  document.getElementById("translateResult").classList.add("show");
+}
+
+async function doTranslate() {
   const zh = document.getElementById("zhInput").value.trim();
   if (!zh) { alert("请输入中文内容"); return; }
 
-  const options = translateResponses[translateAge] || [];
-  let result = null;
-  for (const opt of options) {
-    if (opt.pattern.test(zh)) { result = opt; break; }
-  }
-  if (!result) result = defaultTranslations[translateAge];
+  const btn = document.querySelector(".translate-btn");
+  btn.disabled = true;
+  const btnLabel = btn.textContent;
+  btn.textContent = "正在生成…";
 
-  document.getElementById("resultEn").textContent = result.en;
-  document.getElementById("resultTip").textContent = "💡 " + result.tip;
-  document.getElementById("translateResult").classList.add("show");
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ zh, age: translateAge }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error("bad status " + res.status);
+    const result = await res.json();
+    if (!result.en || !result.tip) throw new Error("incomplete result");
+    showTranslateResult(result, "⚠ AI 即时生成，未经人工审核 — 使用前请先读一读，确认适合宝宝。");
+  } catch (e) {
+    // Offline / quota exhausted / function error → local pattern matching
+    showTranslateResult(localTranslate(zh), "📴 离线建议（本地匹配，非 AI 生成）— 联网后可获得更贴合的表达。");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = btnLabel;
+  }
 }
 
 function playResultAudio() {
@@ -1287,7 +1321,8 @@ function playResultAudio() {
 
 function saveTranslation() {
   const en = document.getElementById("resultEn").textContent;
-  const zh = document.getElementById("zhInput").value.trim();
+  const zh = document.getElementById("resultZh").textContent ||
+             document.getElementById("zhInput").value.trim();
   const fakeId = "t_" + Date.now();
   const alreadySaved = savedPhrases.some(s => s.en === en);
   if (!alreadySaved) {

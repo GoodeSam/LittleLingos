@@ -59,32 +59,21 @@ Respond with JSON only: {"en": ..., "zh": ..., "tip": ...}. The "tip" must be in
 // Per-warm-instance cache: identical queries don't re-hit the free-tier quota.
 const cache = new Map();
 
-export default async (req) => {
-  if (req.method !== "POST") {
-    return Response.json({ error: "POST only" }, { status: 405 });
-  }
+// Frontend aborts at 12s; the two providers must fit inside that together.
+const GEMINI_TIMEOUT_MS = 6500;
+const OPENAI_TIMEOUT_MS = 5000;
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return Response.json({ error: "GEMINI_API_KEY not configured" }, { status: 500 });
-  }
+function validateParsed(parsed, source) {
+  if (!parsed?.en || !parsed?.tip) throw new Error(`${source}: incomplete response`);
+  return {
+    en: String(parsed.en),
+    zh: String(parsed.zh || ""),
+    tip: String(parsed.tip),
+    source,
+  };
+}
 
-  let zh, age;
-  try {
-    ({ zh, age } = await req.json());
-  } catch {
-    return Response.json({ error: "invalid JSON body" }, { status: 400 });
-  }
-  zh = typeof zh === "string" ? zh.trim() : "";
-  if (!zh || zh.length > MAX_INPUT_LEN || !VALID_AGES.has(age)) {
-    return Response.json({ error: "invalid input" }, { status: 400 });
-  }
-
-  const cacheKey = `${age}\x00${zh}`;
-  if (cache.has(cacheKey)) {
-    return Response.json(cache.get(cacheKey));
-  }
-
+async function callGemini(zh, age, apiKey) {
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
@@ -109,39 +98,84 @@ export default async (req) => {
     },
   };
 
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 9000);
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+  });
+  // 429 = free-tier quota exhausted → fall through to OpenAI
+  if (!res.ok) throw new Error(`gemini ${res.status}`);
 
-    if (!res.ok) {
-      // 429 = free-tier quota exhausted; frontend falls back to local matching
-      return Response.json({ error: `gemini ${res.status}` }, { status: 502 });
-    }
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  return validateParsed(JSON.parse(text), "gemini");
+}
 
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    const parsed = JSON.parse(text);
-    if (!parsed.en || !parsed.tip) throw new Error("incomplete response");
+async function callOpenAI(zh, age, apiKey) {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt(age) },
+        { role: "user", content: `家长输入: ${zh}` },
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 300,
+    }),
+    signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`openai ${res.status}`);
 
-    const result = {
-      en: String(parsed.en),
-      zh: String(parsed.zh || ""),
-      tip: String(parsed.tip),
-      source: "gemini",
-    };
-    if (cache.size > 500) cache.clear();
-    cache.set(cacheKey, result);
-    return Response.json(result);
-  } catch (err) {
-    return Response.json({ error: String(err?.message || err) }, { status: 502 });
+  const data = await res.json();
+  const text = data?.choices?.[0]?.message?.content;
+  return validateParsed(JSON.parse(text), "openai");
+}
+
+export default async (req) => {
+  if (req.method !== "POST") {
+    return Response.json({ error: "POST only" }, { status: 405 });
   }
+
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (!geminiKey && !openaiKey) {
+    return Response.json({ error: "no API key configured" }, { status: 500 });
+  }
+
+  let zh, age;
+  try {
+    ({ zh, age } = await req.json());
+  } catch {
+    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+  zh = typeof zh === "string" ? zh.trim() : "";
+  if (!zh || zh.length > MAX_INPUT_LEN || !VALID_AGES.has(age)) {
+    return Response.json({ error: "invalid input" }, { status: 400 });
+  }
+
+  const cacheKey = `${age}\x00${zh}`;
+  if (cache.has(cacheKey)) {
+    return Response.json(cache.get(cacheKey));
+  }
+
+  let lastErr;
+  for (const attempt of [
+    geminiKey && (() => callGemini(zh, age, geminiKey)),
+    openaiKey && (() => callOpenAI(zh, age, openaiKey)),
+  ].filter(Boolean)) {
+    try {
+      const result = await attempt();
+      if (cache.size > 500) cache.clear();
+      cache.set(cacheKey, result);
+      return Response.json(result);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  return Response.json({ error: String(lastErr?.message || lastErr) }, { status: 502 });
 };
 
 export const config = { path: "/api/translate" };

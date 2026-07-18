@@ -1,4 +1,14 @@
-const CACHE = 'll-v8';
+// INVARIANT (checked by the critique gate): CACHE below is mechanically
+// derived — never hand-edit it. Run `node scripts/stamp-sw.mjs` after any
+// change to index.html or scenarios.js to rewrite this line to
+// `ll-<sha256-8 of index.html+scenarios.js>`; run
+// `node scripts/stamp-sw.mjs --check` (exit 1 on mismatch) to verify it is
+// still fresh before deploy. CACHE is the only cache-busting signal for the
+// install/activate handlers (old caches are deleted on activate); without a
+// fresh hash, an already-installed offline client can keep serving a stale
+// shell or stale phrase data indefinitely even though NETWORK_FIRST tries to
+// refresh them opportunistically on every online GET.
+const CACHE = 'll-cbf881a0';
 const SHELL = [
   './',
   './index.html',
@@ -8,7 +18,9 @@ const SHELL = [
   './icon-maskable.svg',
 ];
 
-// HTML and data files that must always be fresh
+// HTML and data files that must always be fresh. Confirmed both index.html and
+// scenarios.js are covered here (plus '/' and any navigate request below), so
+// the network-first path does reach both the shell and the phrase data.
 const NETWORK_FIRST = ['/', '/index.html', '/scenarios.js'];
 
 self.addEventListener('install', e => {

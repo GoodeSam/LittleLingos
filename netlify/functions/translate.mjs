@@ -12,21 +12,70 @@ const MAX_INPUT_LEN = 200;
 // Real reviewed phrases from scenarios.js, per band — few-shot anchors so the
 // model imitates native parent-speak + aligned zh + action tip, not literal
 // translation (Pillars 1/2/3/4).
+// `related` entries below are NOT newly authored copy — every {en, zh} pair
+// is lifted verbatim from already-reviewed phrases in scenarios.js (same
+// scenario/band as the primary example), so no new content clearance is
+// needed for these few-shot anchors (rules/02-role-map.md content ownership).
 const FEW_SHOT = {
   "1-2": [
-    { zh: "宝宝在洗澡，想让他玩水", en: "Let's splash! Kick kick kick!", zh_out: "让我们溅水！踢踢踢！", tip: "带动宝宝双脚踢水，重复的节奏帮助宝宝预测和记住词汇。" },
-    { zh: "喂饭的时候想让宝宝张嘴", en: "Open wide! Here comes the airplane! Vroom!", zh_out: "嘴巴张大！飞机来咯！呜——", tip: "把勺子当飞机，配合呜的音效，让吃饭更有趣。" },
-    { zh: "宝宝吓到了，想安慰他", en: "Come here. I've got you.", zh_out: "过来。我抱着你。", tip: "张开双臂，同时说这句话，让宝宝知道你随时可以接住他。" },
+    { zh: "宝宝在洗澡，想让他玩水", en: "Let's splash! Kick kick kick!", zh_out: "让我们溅水！踢踢踢！", tip: "带动宝宝双脚踢水，重复的节奏帮助宝宝预测和记住词汇。",
+      related: [
+        { en: "Where's your tummy? There it is!", zh: "肚子在哪里？在这里！" },
+        { en: "Look at the bubbles! Pop pop!", zh: "看泡泡！啵啵啵！" },
+        { en: "All done! Squeaky clean!", zh: "洗好了！干净溜溜！" },
+      ] },
+    { zh: "喂饭的时候想让宝宝张嘴", en: "Open wide! Here comes the airplane! Vroom!", zh_out: "嘴巴张大！飞机来咯！呜——", tip: "把勺子当飞机，配合呜的音效，让吃饭更有趣。",
+      related: [
+        { en: "Yummy! Do you want more?", zh: "好吃！还要吗？" },
+        { en: "Mmm, that's broccoli! Green!", zh: "嗯，这是西兰花！绿色的！" },
+        { en: "Big bite! Good job!", zh: "大口吃！好棒！" },
+      ] },
+    { zh: "宝宝吓到了，想安慰他", en: "Come here. I've got you.", zh_out: "过来。我抱着你。", tip: "张开双臂，同时说这句话，让宝宝知道你随时可以接住他。",
+      related: [
+        { en: "I know, I know. It's okay.", zh: "我知道，我知道。没事的。" },
+        { en: "Big feelings! Big feelings are okay.", zh: "大情绪！有大情绪是没问题的。" },
+        { en: "You're safe. I'm right here.", zh: "你很安全。我就在这里。" },
+      ] },
   ],
   "2-3": [
-    { zh: "想让宝宝再多吃几口饭", en: "Almost done! Two more bites!", zh_out: "快吃完了！再吃两口！", tip: "具体数字让宝宝有目标感，比再吃一点更有效。" },
-    { zh: "检查宝宝洗干净没有", en: "Are you all clean? Let me check... yes! Squeaky clean!", zh_out: "都洗干净了吗？我来看看……是的！干净溜溜！", tip: "夸张地检查宝宝的手脚，变成游戏。" },
-    { zh: "睡前想跟宝宝聊聊今天", en: "What was your favorite thing today?", zh_out: "今天你最喜欢什么？", tip: "睡前回顾一天，帮宝宝建立语言表达和情感处理能力。" },
+    { zh: "想让宝宝再多吃几口饭", en: "Almost done! Two more bites!", zh_out: "快吃完了！再吃两口！", tip: "具体数字让宝宝有目标感，比再吃一点更有效。",
+      related: [
+        { en: "What would you like to eat? Rice or noodles?", zh: "你想吃什么？米饭还是面条？" },
+        { en: "Yummy! Is it delicious?", zh: "好吃！好吃吗？" },
+        { en: "Can you use your spoon?", zh: "你能用勺子吃吗？" },
+      ] },
+    { zh: "检查宝宝洗干净没有", en: "Are you all clean? Let me check... yes! Squeaky clean!", zh_out: "都洗干净了吗？我来看看……是的！干净溜溜！", tip: "夸张地检查宝宝的手脚，变成游戏。",
+      related: [
+        { en: "Can you wash your tummy? Where's your tummy?", zh: "你能洗肚肚吗？肚肚在哪？" },
+        { en: "Close your eyes! Here comes the shampoo!", zh: "闭上眼睛！洗发水来咯！" },
+        { en: "Should we do your hair now? Okay!", zh: "要洗头发了好吗？好！" },
+      ] },
+    { zh: "睡前想跟宝宝聊聊今天", en: "What was your favorite thing today?", zh_out: "今天你最喜欢什么？", tip: "睡前回顾一天，帮宝宝建立语言表达和情感处理能力。",
+      related: [
+        { en: "It's almost bedtime. Let's do five more minutes of playtime.", zh: "快要睡觉了。我们再玩五分钟。" },
+        { en: "You had such a good day. I'm proud of you.", zh: "你今天真的很棒。我为你骄傲。" },
+        { en: "Close your eyes. I'll be right here.", zh: "闭上眼睛。我就在这里。" },
+      ] },
   ],
   "3-6": [
-    { zh: "想让孩子自己脱衣服准备洗澡", en: "Okay, it's bath time! Can you get undressed by yourself?", zh_out: "好了，洗澡时间！你能自己脱衣服吗？", tip: "给予自主权，培养独立能力。" },
-    { zh: "夸孩子今天很勇敢", en: "You were so brave today. Remember when you...?", zh_out: "你今天好勇敢。还记得你……那一次吗？", tip: "具体回忆一个勇敢时刻，强化孩子的自我认知。" },
-    { zh: "想引导孩子描述食物的味道", en: "How does it taste? Sweet? Sour? Salty?", zh_out: "味道怎么样？甜？酸？咸？", tip: "引导宝宝描述味道，丰富感知词汇。" },
+    { zh: "想让孩子自己脱衣服准备洗澡", en: "Okay, it's bath time! Can you get undressed by yourself?", zh_out: "好了，洗澡时间！你能自己脱衣服吗？", tip: "给予自主权，培养独立能力。",
+      related: [
+        { en: "What toys do you want to bring in the bath?", zh: "你想带什么玩具去洗澡？" },
+        { en: "Let's count your toes! One, two, three...", zh: "我们数数脚趾！一、二、三……" },
+        { en: "Great job washing up! You're so responsible!", zh: "洗得真好！你好负责任！" },
+      ] },
+    { zh: "夸孩子今天很勇敢", en: "You were so brave today. Remember when you...?", zh_out: "你今天好勇敢。还记得你……那一次吗？", tip: "具体回忆一个勇敢时刻，强化孩子的自我认知。",
+      related: [
+        { en: "I noticed you didn't give up when it was hard. That's real courage!", zh: "我注意到在困难的时候你没有放弃。那是真正的勇气！" },
+        { en: "What part are you most proud of? Tell me!", zh: "你最骄傲哪个部分？告诉我！" },
+        { en: "I'm not just proud of what you did — I'm proud of how hard you tried.", zh: "我不只为你做了什么感到骄傲——我为你有多努力尝试感到骄傲。" },
+      ] },
+    { zh: "想引导孩子描述食物的味道", en: "How does it taste? Sweet? Sour? Salty?", zh_out: "味道怎么样？甜？酸？咸？", tip: "引导宝宝描述味道，丰富感知词汇。",
+      related: [
+        { en: "What do you want for breakfast today?", zh: "今天早饭想吃什么？" },
+        { en: "Let's try the carrots! They help you see in the dark!", zh: "试试胡萝卜！它能让你在黑暗里看得更清楚！" },
+        { en: "Good eating! You tried something new today!", zh: "吃得真好！你今天尝试了新东西！" },
+      ] },
   ],
 };
 
@@ -38,7 +87,7 @@ const BAND_RULES = {
 
 function systemPrompt(age) {
   const examples = FEW_SHOT[age]
-    .map(e => `家长输入: ${e.zh}\n{"en": ${JSON.stringify(e.en)}, "zh": ${JSON.stringify(e.zh_out)}, "tip": ${JSON.stringify(e.tip)}}`)
+    .map(e => `家长输入: ${e.zh}\n${JSON.stringify({ en: e.en, zh: e.zh_out, tip: e.tip, related: e.related })}`)
     .join("\n\n");
   return `You help a Chinese-speaking parent say something to their ${age}-year-old child in English, in a real daily-life moment. The parent types what they want to say in Chinese; you produce what a NATIVE English-speaking parent would actually say in that exact moment.
 
@@ -48,12 +97,13 @@ Non-negotiable rules:
 3. Always include a "tip": one sentence in Chinese telling the parent what to DO while saying it — the physical action that gives the words meaning to the child.
 4. The "zh" field is a parent-facing Chinese rendering of your English — same warmth and intent, natural Chinese (叠词 where natural), NOT a literal gloss. It may differ from the parent's input wording.
 5. If the parent's input doesn't suit this age band (e.g. an abstract question for a toddler), adapt it to what works at this age rather than translating it as-is.
+6. Always include a "related" array of 3 to 5 objects, each {"en": ..., "zh": ...}. These are OTHER genuinely native things a parent could equally say in this SAME situation and age band — different wording, not a rephrase of your primary "en", not a synonym list, not tips. Same bar as rule 1 (native parent-speak) and rule 4 (aligned, warm Chinese) applies to every related item.
 
-Examples of the exact style expected (these are real reviewed phrases from the app):
+Examples of the exact style expected (these are real reviewed phrases from the app, including their "related" alternatives):
 
 ${examples}
 
-Respond with JSON only: {"en": ..., "zh": ..., "tip": ...}. The "tip" must be in Chinese.`;
+Respond with JSON only: {"en": ..., "zh": ..., "tip": ..., "related": [{"en": ..., "zh": ...}, ...]}. The "tip" must be in Chinese. "related" must have 3 to 5 items.`;
 }
 
 // Per-warm-instance cache: identical queries don't re-hit the free-tier quota.
@@ -63,12 +113,23 @@ const cache = new Map();
 const GEMINI_TIMEOUT_MS = 6500;
 const OPENAI_TIMEOUT_MS = 5000;
 
+// `related` is requested (prompt + Gemini responseSchema) on every AI call,
+// but this stays defensive: a missing/malformed/empty related list must
+// never fail the whole translation — it just degrades to [] (Unit B spec).
+function sanitizeRelated(related) {
+  if (!Array.isArray(related)) return [];
+  return related
+    .filter(r => r && typeof r.en === "string" && r.en.trim() && typeof r.zh === "string" && r.zh.trim())
+    .map(r => ({ en: String(r.en), zh: String(r.zh) }));
+}
+
 function validateParsed(parsed, source) {
   if (!parsed?.en || !parsed?.tip) throw new Error(`${source}: incomplete response`);
   return {
     en: String(parsed.en),
     zh: String(parsed.zh || ""),
     tip: String(parsed.tip),
+    related: sanitizeRelated(parsed.related),
     source,
   };
 }
@@ -88,10 +149,21 @@ async function callGemini(zh, age, apiKey) {
           en: { type: "STRING" },
           zh: { type: "STRING" },
           tip: { type: "STRING" },
+          related: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: { en: { type: "STRING" }, zh: { type: "STRING" } },
+              required: ["en", "zh"],
+            },
+          },
         },
-        required: ["en", "zh", "tip"],
+        required: ["en", "zh", "tip", "related"],
       },
-      maxOutputTokens: 2048,
+      // Bumped from 2048: the "related" array roughly doubles the JSON
+      // payload size. Both providers still have headroom inside the 12s
+      // frontend budget (GEMINI_TIMEOUT_MS / OPENAI_TIMEOUT_MS below).
+      maxOutputTokens: 3072,
       // 2.5-flash thinks by default and thinking tokens eat maxOutputTokens,
       // truncating the JSON. This task doesn't need thinking — turn it off.
       thinkingConfig: { thinkingBudget: 0 },
@@ -123,7 +195,7 @@ async function callOpenAI(zh, age, apiKey) {
         { role: "user", content: `家长输入: ${zh}` },
       ],
       response_format: { type: "json_object" },
-      max_tokens: 300,
+      max_tokens: 900, // bumped for the "related" array (see Gemini path comment)
     }),
     signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
   });

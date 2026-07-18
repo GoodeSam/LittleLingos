@@ -30,13 +30,44 @@
       --blue:    #5BA4CF;
       --purple:  #9B7FD4;
       --text:    #2D2D2D;
-      --muted:   #7A7A7A;
+      --muted:   #5F5F5F; /* darkened from #7A7A7A: 4.29:1 on white failed AA; now 6.39:1 */
+      --zh-ink:  #4A4A4A; /* phrase-zh: 8.86:1 on white — darker+larger than --muted since
+                             zh is the parent's primary reading language, not secondary meta text */
       --border:  #EAE0D5;
       --card:    #FFFFFF;
       --shadow:  0 2px 12px rgba(0,0,0,.08);
       --r:       16px;
       --teal:    #26B2AA;
       --pink:    #E8769A;
+      /* On-brand-color text: white fails AA on --accent/--green/--blue/--purple at these
+         sizes (2.5-3.3:1); this near-black passes >=5:1 on all four while keeping the
+         warm colored background. */
+      --ink-on-brand: #1A1A1A;
+      /* Palette tokens folded in from stray hex literals (Severity-C palette-drift fix) */
+      --slow-playing: #4A8AB0;
+      --tip-ink:       #5A4A35;
+      /* darkened from #8A6A45: 4.44:1 on --warm narrowly failed AA; now 5.50:1 */
+      --badge-ink:     #7A5C39;
+      /* darkened from #E85D4A: 3.45:1 with white text failed AA; now 4.60:1 */
+      --nav-badge-bg:  #C54F3F;
+      --chip-why:        #2E7D32;
+      --chip-why-border: #C8E6C9;
+      --chip-why-bg:     #E8F5E9;
+      --chip-next:        #1565C0;
+      --chip-next-border: #BBDEFB;
+      --chip-next-bg:     #E3F2FD;
+      --chip-fb:        #6A1B9A;
+      --chip-fb-border: #E1BEE7;
+      --chip-fb-bg:     #F3E5F5;
+      /* darkened from var(--accent) #FF7A45: 2.36-2.59:1 on white/tint failed AA;
+         now 4.75:1 on --tint-accent and 5.20:1 on white */
+      --accent-deep:   #B84A1F;
+      /* darkened from var(--green) #4CAF82: 2.54:1 on --tint-green failed AA; now 4.99:1 */
+      --green-deep:    #1F7A4D;
+      /* Palette tokens folded in from stray hex literals (Severity-C palette-drift fix) */
+      --tint-accent: #FFF2EC;
+      --tint-green:  #F0FAF5;
+      --tint-warm:   #FFFBF5;
     }
     html, body { height: 100%; background: var(--cream); font-family: -apple-system, "PingFang SC", sans-serif; color: var(--text); }
     body {
@@ -49,22 +80,43 @@
 
     /* ── Header ───────────────────────────────────────── */
     .header {
-      background: linear-gradient(135deg, #FF7A45 0%, #FFB347 100%);
-      padding: 20px 20px 24px;
-      color: #fff;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      padding: 16px 16px 24px; /* normalized to 4/8/12/16/24 spacing scale */
+      /* white on this gradient measured 2.59:1 (accent end) / 1.78:1 (accent2 end);
+         --ink-on-brand reaches 6.73:1 / 9.77:1 on the same two ends */
+      color: var(--ink-on-brand);
       position: relative;
     }
-    .header-top { display: flex; align-items: center; justify-content: space-between; }
+    /* flex-wrap + row-gap added as a 320px safety net (layout-overflow
+       check, 2026-07-18 sweep): .age-badge's label grew from 13px -> 16px
+       (see below), tightening this row's fit next to the 20px logo. If it
+       ever gets too tight (long label, larger OS text-size setting) the
+       pill now wraps to its own line instead of being squeezed/clipped —
+       never a body horizontal scroll. */
+    .header-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; row-gap: 6px; }
     .logo { font-size: 20px; font-weight: 700; letter-spacing: -.3px; }
+    /* Sub-16px, kept: decorative brand tagline inside the logo lockup, not
+       instructional/reading content — redundant with <title>/manifest name
+       (typography sweep, 2026-07-18). */
     .logo span { font-size: 13px; font-weight: 400; opacity: .85; display: block; margin-top: 2px; }
+    /* Bumped 13px -> 16px: this badge is the only place the parent's
+       *current* age selection is visible at a glance on the home screen —
+       real reading content, not chrome (typography sweep, 2026-07-18). */
     .age-badge {
       background: rgba(255,255,255,.25);
       border: 1px solid rgba(255,255,255,.4);
       border-radius: 20px;
-      padding: 6px 14px;
-      font-size: 13px;
+      padding: 7px 12px;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      font-size: 16px;
       cursor: pointer;
       transition: background .2s;
+      touch-action: manipulation;
+      user-select: none;
     }
     .age-badge:active { background: rgba(255,255,255,.35); }
 
@@ -80,7 +132,7 @@
       z-index: 200;
     }
     .age-picker.open { display: block; }
-    .age-picker h3 { font-size: 15px; margin-bottom: 14px; color: var(--muted); }
+    .age-picker h3 { font-size: 16px; margin-bottom: 14px; color: var(--muted); }
     .age-options { display: flex; gap: 10px; flex-wrap: wrap; }
     .age-opt {
       flex: 1; min-width: 120px;
@@ -89,43 +141,61 @@
       padding: 12px 8px;
       text-align: center;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 16px;
       transition: all .15s;
     }
-    .age-opt.active { border-color: var(--accent); background: #FFF2EC; color: var(--accent); font-weight: 600; }
+    .age-opt.active { border-color: var(--accent); background: var(--tint-accent); color: var(--accent-deep); font-weight: 600; } /* accent on tint was 2.36:1; accent-deep is 4.75:1 */
     .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 100; }
     .overlay.open { display: block; }
 
     /* ── Today strip ──────────────────────────────────── */
+    /* margin-top was -12px, fighting the .saved-row above it's own bottom
+       margin to fake a tighter gap (Vera visual critique, 2026-07-18:
+       "fighting section rhythm"). Normalized: top:0 so this strip follows the
+       same 0/16px shorthand pattern as .saved-row and .scenario-grid above/
+       below it, and the natural gap comes from a single positive margin
+       (the preceding element's own bottom margin) instead of a subtractive
+       hack. */
     .today-strip {
       background: #fff;
-      margin: 0 16px;
-      margin-top: -12px;
+      margin: 0 16px 16px;
       border-radius: var(--r);
       box-shadow: var(--shadow);
-      padding: 14px 16px;
+      padding: 16px; /* normalized from 14px 16px */
       display: flex;
       align-items: center;
       gap: 12px;
     }
     .today-icon { font-size: 28px; }
     .today-text { flex: 1; }
-    .today-text strong { font-size: 14px; display: block; }
-    .today-text span { font-size: 12px; color: var(--muted); }
+    /* Bumped 14px -> 16px: real reading content (today's recommended
+       scenario + phrase count), not chrome (typography sweep, 2026-07-18). */
+    .today-text strong { font-size: 16px; display: block; }
+    .today-text span { font-size: 16px; color: var(--muted); }
     .today-btn {
       background: var(--accent);
-      color: #fff;
+      /* white on --accent measured 2.59:1 (fails AA); --ink-on-brand reaches 6.73:1 */
+      color: var(--ink-on-brand);
       border: none;
       border-radius: 10px;
-      padding: 8px 14px;
-      font-size: 13px;
+      padding: 0 16px;
+      min-height: 44px; /* tap target >=44px */
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px; /* bumped 13px -> 16px: CTA label a parent reads before tapping */
       cursor: pointer;
       white-space: nowrap;
+      touch-action: manipulation;
     }
 
     /* ── Section Title ───────────────────────────────── */
+    /* Sub-16px, kept: uppercase section-divider eyebrow label ("选择场景"),
+       not a sentence a parent reads for meaning — its state is a category
+       header, distinguished by weight/letter-spacing/case, not by size
+       (typography sweep, 2026-07-18). */
     .section-title {
-      padding: 20px 20px 10px;
+      padding: 16px 16px 8px;
       font-size: 13px;
       font-weight: 600;
       color: var(--muted);
@@ -144,16 +214,40 @@
       background: var(--card);
       border-radius: var(--r);
       box-shadow: var(--shadow);
-      padding: 18px 14px;
+      padding: 16px;
       cursor: pointer;
       transition: transform .15s, box-shadow .15s;
       position: relative;
       overflow: hidden;
+      touch-action: manipulation;
+      user-select: none;
     }
     .scenario-card:active { transform: scale(.97); }
-    .scenario-card .s-icon { font-size: 32px; margin-bottom: 8px; }
-    .scenario-card .s-name { font-size: 15px; font-weight: 600; }
-    .scenario-card .s-count { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    /* Glyph-metric normalization (Vera visual critique, 2026-07-18): a bare
+       32px/line-height:1 emoji in a 36px flex-centered box jitters
+       card-to-card because color-emoji glyphs carry their own font-specific
+       ascent/descent padding baked into the glyph data — different code
+       points (🛁 🍽️ 😴 …) report different effective heights at the *same*
+       font-size, so flexbox centers each one's line-box consistently but the
+       ink inside that box lands at a different vertical offset per glyph.
+       Fix: shrink the font-size relative to the box (fewer glyphs clip/
+       overflow their nominal metrics) and give line-height an explicit px
+       value equal to the box height instead of the font-relative `1`, so
+       every icon centers against the same fixed reference regardless of the
+       font's internal metrics for that particular character. */
+    .scenario-card .s-icon {
+      font-size: 26px;
+      line-height: 36px;
+      width: 36px; height: 36px;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    /* Bumped 15px -> 16px: the scenario name is the primary label a parent
+       reads to pick a scenario (typography sweep, 2026-07-18). */
+    .scenario-card .s-name { font-size: 16px; font-weight: 600; }
+    /* Bumped 12px -> 16px [explicit sweep target]. */
+    .scenario-card .s-count { font-size: 16px; color: var(--muted); margin-top: 4px; }
     .scenario-card { min-height: 120px; }
     .scenario-card .s-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .scenario-card .s-bar {
@@ -163,26 +257,31 @@
 
     /* ── Saved quick row ─────────────────────────────── */
     .saved-row {
-      margin: 0 16px 20px;
+      margin: 0 16px 16px;
       background: var(--card);
       border-radius: var(--r);
       box-shadow: var(--shadow);
-      padding: 14px 16px;
+      padding: 16px;
     }
-    .saved-row h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+    /* Bumped 14px -> 16px: real card heading a parent reads (typography sweep, 2026-07-18). */
+    .saved-row h3 { font-size: 16px; font-weight: 600; margin-bottom: 10px; }
     .saved-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
     .saved-chips::-webkit-scrollbar { display: none; }
+    /* Bumped 12px -> 16px [explicit sweep target]. */
     .saved-chip {
       flex-shrink: 0;
       background: var(--warm);
       border: 1px solid var(--border);
       border-radius: 20px;
-      padding: 6px 12px;
-      font-size: 12px;
+      padding: 7px 12px;
+      font-size: 16px;
       cursor: pointer;
       white-space: nowrap;
+      touch-action: manipulation;
+      user-select: none;
     }
-    .saved-empty { font-size: 13px; color: var(--muted); }
+    /* Bumped 13px -> 16px: real message content a parent reads (typography sweep, 2026-07-18). */
+    .saved-empty { font-size: 16px; color: var(--muted); }
 
     /* ── Bottom Nav ──────────────────────────────────── */
     .bottom-nav {
@@ -200,13 +299,32 @@
       align-items: center;
       padding: 10px 0 14px;
       cursor: pointer;
-      font-size: 11px;
+      /* Sub-16px, kept: 2-4 char icon+label bottom-nav chrome (首页/收藏/翻译),
+         universal small-label mobile-nav convention, not a body-reading
+         surface — space-constrained 3-item bar where a 16px label would
+         force wrapping under the icon (typography sweep, 2026-07-18). */
+      font-size: 13px;
       color: var(--muted);
       gap: 3px;
       transition: color .15s;
+      touch-action: manipulation;
+      user-select: none;
     }
-    .nav-item .nav-icon { font-size: 22px; }
-    .nav-item.active { color: var(--accent); }
+    .nav-item .nav-icon { font-size: 22px; transition: transform .15s; }
+    /* Active state was color-only (var(--accent) on white also only reaches
+       2.59:1, failing AA for this 13px label). Fixed to --accent-deep
+       (5.20:1 on white, same token already used for install-btn/age-opt.active)
+       plus THREE non-color cues so the state survives grayscale/color-blind
+       viewing: bold weight, a slightly enlarged icon, and a small pill
+       indicator above the active tab (2026-07-15 visual critique #5). */
+    .nav-item.active { color: var(--accent-deep); font-weight: 700; }
+    .nav-item.active .nav-icon { transform: scale(1.12); }
+    .nav-item.active::before {
+      content: "";
+      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      width: 28px; height: 3px; border-radius: 0 0 3px 3px;
+      background: var(--accent-deep);
+    }
 
     /* ── Scenario Detail Screen ──────────────────────── */
     .screen {
@@ -241,10 +359,13 @@
       background: var(--warm);
       border: none;
       border-radius: 10px;
-      width: 36px; height: 36px;
+      width: 44px; height: 44px;
+      flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
       font-size: 18px;
       cursor: pointer;
+      touch-action: manipulation;
+      user-select: none;
     }
     .screen-header h2 { font-size: 18px; font-weight: 700; flex: 1; }
     .screen-header .h-icon { font-size: 26px; }
@@ -258,64 +379,124 @@
       padding: 16px;
       cursor: pointer;
       transition: transform .15s;
+      touch-action: manipulation;
+      user-select: none;
     }
     .phrase-card:active { transform: scale(.98); }
     .phrase-en { font-size: 17px; font-weight: 600; line-height: 1.4; }
-    .phrase-zh { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    /* zh is the parent's primary reading language — must carry AT LEAST equal
+       visual weight to the English line, not trail it (Pillar 4 / hierarchy
+       finding, 2026-07-15 visual critique #3). Was 16px/500 (lighter+smaller
+       than .phrase-en's 17px/600); now 17px/700 so it reads as the loudest
+       line on the card, matching the same fix already applied to
+       .saved-item-zh above. */
+    .phrase-zh { font-size: 17px; font-weight: 700; color: var(--zh-ink); margin-top: 4px; line-height: 1.4; }
     .phrase-actions {
       display: flex;
-      gap: 10px;
+      flex-wrap: wrap; /* keeps the 0-1 band's 4-button row from overflowing at 320px */
+      gap: 8px;
+      row-gap: 8px;
       margin-top: 12px;
       align-items: center;
     }
+    /* Font-size bumped 13px -> 16px [explicit sweep target: play-btn/save-btn/
+       used-btn]; padding trimmed slightly so the 4-button 0-1 row still fits
+       two-per-line at 320px under .phrase-actions' flex-wrap (typography
+       sweep, 2026-07-18). */
     .play-btn {
       background: var(--accent);
-      color: #fff;
+      color: var(--ink-on-brand); /* white on --accent is 2.59:1; ink reaches 6.73:1 */
       border: none;
       border-radius: 10px;
-      padding: 8px 16px;
-      font-size: 13px;
+      padding: 8px 14px;
+      min-height: 44px; /* tap target */
+      font-size: 16px;
       cursor: pointer;
-      display: flex; align-items: center; gap: 6px;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      touch-action: manipulation;
     }
-    .play-btn.playing { background: var(--accent2); }
+    /* white on --accent2 measures 1.78:1 (fails AA); --ink-on-brand reaches ~9.8:1 */
+    .play-btn.playing { background: var(--accent2); color: var(--ink-on-brand); }
     .play-btn-slow {
       background: var(--blue);
-      color: #fff;
+      color: var(--ink-on-brand); /* white on --blue is 2.74:1; ink reaches 6.35:1 */
       border: none;
       border-radius: 10px;
       padding: 8px 12px;
-      font-size: 13px;
+      min-height: 44px; /* tap target */
+      font-size: 16px; /* bumped 13px -> 16px, same family as .play-btn */
       cursor: pointer;
-      display: flex; align-items: center; gap: 4px;
+      display: flex; align-items: center; justify-content: center; gap: 4px;
+      touch-action: manipulation;
     }
-    .play-btn-slow.playing { background: #4A8AB0; }
+    /* white on --slow-playing measures 3.78:1 (fails AA); --ink-on-brand reaches ~4.6:1 */
+    .play-btn-slow.playing { background: var(--slow-playing); color: var(--ink-on-brand); }
+    /* Dead-tap fix (2026-07-15 visual critique #2, Sev A): when the MP3 fails
+       to load AND no window.speechSynthesis fallback exists either, a tap on
+       any of these audio buttons must never resolve to silent nothing. This
+       class is flashed on by flashAudioUnavailable() in the script below and
+       covers every audio-triggering button in the app. --muted on --border
+       measures ~12.3:1 — comfortably readable, and visually distinct from
+       both the idle and .playing states. */
+    .play-btn.unavailable, .play-btn-slow.unavailable,
+    .review-btn-play.unavailable, .result-play-btn.unavailable {
+      background: var(--border); color: var(--muted); cursor: not-allowed;
+    }
+    /* Font-size bumped 13px -> 16px [explicit sweep target]. */
     .save-btn, .used-btn {
       border: 1px solid var(--border);
       background: #fff;
       border-radius: 10px;
       padding: 8px 12px;
-      font-size: 13px;
+      min-height: 44px; /* tap target */
+      font-size: 16px;
       cursor: pointer;
       transition: all .15s;
+      touch-action: manipulation;
     }
-    .save-btn.saved { border-color: var(--accent); color: var(--accent); background: #FFF2EC; }
-    .used-btn.used  { border-color: var(--green);  color: var(--green);  background: #F0FAF5; }
+    /* var(--accent) on #FFF2EC measured 2.36:1 (fails AA); --accent-deep reaches 4.75:1 */
+    .save-btn.saved { border-color: var(--accent); color: var(--accent-deep); background: var(--tint-accent); }
+    /* var(--green) on #F0FAF5 measured 2.54:1 (fails AA); --green-deep reaches 4.99:1 */
+    .used-btn.used  { border-color: var(--green);  color: var(--green-deep); background: var(--tint-green); }
 
-    /* Tip expandable */
+    /* Tip expandable — a reading surface, sized up from 12px, then again from
+       14px (2026-07-15 visual critique #4: 14px too small for a primary
+       reading surface at 320px width) */
     .phrase-tip {
       margin-top: 10px;
-      background: #FFFBF5;
+      background: var(--tint-warm);
       border-left: 3px solid var(--accent2);
       border-radius: 0 8px 8px 0;
       padding: 10px 12px;
-      font-size: 12px;
-      color: #5A4A35;
+      font-size: 16px;
+      color: var(--tip-ink);
       line-height: 1.6;
       display: none;
     }
     .phrase-tip.open { display: block; }
-    .tip-toggle { font-size: 12px; color: var(--accent2); margin-top: 8px; cursor: pointer; background: none; border: none; padding: 0; }
+    /* touch-action/user-select hygiene, matching the rest of the tappable
+       controls on the card (2026-07-15 visual critique #7) */
+    /* var(--accent2) #FFB347 on white measured 1.78:1 (fails AA); --accent-deep
+       is the existing darkened token for this exact background and reaches
+       5.20:1 (2026-07-17 visual critique #3, Sev B).
+       Font-size bumped 13px -> 16px [explicit sweep target: phrase-tip family]
+       (typography sweep, 2026-07-18).
+       Open state (2026-07-18, state-cue sweep): unlike .coaching-chip this
+       toggle previously had NO visual difference between expanded/collapsed
+       — same label both ways. Added a rotating caret plus a label-text swap
+       (see toggleTip() in the script) so the state is legible without
+       relying on the reader noticing the tip block appeared below. */
+    .tip-toggle {
+      font-size: 16px; color: var(--accent-deep); margin-top: 8px; cursor: pointer;
+      background: none; border: none; padding: 0;
+      touch-action: manipulation; user-select: none;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .tip-toggle::after {
+      content: "\25B8"; display: inline-block; font-size: 11px;
+      transition: transform .15s;
+    }
+    .tip-toggle.open::after { transform: rotate(90deg); }
 
     /* Audio progress bar */
     .audio-bar {
@@ -336,11 +517,19 @@
       background: #fff;
       border: 1px solid var(--border);
       border-radius: 20px;
-      padding: 6px 14px;
-      font-size: 13px;
+      padding: 0 16px;
+      min-height: 44px; /* tap target */
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px; /* bumped 13px -> 16px [explicit sweep target] */
       cursor: pointer;
+      touch-action: manipulation;
+      user-select: none;
     }
-    .age-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    /* white on --accent measured 2.59:1 (fails AA); --ink-on-brand keeps the warm
+       orange background and passes ~6.7:1 */
+    .age-tab.active { background: var(--accent); border-color: var(--accent); color: var(--ink-on-brand); font-weight: 600; }
 
     /* Saved screen */
     .saved-screen-list { padding: 12px 16px calc(100px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
@@ -354,42 +543,69 @@
       gap: 12px;
     }
     .saved-item-text { flex: 1; }
-    .saved-item-en { font-size: 15px; font-weight: 600; }
-    .saved-item-zh { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    /* Bumped 14px -> 16px (typography sweep, 2026-07-18): this is the actual
+       saved English phrase, a reading surface, not a caption. Left at normal
+       weight (vs zh's 700 below) so the size-equal/weight-lighter English
+       still cedes hierarchy to the Chinese per Pillar 4 (zh>=en in both
+       size AND weight — here size ties, zh's weight wins). */
+    .saved-item-en { font-size: 16px; color: var(--muted); }
+    /* zh is the parent's primary reading language for this card — made the loudest
+       element (16px, darker --zh-ink, bold) per hierarchy finding; en demoted to
+       muted color/lighter weight since it is the secondary/reference line here. */
+    .saved-item-zh { font-size: 16px; font-weight: 700; color: var(--zh-ink); margin-top: 3px; }
+    /* Sub-16px, kept: supplementary scenario-tag pill (redundant with the
+       icon/context already visible on the card), part of the app's
+       consistent small-badge family (.s-used, .sr-badge, .nav-badge,
+       .today-badge) — not primary reading content (typography sweep,
+       2026-07-18). */
     .saved-item-badge {
       font-size: 11px;
-      background: var(--warm);
+      background: transparent;
+      border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 3px 8px;
-      color: var(--accent);
+      padding: 2px 7px;
+      color: var(--muted);
       margin-top: 6px;
       display: inline-block;
     }
+    /* color fixed var(--accent) -> var(--accent-deep): var(--accent) on white
+       measured 2.59:1 (fails AA); --accent-deep reaches 5.20:1 (contrast
+       sweep, 2026-07-18). Glyph size (20px "×") is not reading text, no
+       typography-sweep change. */
     .unsave-btn {
-      background: none; border: none; font-size: 20px; cursor: pointer; color: var(--accent); padding: 0;
+      background: none; border: none; font-size: 20px; cursor: pointer; color: var(--accent-deep); padding: 0;
+      touch-action: manipulation; user-select: none;
     }
+    /* Bumped 14px -> 16px: real message content (typography sweep, 2026-07-18). */
     .empty-state {
       text-align: center;
       padding: 60px 20px;
       color: var(--muted);
-      font-size: 14px;
+      font-size: 16px;
       line-height: 1.7;
     }
     .empty-state .e-icon { font-size: 48px; margin-bottom: 12px; }
 
     /* Translate screen */
     .translate-section { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
-    .translate-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    /* Bumped 14px -> 16px: full instruction sentences a parent must read to
+       use the feature ("用中文说你想对宝宝说的话"), not a chrome label
+       (typography sweep, 2026-07-18). */
+    .translate-label { font-size: 16px; color: var(--muted); margin-bottom: 6px; }
+    /* Bumped 15px -> 16px: also avoids iOS Safari's auto-zoom-on-focus for
+       inputs under 16px (typography sweep, 2026-07-18). */
     textarea {
       width: 100%; border: 1px solid var(--border); border-radius: 12px;
-      padding: 14px; font-size: 15px; font-family: inherit;
+      padding: 14px; font-size: 16px; font-family: inherit;
       resize: none; background: #fff; color: var(--text);
       outline: none; transition: border-color .15s;
     }
     textarea:focus { border-color: var(--accent); }
     .translate-btn {
       background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
-      color: #fff; border: none; border-radius: 12px;
+      /* white on this gradient measured 2.59:1 / 1.78:1 across ends; --ink-on-brand
+         reaches 6.73:1 / 9.77:1 */
+      color: var(--ink-on-brand); border: none; border-radius: 12px;
       padding: 15px; font-size: 16px; font-weight: 600;
       cursor: pointer; width: 100%;
     }
@@ -401,92 +617,195 @@
       display: none;
     }
     .translate-result.show { display: block; }
-    .result-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    /* Bumped 13px -> 16px: real lead-in sentence a parent reads before the
+       suggestion (typography sweep, 2026-07-18). */
+    .result-label { font-size: 16px; color: var(--muted); margin-bottom: 8px; }
     .result-en { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 8px; }
-    .result-zh { font-size: 13px; color: var(--muted); line-height: 1.5; margin-bottom: 4px; }
-    .result-tip { font-size: 12px; color: #5A4A35; background: #FFFBF5; border-radius: 8px; padding: 8px 10px; margin-top: 8px; line-height: 1.6; }
+    /* zh is primary parent-facing content. Previously 16px/600 — SMALLER and
+       LIGHTER than .result-en's 18px/700, violating the zh>=en hierarchy
+       rule in both axes at once (Vera visual critique, 2026-07-18 typography
+       sweep). Raised to match .result-en exactly (18px/700): equal counts as
+       "zh >= en" and keeps the two lines visually level rather than
+       demoting the Chinese under the English on the app's flagship
+       AI-translate surface. */
+    .result-zh { font-size: 18px; font-weight: 700; color: var(--zh-ink); line-height: 1.5; margin-bottom: 4px; }
+    /* Bumped 14px -> 16px: reading tip content, same family as .phrase-tip
+       (typography sweep, 2026-07-18). */
+    .result-tip { font-size: 16px; color: var(--tip-ink); background: var(--tint-warm); border-radius: 8px; padding: 8px 10px; margin-top: 8px; line-height: 1.6; }
     .result-actions { display: flex; gap: 10px; margin-top: 12px; }
+    /* Bumped 13px -> 16px: button labels ("▶ 朗读" / "♡ 收藏") a parent reads
+       before tapping (typography sweep, 2026-07-18). */
     .result-actions button {
       flex: 1; border: 1px solid var(--border); background: #fff;
-      border-radius: 10px; padding: 10px; font-size: 13px; cursor: pointer;
+      border-radius: 10px; padding: 10px; min-height: 44px; font-size: 16px; cursor: pointer;
+      touch-action: manipulation;
     }
-    .ai-disclaimer { font-size: 11px; color: var(--muted); text-align: center; padding: 0 20px; line-height: 1.5; }
+    /* Visible playing state for the translate-result audio button (state-visibility finding).
+       White on --accent2 measures 1.78:1 (fails); --ink-on-brand text reaches ~9.8:1. */
+    .result-play-btn.playing { background: var(--accent2); color: var(--ink-on-brand); border-color: var(--accent2); font-weight: 600; }
+    /* Bumped 12px -> 16px: this is a safety-relevant disclaimer sentence
+       ("AI 即时生成，未经人工审核 — 使用前请先读一读") the parent must
+       actually read before trusting unreviewed AI output — the single
+       highest-stakes small-text instance in the file (typography sweep,
+       2026-07-18). */
+    .ai-disclaimer { font-size: 16px; color: var(--muted); text-align: center; padding: 0 20px; line-height: 1.5; }
+    /* ── Related expressions (translate result) ─────────
+       AI-only: local/offline fallback never populates this, so it stays
+       hidden unless result.related is a non-empty array (Unit B). */
+    .result-related { display: none; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .result-related.show { display: block; }
+    /* Sub-16px, kept: short section-eyebrow label ("🗣 还可以这样说")
+       introducing the list below, not itself the reading content — the
+       list items it introduces (.result-related-en/-zh) are bumped to 16px
+       below (typography sweep, 2026-07-18). */
+    .result-related-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+    .result-related-item { padding: 8px 0; border-bottom: 1px dashed var(--border); }
+    .result-related-item:last-child { border-bottom: none; }
+    /* Bumped 15px -> 16px: phrase content, same family as .phrase-en (typography sweep, 2026-07-18). */
+    .result-related-en { font-size: 16px; font-weight: 600; line-height: 1.4; }
+    /* This is the ZH half of a bilingual pair (was 13px/var(--muted)/normal
+       weight vs .result-related-en's 15px/600 — badly violated zh>=en on
+       both size AND weight AND used the demoted --muted color instead of
+       the --zh-ink reading-ink token used everywhere else. Fixed to match
+       the app-wide pattern: same-or-larger size, heavier weight, --zh-ink
+       color (typography + hierarchy sweep, 2026-07-18). */
+    .result-related-zh { font-size: 16px; font-weight: 700; color: var(--zh-ink); line-height: 1.4; margin-top: 2px; }
 
     /* ── Tier filter tabs ────────────────────────────── */
     .tier-tabs { display: flex; gap: 8px; padding: 8px 16px 4px; overflow-x: auto; }
     .tier-tabs::-webkit-scrollbar { display: none; }
     .tier-tab {
       flex-shrink: 0; background: #fff; border: 1px solid var(--border);
-      border-radius: 20px; padding: 5px 13px; font-size: 12px; cursor: pointer; transition: all .15s;
+      border-radius: 20px; padding: 0 16px; min-height: 44px;
+      display: inline-flex; align-items: center; justify-content: center;
+      /* bumped 12px -> 14px -> 16px [explicit sweep target] (2026-07-17
+         visual critique #1, then typography sweep 2026-07-18) */
+      font-size: 16px; cursor: pointer; transition: all .15s;
+      touch-action: manipulation; user-select: none;
     }
+    /* "all" keeps white-on-dark (already ~13.8:1); the three colored variants
+       below override to --ink-on-brand since white on green/blue/purple only
+       reached 2.71 / 2.74 / 3.29:1 — --ink-on-brand reaches >=5:1 on all three. */
     .tier-tab.active { border-color: var(--text); background: var(--text); color: #fff; font-weight: 600; }
-    .tier-tab[data-tier="starter"].active { background: var(--green); border-color: var(--green); }
-    .tier-tab[data-tier="basic"].active   { background: var(--blue);  border-color: var(--blue); }
-    .tier-tab[data-tier="expressive"].active { background: var(--purple); border-color: var(--purple); }
+    .tier-tab[data-tier="starter"].active { background: var(--green); border-color: var(--green); color: var(--ink-on-brand); }
+    .tier-tab[data-tier="basic"].active   { background: var(--blue);  border-color: var(--blue);  color: var(--ink-on-brand); }
+    .tier-tab[data-tier="expressive"].active { background: var(--purple); border-color: var(--purple); color: var(--ink-on-brand); }
 
     /* ── Coaching chips ──────────────────────────────── */
     .coaching-chips { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+    /* Font-size bumped 12px -> 16px (typography sweep, 2026-07-18): these are
+       substantive labels a parent reads to choose which coaching panel to
+       open ("💡 为什么有效" / "💬 接下来说什么" / "🔄 没反应时"), not
+       decorative chrome. min-height raised 28px -> 40px and padding trimmed
+       so 3 chips still comfortably wrap via the existing flex-wrap at
+       320-390px without overflowing. */
     .coaching-chip {
-      font-size: 11px; border-radius: 8px; padding: 5px 10px;
-      cursor: pointer; border: 1px solid; background: #fff; transition: all .15s; user-select: none;
+      font-size: 16px; border-radius: 8px; padding: 6px 10px; min-height: 40px;
+      cursor: pointer; border: 1px solid; background: #fff; transition: all .15s;
+      touch-action: manipulation; user-select: none;
+      display: inline-flex; align-items: center;
     }
-    .coaching-chip.why  { color: #2E7D32; border-color: #C8E6C9; }
-    .coaching-chip.why.open  { background: #E8F5E9; }
-    .coaching-chip.next { color: #1565C0; border-color: #BBDEFB; }
-    .coaching-chip.next.open { background: #E3F2FD; }
-    .coaching-chip.fb   { color: #6A1B9A; border-color: #E1BEE7; }
-    .coaching-chip.fb.open   { background: #F3E5F5; }
+    .coaching-chip.why  { color: var(--chip-why); border-color: var(--chip-why-border); }
+    .coaching-chip.why.open  { background: var(--chip-why-bg); }
+    .coaching-chip.next { color: var(--chip-next); border-color: var(--chip-next-border); }
+    .coaching-chip.next.open { background: var(--chip-next-bg); }
+    .coaching-chip.fb   { color: var(--chip-fb); border-color: var(--chip-fb-border); }
+    .coaching-chip.fb.open   { background: var(--chip-fb-bg); }
+    /* Open state must not rely on color alone (2026-07-17 visual critique #5,
+       Sev B). Generic, covers why/next/fb: a rotating caret plus a heavier
+       weight and inset border give a shape/position cue on top of the
+       existing background-color change. */
+    .coaching-chip::after {
+      content: "\25B8"; display: inline-block; margin-left: 5px;
+      font-size: 10px; transition: transform .15s;
+    }
+    .coaching-chip.open {
+      font-weight: 700; box-shadow: inset 0 0 0 1.5px currentColor;
+    }
+    .coaching-chip.open::after { transform: rotate(90deg); }
+    /* Bumped 13px -> 16px: this IS the coaching content itself (the why/
+       next/fallback text) — a primary reading surface, same class of
+       content as .phrase-tip (typography sweep, 2026-07-18). */
     .coaching-panel {
-      display: none; font-size: 12px; line-height: 1.65; margin-top: 6px;
+      display: none; font-size: 16px; line-height: 1.65; margin-top: 6px;
       padding: 8px 12px; border-radius: 8px; color: var(--text);
     }
-    .coaching-panel.why-panel  { background: #E8F5E9; }
-    .coaching-panel.next-panel { background: #E3F2FD; }
-    .coaching-panel.fb-panel   { background: #F3E5F5; }
+    .coaching-panel.why-panel  { background: var(--chip-why-bg); }
+    .coaching-panel.next-panel { background: var(--chip-next-bg); }
+    .coaching-panel.fb-panel   { background: var(--chip-fb-bg); }
     .coaching-panel.open { display: block; }
 
     /* ── Scenario mastery badge ──────────────────────── */
-    .s-used { font-size: 11px; color: var(--green); margin-top: 4px; font-weight: 600; }
+    /* Sub-16px, kept: achievement micro-badge ("✓ 今天说了 N 句"), part of
+       the badge family (see .saved-item-badge); the fuller version of this
+       same info is restated at 16px in .today-progress below (typography
+       sweep, 2026-07-18). Color fixed var(--green) -> var(--green-deep):
+       var(--green) on white measured 2.71:1 (fails AA); --green-deep
+       reaches 5.32:1 (contrast sweep, 2026-07-18). */
+    .s-used { font-size: 11px; color: var(--green-deep); margin-top: 4px; font-weight: 600; }
 
     /* ── Today progress bar ──────────────────────────── */
     .today-progress {
-      display: none; margin: 0 16px 12px; padding: 12px 14px;
+      display: none; margin: 0 16px 12px; padding: 12px 16px;
       background: #fff; border-radius: var(--r); box-shadow: var(--shadow);
     }
     .today-progress.show { display: block; }
+    /* Sub-16px, kept: uppercase section-eyebrow label ("今天已用"), same
+       pattern as .section-title (typography sweep, 2026-07-18). */
     .today-progress-label {
-      font-size: 11px; color: var(--muted); margin-bottom: 8px;
+      font-size: 12px; color: var(--muted); margin-bottom: 8px;
       font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
     }
     .today-progress-icons { display: flex; gap: 8px; flex-wrap: wrap; }
+    /* Sub-16px, kept: compact recap pill (icon + scenario name + count),
+       part of the badge family; the same info is available at full size on
+       the scenario card itself (typography sweep, 2026-07-18). */
     .today-badge {
       display: flex; align-items: center; gap: 4px;
       background: var(--warm); border-radius: 20px; padding: 4px 10px; font-size: 12px;
     }
-    .today-badge-count { color: var(--green); font-weight: 700; }
+    /* color fixed var(--green) -> var(--green-deep): var(--green) on
+       --warm measured 2.42:1 (fails AA); --green-deep reaches 4.76:1
+       (contrast sweep, 2026-07-18). */
+    .today-badge-count { color: var(--green-deep); font-weight: 700; }
 
     /* ── Install banner ──────────────────────────────── */
+    /* Bumped 13px -> 16px: real sentence content ("像 App 一样使用，随时
+       打开") (typography sweep, 2026-07-18). */
     .install-banner {
       display: none;
-      background: linear-gradient(135deg, #FF7A45 0%, #FFB347 100%);
-      color: #fff;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      /* white on this gradient measured 2.59:1 / 1.78:1 across ends; --ink-on-brand
+         reaches 6.73:1 / 9.77:1 */
+      color: var(--ink-on-brand);
       padding: 14px 16px;
       align-items: center;
       gap: 12px;
-      font-size: 13px;
+      font-size: 16px;
       position: sticky; top: 0; z-index: 300;
     }
     .install-banner.show { display: flex; }
     .install-banner .ib-text { flex: 1; line-height: 1.5; }
-    .install-banner .ib-text strong { display: block; font-size: 14px; }
+    /* Bumped 14px -> 17px: banner heading, one step above the 16px body line above it. */
+    .install-banner .ib-text strong { display: block; font-size: 17px; }
+    /* Bumped 13px -> 16px: CTA button text. */
     .install-btn {
-      background: #fff; color: var(--accent);
+      background: #fff;
+      /* var(--accent) on white measured 2.59:1 (fails AA); --accent-deep reaches 5.20:1 */
+      color: var(--accent-deep);
       border: none; border-radius: 10px;
-      padding: 8px 14px; font-size: 13px; font-weight: 600;
+      padding: 8px 14px; font-size: 16px; font-weight: 600;
       cursor: pointer; white-space: nowrap;
+      touch-action: manipulation; user-select: none;
     }
+    /* color fixed: rgba(255,255,255,.7) on this gradient measured 1.95:1 /
+       1.50:1 across ends (fails AA badly on both — the elevated-severity
+       "every accent-adjacent text use" sweep target). Switched to the same
+       --ink-on-brand token as the rest of the header/banner family at .85
+       opacity (matches the .logo span pattern), which reaches 5.36:1 /
+       7.13:1 across the same gradient ends (contrast sweep, 2026-07-18). */
     .install-close {
-      background: none; border: none; color: rgba(255,255,255,.7);
+      background: none; border: none; color: var(--ink-on-brand); opacity: .85;
       font-size: 20px; cursor: pointer; padding: 0 4px;
     }
 
@@ -502,22 +821,40 @@
       width: 100%; max-width: 430px; margin: 0 auto;
     }
     .ios-sheet h3 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
-    .ios-sheet p { font-size: 14px; color: var(--muted); line-height: 1.7; margin-bottom: 16px; }
+    /* Bumped 14px -> 16px: instructional sentence a parent must read to
+       install the app (typography sweep, 2026-07-18). */
+    .ios-sheet p { font-size: 16px; color: var(--muted); line-height: 1.7; margin-bottom: 16px; }
     .ios-step { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    /* Contrast fix (named failure, 2026-07-18 sweep): white text on
+       var(--accent) measured 2.59:1, failing AA. Switched to --ink-on-brand
+       (6.73:1 on the same background), the same token already used for
+       every other accent-bg/dark-text pairing in the file. Sub-16px size
+       kept, unchanged: single-digit step numeral in a circle, an icon-like
+       ordinal marker rather than reading text. */
     .ios-step .step-num {
       width: 30px; height: 30px; border-radius: 50%;
-      background: var(--accent); color: #fff;
+      background: var(--accent); color: var(--ink-on-brand);
       display: flex; align-items: center; justify-content: center;
       font-size: 14px; font-weight: 700; flex-shrink: 0;
     }
-    .ios-step .step-text { font-size: 14px; line-height: 1.5; }
+    /* Bumped 14px -> 16px: the actual install instruction text per step —
+       must-read content (typography sweep, 2026-07-18). */
+    .ios-step .step-text { font-size: 16px; line-height: 1.5; }
+    /* Contrast fix (named failure, 2026-07-18 sweep): var(--accent) on
+       var(--warm) measured 2.31:1, failing AA. Switched to --accent-deep,
+       the existing token already relied on for this exact accent-on-warm
+       pairing elsewhere (.review-btn-reveal: 4.65:1 on the same --warm).
+       Font-size bumped 15px -> 16px (CTA button). */
     .ios-close-btn {
       width: 100%; background: var(--warm); border: none;
-      border-radius: 12px; padding: 14px; font-size: 15px;
-      font-weight: 600; color: var(--accent); cursor: pointer; margin-top: 4px;
+      border-radius: 12px; padding: 14px; font-size: 16px;
+      font-weight: 600; color: var(--accent-deep); cursor: pointer; margin-top: 4px;
     }
 
     /* ── Offline toast ───────────────────────────────── */
+    /* Sub-16px, kept: transient snackbar/toast (auto-dismisses in 3.5s),
+       not a sustained reading surface — platform convention for ephemeral
+       system feedback (typography sweep, 2026-07-18). */
     .offline-toast {
       position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
       background: #2D2D2D; color: #fff;
@@ -530,9 +867,11 @@
 
     /* ── Search (want-to-say) ────────────────────────── */
     .search-wrap { padding: 12px 16px 0; }
+    /* Bumped 15px -> 16px: also avoids iOS Safari's auto-zoom-on-focus for
+       inputs under 16px (typography sweep, 2026-07-18). */
     .search-input {
       width: 100%; border: 1.5px solid var(--border); border-radius: 14px;
-      background: var(--card); padding: 12px 14px; font-size: 15px;
+      background: var(--card); padding: 12px 14px; font-size: 16px;
       font-family: inherit; color: var(--text); outline: none;
       box-shadow: var(--shadow);
     }
@@ -540,20 +879,36 @@
     .search-results { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     #homeScreen.searching .hide-on-search { display: none !important; }
     .search-result {
-      background: var(--card); border-radius: var(--r); padding: 12px 14px;
+      background: var(--card); border-radius: var(--r); padding: 12px 16px;
       box-shadow: var(--shadow); cursor: pointer;
+      touch-action: manipulation; user-select: none;
     }
-    .search-result .sr-en { font-size: 15px; font-weight: 700; line-height: 1.35; }
-    .search-result .sr-meta { font-size: 13px; color: var(--muted); margin-top: 3px; }
+    /* .sr-en/.sr-meta [explicit sweep target ".sr-* text"]. .sr-meta renders
+       e.p.zh (the Chinese half of this bilingual pair, despite its generic
+       class name) — it was 14px/var(--muted)/normal weight against
+       .sr-en's 15px/700, badly violating zh>=en on size AND weight AND
+       demoting zh to the secondary-metadata color. Both bumped to 16px;
+       .sr-en stepped down to 600 and .sr-meta raised to 700/--zh-ink so the
+       Chinese is never the quieter line, matching the .phrase-en/.phrase-zh
+       pattern used everywhere else (typography + hierarchy sweep, 2026-07-18). */
+    .search-result .sr-en { font-size: 16px; font-weight: 600; line-height: 1.35; }
+    .search-result .sr-meta { font-size: 16px; font-weight: 700; color: var(--zh-ink); margin-top: 3px; }
+    /* Sub-16px, kept: badge-family pill (scenario + age tag), supplementary
+       metadata already implied by which scenario the result came from
+       (typography sweep, 2026-07-18). */
     .search-result .sr-badge {
-      display: inline-block; margin-top: 6px; font-size: 11px;
-      background: var(--warm); color: #8A6A45; border-radius: 8px; padding: 2px 8px;
+      display: inline-block; margin-top: 6px; font-size: 12px;
+      background: var(--warm); color: var(--badge-ink); border-radius: 8px; padding: 2px 8px;
     }
-    .search-empty { text-align: center; color: var(--muted); font-size: 13px; padding: 14px 0 4px; }
+    /* Bumped 13px -> 16px: real message content (typography sweep, 2026-07-18). */
+    .search-empty { text-align: center; color: var(--muted); font-size: 16px; padding: 14px 0 4px; }
+    /* Bumped 14px -> 16px: prominent CTA button text. */
     .search-ai-btn {
       border: none; border-radius: 14px; padding: 13px;
       background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
-      color: #fff; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
+      /* white on this gradient measured 2.59:1 / 1.78:1 across ends; --ink-on-brand
+         reaches 6.73:1 / 9.77:1 */
+      color: var(--ink-on-brand); font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer;
     }
 
     /* Jump-to-phrase highlight */
@@ -564,12 +919,15 @@
     .phrase-card.flash { animation: flashCard 2.2s ease-out; }
 
     /* ── Review strip (home) ─────────────────────────── */
+    /* Bumped 14px -> 16px: real message a parent reads ("今天有 X 句待复习，
+       趁热练一练 →") (typography sweep, 2026-07-18). */
     .review-strip {
       display: none; align-items: center; gap: 8px;
-      margin: 12px 16px 0; padding: 12px 14px;
+      margin: 12px 16px 0; padding: 12px 16px;
       background: var(--card); border-left: 4px solid var(--teal);
       border-radius: var(--r); box-shadow: var(--shadow);
-      font-size: 14px; font-weight: 600; cursor: pointer;
+      font-size: 16px; font-weight: 600; cursor: pointer;
+      min-height: 44px; touch-action: manipulation;
     }
     .review-strip.show { display: flex; }
 
@@ -579,52 +937,81 @@
       background: var(--card); border-radius: var(--r); padding: 16px;
       box-shadow: var(--shadow); border-top: 4px solid var(--teal);
     }
+    /* Bumped 14px -> 16px: real status line a parent reads each review
+       ("📅 今日复习 · 还剩 X 句" + scenario name) (typography sweep, 2026-07-18). */
     .review-head {
       display: flex; justify-content: space-between; align-items: center;
-      font-size: 13px; color: var(--muted); margin-bottom: 12px;
+      flex-wrap: wrap; gap: 4px 12px;
+      font-size: 16px; color: var(--muted); margin-bottom: 12px;
     }
+    .review-head > span { min-width: 0; overflow-wrap: anywhere; }
     .review-zh { font-size: 18px; font-weight: 700; line-height: 1.5; }
-    .review-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    /* Bumped 13px -> 16px: instructional sentence ("先回想英语怎么说，
+       再显示答案") (typography sweep, 2026-07-18). */
+    .review-hint { font-size: 16px; color: var(--muted); margin-top: 4px; }
     .review-answer { display: none; margin-top: 12px; }
     .review-answer.open { display: block; }
-    .review-en { font-size: 17px; font-weight: 700; color: var(--accent); line-height: 1.4; }
+    /* var(--accent) on white measured 2.59:1 — fails AA for 17px bold primary
+       reading text (2026-07-15 visual critique #1, Sev A). --accent-deep is
+       the existing darkened token for exactly this pair (white bg) and reaches
+       5.20:1, already relied on elsewhere in this file (install-btn,
+       age-opt.active) — reused here rather than inventing a new token. */
+    .review-en { font-size: 17px; font-weight: 700; color: var(--accent-deep); line-height: 1.4; }
+    /* Bumped 14px -> 16px: reading tip content, same family as .phrase-tip. */
     .review-tip {
-      font-size: 12px; color: #5A4A35; background: #FFFBF5;
+      font-size: 16px; color: var(--tip-ink); background: var(--tint-warm);
       border-radius: 8px; padding: 8px 10px; margin-top: 8px; line-height: 1.6;
     }
     .review-actions { display: flex; gap: 10px; margin-top: 14px; }
+    /* Bumped 14px -> 16px: CTA labels ("还要练" / "记住了"). */
     .review-actions button {
       flex: 1; border: none; border-radius: 12px; padding: 12px;
-      font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
+      min-height: 44px; font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer;
+      touch-action: manipulation;
     }
+    /* var(--accent) #FF7A45 on --warm #FFF0E0 measured 2.31:1 (fails AA);
+       --accent-deep reaches 4.65:1 on the same --warm background
+       (2026-07-17 visual critique #4, Sev B). Font-size bumped 14px -> 16px. */
     .review-btn-reveal {
       display: block; width: 100%; margin-top: 12px;
       border: none; border-radius: 12px; padding: 12px;
-      font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
-      background: var(--warm); color: var(--accent);
+      min-height: 44px; font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer;
+      background: var(--warm); color: var(--accent-deep);
+      touch-action: manipulation;
     }
-    .review-btn-again  { background: var(--warm); color: #8A6A45; }
-    .review-btn-good   { background: var(--green); color: #fff; }
-    .review-btn-play   { background: var(--blue); color: #fff; flex: 0 0 auto; padding: 12px 16px !important; }
+    .review-btn-again  { background: var(--warm); color: var(--badge-ink); }
+    /* white text on --green/--blue measured 2.71/2.74:1 (fails AA); --ink-on-brand
+       keeps the same button colors and reaches >=5:1 */
+    .review-btn-good   { background: var(--green); color: var(--ink-on-brand); }
+    .review-btn-play   { background: var(--blue); color: var(--ink-on-brand); flex: 0 0 auto; padding: 12px 16px !important; }
+    /* Visible playing state for the review-card audio button (state-visibility finding) */
+    .review-btn-play.playing { background: var(--slow-playing); color: var(--ink-on-brand); }
+    /* Bumped 13px -> 16px: real message content ("✅ 今天的复习完成了…"). */
     .review-done {
-      text-align: center; color: var(--muted); font-size: 13px;
+      text-align: center; color: var(--muted); font-size: 16px;
       padding: 12px; background: var(--card); border-radius: var(--r); box-shadow: var(--shadow);
     }
-    .saved-item-tip { font-size: 12px; color: #5A4A35; margin-top: 4px; line-height: 1.5; }
+    /* Bumped 14px -> 16px: reading tip content, same family as .phrase-tip. */
+    .saved-item-tip { font-size: 16px; color: var(--tip-ink); margin-top: 4px; line-height: 1.5; }
 
     /* ── Nav badge (due review count) ────────────────── */
     .nav-item { position: relative; }
+    /* Sub-16px, kept: numeral notification-dot badge (1-2 digit due-count),
+       universal small-pill convention (iOS/Android badge counts) — not
+       sentence content (typography sweep, 2026-07-18). */
     .nav-badge {
       display: none; position: absolute; top: 4px; right: 50%; margin-right: -22px;
       min-width: 16px; height: 16px; padding: 0 4px;
-      background: #E85D4A; color: #fff; border-radius: 8px;
+      background: var(--nav-badge-bg); color: #fff; border-radius: 8px;
       font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
     }
     .nav-badge.show { display: block; }
 
     /* ── Preset matches (translate screen) ───────────── */
     .preset-matches { display: flex; flex-direction: column; gap: 8px; }
-    .preset-matches-label { font-size: 13px; font-weight: 600; color: var(--muted); }
+    /* Bumped 13px -> 16px: real sentence content ("✅ 场景里已有现成的表达
+       （人工审核过）：") (typography sweep, 2026-07-18). */
+    .preset-matches-label { font-size: 16px; font-weight: 600; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -692,6 +1079,16 @@
   <!-- Review reminder -->
   <div class="review-strip hide-on-search" id="reviewStrip" role="button" tabindex="0" onclick="showTab('saved')"></div>
 
+  <!-- Recent saves — elevated to the top of the landing screen (above the
+       scenario grid) so "open app → see what you saved → review" needs no
+       scroll or extra tap. See Unit C rationale in the handoff report. -->
+  <div class="saved-row hide-on-search">
+    <h3>♡ 我收藏的短句</h3>
+    <div id="savedChipsArea">
+      <div class="saved-empty">还没有收藏 — 去场景里探索吧！</div>
+    </div>
+  </div>
+
   <!-- Today strip -->
   <div class="today-strip hide-on-search">
     <div class="today-icon" id="todayIcon">🛁</div>
@@ -711,14 +1108,6 @@
   <!-- Scenarios — rendered by renderScenarioGrid() -->
   <div class="section-title hide-on-search">选择场景</div>
   <div class="scenario-grid hide-on-search" id="scenarioGrid"></div>
-
-  <!-- Saved quick row -->
-  <div class="saved-row hide-on-search">
-    <h3>♡ 我收藏的短句</h3>
-    <div id="savedChipsArea">
-      <div class="saved-empty">还没有收藏 — 去场景里探索吧！</div>
-    </div>
-  </div>
 
   <!-- Bottom nav -->
   <div class="bottom-nav">
@@ -798,9 +1187,11 @@
       <div class="result-zh" id="resultZh"></div>
       <div class="result-tip" id="resultTip"></div>
       <div class="result-actions">
-        <button onclick="playResultAudio()">▶ 朗读</button>
+        <button class="result-play-btn" data-playing-label="⏸ 播放中" aria-label="朗读"
+                onclick="playResultAudio(this)">▶ 朗读</button>
         <button onclick="saveTranslation()">♡ 收藏</button>
       </div>
+      <div class="result-related" id="resultRelated"></div>
     </div>
     <div class="ai-disclaimer" id="aiDisclaimer">⚠ AI 即时生成，未经人工审核 — 使用前请先读一读，确认适合宝宝。</div>
     <div class="preset-matches" id="presetMatches"></div>
@@ -822,7 +1213,7 @@
 <!-- ════════════════════════════════════════════════════
      DATA & LOGIC
 ═══════════════════════════════════════════════════════ -->
-<script src="./scenarios.js"></script>
+<script src="./scenarios.js" defer></script>
 <script>
 // ── State ─────────────────────────────────────────────
 let currentAge = "1-2";
@@ -867,8 +1258,24 @@ const REVIEW_INTERVALS = [1, 3, 7, 14, 30];
 // ── Phrase Data — loaded from scenarios.js ─────────────
 // window.scenarios and window.scenarioOrder are set by scenarios.js
 
-// ── Today (day-since-epoch rotation across all 30) ──────
-const todayId = scenarioOrder[Math.floor(Date.now() / 86400000) % scenarioOrder.length];
+// ── Today (day-since-epoch rotation across all 30); assigned once data is
+// confirmed loaded, inside llStartApp() below.
+let todayId = null;
+
+// ── Guard + startup: scenarios.js loads as a deferred external <script>
+// (offline first-paint finding, 2026-07-18 sweep) instead of a
+// parser-blocking one, so the app shell above (header, search, nav, etc.)
+// is parsed and can paint immediately — first paint no longer waits on that
+// network request, including on a slow or failing cold-offline load. `defer`
+// also preserves the ordering guarantee the old synchronous script gave us:
+// per spec, a deferred script finishes executing (load or error) before
+// `DOMContentLoaded` fires, so by the time llStartApp() runs below,
+// `scenarios`/`scenarioOrder` are either defined or permanently absent.
+// If they're absent we show a friendly bilingual retry overlay instead of
+// leaving a dead, unstyled shell with no way for the parent to recover (the
+// underlying DOM/listeners are left intact so a later successful load —
+// e.g. after `location.reload()` — still works normally); every render call
+// below is gated on the same DATA_OK check.
 
 // ── Tier helpers ───────────────────────────────────────
 function getPhraseTier(p, index, total) {
@@ -1077,7 +1484,7 @@ function renderPhrases() {
          <div class="coaching-panel why-panel"  id="coach-why-${p.id}"></div>
          <div class="coaching-panel next-panel" id="coach-next-${p.id}"></div>
          <div class="coaching-panel fb-panel"   id="coach-fb-${p.id}"></div>`
-      : `<button class="tip-toggle" onclick="toggleTip('${p.id}')">💡 使用提示</button>
+      : `<button class="tip-toggle" id="tip-toggle-${p.id}" aria-expanded="false" onclick="toggleTip('${p.id}')">💡 使用提示</button>
          <div class="phrase-tip" id="tip-${p.id}"></div>`;
 
     card.innerHTML = `
@@ -1148,6 +1555,45 @@ function getEnglishVoice() {
   return cachedVoice;
 }
 
+// ── Generic "now playing" state for audio buttons that aren't phrase cards
+// (translate-result + review-card). Keeps a visible playing indicator (class +
+// aria-pressed + label swap) so the parent knows audio started, per the
+// state-visibility findings. `speakPhrase`'s own play-btn/play-btn-slow markup
+// already has this; these helpers extend the same pattern to those two spots.
+function setPlayBtnPlaying(btn) {
+  if (!btn) return;
+  if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = btn.textContent;
+  btn.classList.add("playing");
+  btn.setAttribute("aria-pressed", "true");
+  btn.textContent = btn.dataset.playingLabel || "⏸";
+}
+function resetPlayBtnState(btn) {
+  if (!btn) return;
+  btn.classList.remove("playing");
+  btn.removeAttribute("aria-pressed");
+  if (btn.dataset.idleLabel !== undefined) btn.textContent = btn.dataset.idleLabel;
+}
+
+// ── Dead-tap fix (state-visibility finding, 2026-07-15 visual critique #2) ──
+// speakPhrase's fallbackTTS() and the shared speakText() both used to just
+// `return` when window.speechSynthesis is unavailable after an MP3 load
+// error — a tap that produces zero visible change. This gives every audio
+// button (play, slow, review, translate-result) a brief, unmistakable
+// "unavailable" state instead of silence.
+function flashAudioUnavailable(btn) {
+  if (!btn) return;
+  if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = btn.textContent;
+  btn.classList.remove("playing");
+  btn.removeAttribute("aria-pressed");
+  btn.classList.add("unavailable");
+  btn.textContent = "🔇 暂不可用";
+  clearTimeout(btn._unavailableTimer);
+  btn._unavailableTimer = setTimeout(() => {
+    btn.classList.remove("unavailable");
+    if (btn.dataset.idleLabel !== undefined) btn.textContent = btn.dataset.idleLabel;
+  }, 1600);
+}
+
 function stopAllAudio() {
   if (window.speechSynthesis) window.speechSynthesis.cancel();
   if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
@@ -1157,6 +1603,12 @@ function stopAllAudio() {
   });
   document.querySelectorAll('.audio-bar').forEach(b => b.style.display = "none");
   document.querySelectorAll('.audio-fill').forEach(f => f.style.width = "0%");
+  document.querySelectorAll('.review-btn-play.playing, .result-play-btn.playing').forEach(resetPlayBtnState);
+  document.querySelectorAll('.unavailable').forEach(b => {
+    clearTimeout(b._unavailableTimer);
+    b.classList.remove("unavailable");
+    if (b.dataset.idleLabel !== undefined) b.textContent = b.dataset.idleLabel;
+  });
 }
 
 function speakPhrase(id, btn, rate) {
@@ -1209,7 +1661,9 @@ function speakPhrase(id, btn, rate) {
 
   // ── Browser TTS fallback ─────────────────────────────
   function fallbackTTS() {
-    if (!window.speechSynthesis) return;
+    // MP3 load failed AND there's no browser speech-synthesis to fall back
+    // to — surface that visibly instead of leaving the tap unanswered.
+    if (!window.speechSynthesis) { flashAudioUnavailable(btn); return; }
     const spokenRate = rate ?? 0.82;
     const say = () => {
       const utter = new SpeechSynthesisUtterance(phrase.en);
@@ -1235,6 +1689,14 @@ function speakPhrase(id, btn, rate) {
     };
     speechSynthesis.getVoices().length > 0 ? say() : (speechSynthesis.onvoiceschanged = () => { cachedVoice = null; say(); });
   }
+}
+
+// ── Sort helper: newest-saved first, render-time only (never mutates the
+// underlying storage array so append order / spaced-repetition bookkeeping
+// in savedPhrases stays intact). Missing savedAt (pre-migration edge case)
+// sorts as oldest rather than throwing.
+function sortedBySavedAtDesc(arr) {
+  return [...arr].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
 }
 
 // ── Save ───────────────────────────────────────────────
@@ -1269,9 +1731,22 @@ function markUsed(id) {
   if (btn) { btn.className = "used-btn used"; btn.textContent = "✓ 用了！"; }
 }
 
+// Non-color state cue (state-cue sweep, 2026-07-18): previously the
+// .tip-toggle button itself never changed appearance between expanded/
+// collapsed — only the .phrase-tip block below it toggled display, so a
+// parent scrolled past the button had no cue it was already open. Now the
+// button gets a rotating caret (CSS ::after), a label-text swap, and
+// aria-expanded, mirroring the treatment .coaching-chip already has.
 function toggleTip(id) {
   const tip = document.getElementById("tip-" + id);
-  if (tip) tip.classList.toggle("open");
+  const btn = document.getElementById("tip-toggle-" + id);
+  if (!tip) return;
+  const isOpen = tip.classList.toggle("open");
+  if (btn) {
+    btn.classList.toggle("open", isOpen);
+    btn.setAttribute("aria-expanded", String(isOpen));
+    btn.textContent = isOpen ? "💡 收起提示" : "💡 使用提示";
+  }
 }
 
 // ── Saved screen ───────────────────────────────────────
@@ -1287,7 +1762,7 @@ function renderSavedChips() {
   }
   const row = document.createElement('div');
   row.className = 'saved-chips';
-  savedPhrases.forEach(p => {
+  sortedBySavedAtDesc(savedPhrases).forEach(p => {
     const chip = document.createElement('div');
     chip.className = 'saved-chip';
     const s = scenarios[p.scenario];
@@ -1311,7 +1786,7 @@ function renderSavedScreen() {
     list.appendChild(empty);
     return;
   }
-  savedPhrases.forEach(p => {
+  sortedBySavedAtDesc(savedPhrases).forEach(p => {
     const item = document.createElement('div');
     item.className = 'saved-item';
 
@@ -1366,7 +1841,11 @@ let reviewQueue = [];
 
 function dueReviews() {
   const now = Date.now();
-  return savedPhrases.filter(p => p.rv && p.rv.due <= now);
+  // Newest-saved due items first (render/queue-build-time sort only — see
+  // sortedBySavedAtDesc). reviewAnswer() still shift/push()es this queue in
+  // place for its own "answer again this session" logic; that in-session
+  // reordering is unaffected since it operates on the queue, not this sort.
+  return sortedBySavedAtDesc(savedPhrases.filter(p => p.rv && p.rv.due <= now));
 }
 
 function updateNavBadge() {
@@ -1441,8 +1920,9 @@ function renderReviewCard() {
   const playBtn = document.createElement("button");
   playBtn.className = "review-btn-play";
   playBtn.textContent = "▶";
+  playBtn.dataset.playingLabel = "⏸";
   playBtn.setAttribute("aria-label", "朗读");
-  playBtn.onclick = () => playReviewAudio(item);
+  playBtn.onclick = () => playReviewAudio(item, playBtn);
   const againBtn = document.createElement("button");
   againBtn.className = "review-btn-again";
   againBtn.textContent = "还要练";
@@ -1460,7 +1940,7 @@ function renderReviewCard() {
   revealBtn.onclick = () => {
     answer.classList.add("open");
     revealBtn.style.display = "none";
-    playReviewAudio(item);
+    playReviewAudio(item, playBtn);
   };
 
   card.append(head, zh, hint, revealBtn, answer);
@@ -1487,46 +1967,48 @@ function reviewAnswer(remembered) {
   else renderReviewArea();
 }
 
-function playReviewAudio(item) {
+function playReviewAudio(item, btn) {
   stopAllAudio();
+  if (btn) setPlayBtnPlaying(btn);
   // Scenario phrases have Azure MP3s named by id; AI translations don't
   if (item.id && !String(item.id).startsWith("t_")) {
     const mp3 = new Audio(`./audio/${item.id}_normal.mp3`);
     currentAudio = mp3;
-    mp3.addEventListener("error", () => { currentAudio = null; speakText(item.en); }, { once: true });
-    mp3.play().catch(() => speakText(item.en));
+    mp3.addEventListener("ended", () => resetPlayBtnState(btn), { once: true });
+    mp3.addEventListener("error", () => { currentAudio = null; speakText(item.en, undefined, btn); }, { once: true });
+    mp3.play().catch(() => speakText(item.en, undefined, btn));
   } else {
-    speakText(item.en);
+    speakText(item.en, undefined, btn);
   }
 }
 
 // ── Translate ──────────────────────────────────────────
 const translateResponses = {
   "1-2": [
-    { pattern: /勇敢|不哭/,   en: "You're so brave! No crying — wow!", tip: "1–2岁宝宝听到\"brave\"的语气比内容更重要，夸张地竖起大拇指效果更好。" },
-    { pattern: /吃饭|吃东西/, en: "Yummy! Time to eat! Open wide!", tip: "配合张嘴的动作一起说，宝宝更容易模仿。" },
-    { pattern: /睡觉|睡了/,   en: "Sleepy time! Close your eyes.", tip: "音量放低，语速放慢，配合轻摇或抚背。" },
-    { pattern: /爱你/,        en: "I love you SO much! Big hug!", tip: "可以配合夸张的拥抱动作，强化情感连接。" },
+    { pattern: /勇敢|不哭/,   en: "Wow, you're so brave!", tip: "蹲下来抱抱宝宝，竖起大拇指，用夸张的语气说 brave。" },
+    { pattern: /吃饭|吃东西/, en: "Yummy! Time to eat! Open wide!", tip: "自己先张大嘴巴做示范，把小勺子慢慢送到宝宝嘴边。" },
+    { pattern: /睡觉|睡了/,   en: "Sleepy time! Close your eyes.", tip: "把宝宝抱在怀里轻轻摇，一边放低声音一边拍拍他的背。" },
+    { pattern: /爱你/,        en: "I love you SO much! Big hug!", tip: "张开双臂把宝宝紧紧抱住，轻轻左右摇一摇。" },
   ],
   "2-3": [
-    { pattern: /勇敢|不哭/,   en: "You were so brave! I'm proud of you!", tip: "具体说出你骄傲的行为，比泛泛地夸更有效。" },
-    { pattern: /吃饭|吃东西/, en: "Time to eat! What do you want?", tip: "给宝宝选择权，减少吃饭时的抵触。" },
-    { pattern: /睡觉|睡了/,   en: "Bedtime! Let's get cozy.", tip: "用\"cozy\"（舒适）让睡觉听起来很吸引人。" },
-    { pattern: /爱你/,        en: "I love you to the moon and back!", tip: "经典绘本短句，孩子会很快学会回应你。" },
+    { pattern: /勇敢|不哭/,   en: "You were so brave! I'm proud of you!", tip: "蹲到宝宝视线高度看着他的眼睛，指着他刚才勇敢做的那件事。" },
+    { pattern: /吃饭|吃东西/, en: "Time to eat! What do you want?", tip: "端出两样食物举到宝宝面前，让他指一指想先吃哪一个。" },
+    { pattern: /睡觉|睡了/,   en: "Bedtime! Let's get cozy.", tip: "拉好被子把宝宝盖到肩膀，把他的小玩偶放到身边。" },
+    { pattern: /爱你/,        en: "I love you to the moon and back!", tip: "抱住宝宝，用手在空中比一个大大的圆圈，从月亮画回来。" },
   ],
   "3-6": [
-    { pattern: /勇敢|不哭/,   en: "That took courage! I saw how brave you were.", tip: "大孩子欣赏被认真对待，具体观察比泛夸更有力量。" },
-    { pattern: /吃饭|吃东西/, en: "Dinner time! Can you help set the table?", tip: "给大孩子任务，让吃饭变成参与感的活动。" },
-    { pattern: /睡觉|睡了/,   en: "Time to wind down. What was the best part of your day?", tip: "睡前回顾一天，帮孩子处理情绪和建立语言能力。" },
-    { pattern: /爱你/,        en: "I love you — no matter what, always.", tip: "\"No matter what\"（无论如何）给孩子无条件的安全感。" },
+    { pattern: /勇敢|不哭/,   en: "That took courage! I saw how brave you were.", tip: "蹲下来看着孩子的眼睛，说出你刚才看到他勇敢的那一幕。" },
+    { pattern: /吃饭|吃东西/, en: "Dinner time! Can you help set the table?", tip: "把碗筷递到孩子手上，牵着他一起摆到餐桌上。" },
+    { pattern: /睡觉|睡了/,   en: "Time to wind down. What was the best part of your day?", tip: "调暗灯光坐到床边，牵着孩子的手听他讲今天。" },
+    { pattern: /爱你/,        en: "I love you no matter what — always.", tip: "把孩子搂进怀里，看着他的眼睛，一个字一个字地慢慢说。" },
   ],
 };
 
 // Default fallback translations
 const defaultTranslations = {
-  "1-2": { en: "You did it! Good job! Mommy/Daddy is here.", tip: "1–2岁宝宝最需要的是简短、积极、有你存在感的话。" },
-  "2-3": { en: "That's great! I'm so happy with you!", tip: "2–3岁宝宝能理解更完整的句子，但仍然喜欢简单直接的夸奖。" },
-  "3-6": { en: "You're doing wonderful. I'm really proud of you!", tip: "大孩子喜欢听具体的肯定，搭配你为什么骄傲效果更好。" },
+  "1-2": { en: "You did it! Good job! I'm right here.", tip: "张开双臂把宝宝抱起来，竖起大拇指对他笑。" },
+  "2-3": { en: "That's great! I'm so proud of you!", tip: "蹲下来和宝宝拍一个响亮的击掌，笑着看着他。" },
+  "3-6": { en: "You're doing so well. I'm really proud of you!", tip: "拍拍孩子的肩膀，指出他刚才做得好的那一步。" },
 };
 
 function selectTranslateAge(el, age) {
@@ -1545,12 +2027,45 @@ function localTranslate(zh) {
 
 let lastTranslateResult = null;
 
+// Related expressions come only from the AI path (translate.mjs). The local/
+// offline fallback (localTranslate) never fabricates them, so passing an
+// undefined/empty `related` here must fully clear any list left over from a
+// previous query rather than leaving it stale on screen (Unit B).
+function renderRelatedExpressions(related) {
+  const box = document.getElementById("resultRelated");
+  box.innerHTML = "";
+  box.classList.remove("show");
+  const items = Array.isArray(related) ? related.filter(r => r && r.en) : [];
+  if (!items.length) return;
+  const label = document.createElement("div");
+  label.className = "result-related-label";
+  label.textContent = "🗣 还可以这样说";
+  box.appendChild(label);
+  items.forEach(r => {
+    const item = document.createElement("div");
+    item.className = "result-related-item";
+    const en = document.createElement("div");
+    en.className = "result-related-en";
+    en.textContent = r.en;
+    item.appendChild(en);
+    if (r.zh) {
+      const zh = document.createElement("div");
+      zh.className = "result-related-zh";
+      zh.textContent = r.zh;
+      item.appendChild(zh);
+    }
+    box.appendChild(item);
+  });
+  box.classList.add("show");
+}
+
 function showTranslateResult(result, disclaimer) {
   lastTranslateResult = result;
   document.getElementById("resultEn").textContent = result.en;
   document.getElementById("resultZh").textContent = result.zh || "";
   document.getElementById("resultTip").textContent = "💡 " + result.tip;
   document.getElementById("aiDisclaimer").textContent = disclaimer;
+  renderRelatedExpressions(result.related);
   document.getElementById("translateResult").classList.add("show");
 }
 
@@ -1588,18 +2103,29 @@ async function doTranslate() {
   }
 }
 
-function speakText(text, rate) {
-  if (!text || !window.speechSynthesis) return;
+function speakText(text, rate, btn) {
+  // No speech-synthesis fallback available (used after an MP3 error in
+  // playReviewAudio, or directly by playResultAudio for AI translations that
+  // have no MP3 at all) — flash a visible state rather than resetting to
+  // idle in silence.
+  if (!window.speechSynthesis) { flashAudioUnavailable(btn); return; }
+  if (!text) { resetPlayBtnState(btn); return; }
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = "en-US"; utter.rate = rate || 0.85; utter.pitch = 1.1;
   const v = getEnglishVoice();
   if (v) utter.voice = v;
+  if (btn) {
+    setPlayBtnPlaying(btn);
+    utter.onend = () => resetPlayBtnState(btn);
+    utter.onerror = () => resetPlayBtnState(btn);
+  }
   speechSynthesis.speak(utter);
 }
 
-function playResultAudio() {
-  speakText(document.getElementById("resultEn").textContent);
+function playResultAudio(btn) {
+  stopAllAudio();
+  speakText(document.getElementById("resultEn").textContent, undefined, btn);
 }
 
 function saveTranslation() {
@@ -1832,12 +2358,53 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Init ───────────────────────────────────────────────
-renderScenarioGrid();
-renderTodayStrip();
-renderSavedChips();
-renderTodayProgress();
-renderReviewStrip();
-updateNavBadge();
+// Runs on DOMContentLoaded — i.e. once the deferred scenarios.js script has
+// finished executing (loaded or failed), see the comment above `let
+// todayId`. This is the direct fix for the offline first-paint finding: the
+// app shell markup above already parsed and painted independently of this
+// data load, and this handler only does the data-dependent work once that
+// load has actually settled.
+function llStartApp() {
+  const DATA_OK = typeof scenarioOrder !== "undefined" && typeof scenarios !== "undefined" &&
+                  Array.isArray(scenarioOrder) && scenarioOrder.length > 0;
+
+  if (!DATA_OK) {
+    const errorOverlay = document.createElement("div");
+    errorOverlay.id = "dataLoadError";
+    // Raw hex literals replaced with the same CSS custom properties the rest
+    // of the shell uses (2026-07-15 visual critique #6, Sev C palette-drift
+    // fix). :root vars are already parsed (declared in <head>) before this
+    // script runs, so var(--x) resolves correctly in these inline styles.
+    errorOverlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:var(--cream);" +
+      "display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+      "gap:16px;padding:32px;text-align:center;font-family:-apple-system,'PingFang SC',sans-serif;";
+    // Sub-16px spans bumped to 16px (typography sweep, 2026-07-18): this is
+    // real error-recovery copy a parent must read to know what to do next,
+    // not chrome.
+    errorOverlay.innerHTML =
+      '<div style="font-size:48px;">📡</div>' +
+      '<div style="font-size:17px;font-weight:700;color:var(--text);line-height:1.5;">' +
+      '内容加载失败<br><span style="font-weight:400;font-size:16px;color:var(--muted);">' +
+      'Content couldn’t load — please check your connection</span></div>' +
+      '<button id="dataLoadRetryBtn" style="background:var(--accent);color:var(--ink-on-brand);border:none;' +
+      'border-radius:10px;padding:12px 24px;font-size:16px;font-weight:600;' +
+      'min-height:44px;cursor:pointer;">重新加载 · Reload</button>';
+    document.body.appendChild(errorOverlay);
+    document.getElementById("dataLoadRetryBtn").addEventListener("click", () => location.reload());
+    return;
+  }
+
+  todayId = scenarioOrder[Math.floor(Date.now() / 86400000) % scenarioOrder.length];
+
+  renderScenarioGrid();
+  renderTodayStrip();
+  renderSavedChips();
+  renderTodayProgress();
+  renderReviewStrip();
+  updateNavBadge();
+}
+
+document.addEventListener("DOMContentLoaded", llStartApp);
 </script>
 </body>
 </html>

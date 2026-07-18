@@ -36,6 +36,11 @@
       --border:  #EAE0D5;
       --card:    #FFFFFF;
       --shadow:  0 2px 12px rgba(0,0,0,.08);
+      /* Design-system v2 (2026-07-18): double-layer, low-spread shadow —
+         replaces the single heavy --shadow above on every card-like surface
+         (phrase cards, scenario cards, saved rows, and the rest of the card
+         family) per the phrase-card-v2 / home-v2 visual proposals. */
+      --shadow-card: 0 1px 3px rgba(45,45,45,.06), 0 4px 16px rgba(45,45,45,.06);
       --r:       16px;
       --teal:    #26B2AA;
       --pink:    #E8769A;
@@ -78,10 +83,17 @@
       padding-bottom: env(safe-area-inset-bottom);
     }
 
-    /* ── Header ───────────────────────────────────────── */
+    /* ── Header (home-v2 proposal, ported) ─────────────── */
     .header {
-      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
-      padding: 16px 16px 24px; /* normalized to 4/8/12/16/24 spacing scale */
+      /* Gradient softened 135deg -> 160deg, stops moved 0%/100% -> 10%/110%
+         (home-v2 spec bullet 1). Same two colors, so the prior AA
+         measurements for text on this gradient still apply unchanged. */
+      background: linear-gradient(160deg, var(--accent) 10%, var(--accent2) 110%);
+      /* padding grown 16/16/24 -> 20/16/56: the extra bottom padding is
+         reserved for the hero card's -36px overlap (home-v2 spec bullet 1 +
+         bullet 3) so the card visually "sits" on the header without eating
+         into the header's own content. */
+      padding: 20px 16px 56px;
       /* white on this gradient measured 2.59:1 (accent end) / 1.78:1 (accent2 end);
          --ink-on-brand reaches 6.73:1 / 9.77:1 on the same two ends */
       color: var(--ink-on-brand);
@@ -89,36 +101,45 @@
     }
     /* flex-wrap + row-gap added as a 320px safety net (layout-overflow
        check, 2026-07-18 sweep): .age-badge's label grew from 13px -> 16px
-       (see below), tightening this row's fit next to the 20px logo. If it
+       (see below), tightening this row's fit next to the logo. If it
        ever gets too tight (long label, larger OS text-size setting) the
        pill now wraps to its own line instead of being squeezed/clipped —
        never a body horizontal scroll. */
-    .header-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; row-gap: 6px; }
-    .logo { font-size: 20px; font-weight: 700; letter-spacing: -.3px; }
+    .header-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; row-gap: 6px; }
+    .logo { font-size: 22px; font-weight: 800; letter-spacing: -.4px; }
     /* Sub-16px, kept: decorative brand tagline inside the logo lockup, not
        instructional/reading content — redundant with <title>/manifest name
        (typography sweep, 2026-07-18). */
-    .logo span { font-size: 13px; font-weight: 400; opacity: .85; display: block; margin-top: 2px; }
+    .logo span { font-size: 13px; font-weight: 500; opacity: .8; display: block; margin-top: 3px; }
     /* Bumped 13px -> 16px: this badge is the only place the parent's
        *current* age selection is visible at a glance on the home screen —
-       real reading content, not chrome (typography sweep, 2026-07-18). */
+       real reading content, not chrome (typography sweep, 2026-07-18).
+       Restyled to a white control pill (home-v2 spec bullet 2) so it reads
+       as tappable chrome rather than a translucent label. Contrast check
+       (accent-deep text on this pill over the two gradient stops):
+       4.52:1 (over --accent stop) / 4.77:1 (over --accent2 stop) — both
+       clear AA for 16px/600 text. */
     .age-badge {
-      background: rgba(255,255,255,.25);
-      border: 1px solid rgba(255,255,255,.4);
-      border-radius: 20px;
-      padding: 7px 12px;
+      background: rgba(255,255,255,.85);
+      border: none;
+      border-radius: 22px;
+      padding: 0 14px;
       min-height: 44px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      gap: 4px;
       box-sizing: border-box;
       font-size: 16px;
+      font-weight: 600;
+      color: var(--accent-deep);
+      box-shadow: 0 2px 8px rgba(0,0,0,.12);
       cursor: pointer;
       transition: background .2s;
       touch-action: manipulation;
       user-select: none;
     }
-    .age-badge:active { background: rgba(255,255,255,.35); }
+    .age-badge:active { background: rgba(255,255,255,.65); }
 
     /* ── Age Picker ───────────────────────────────────── */
     .age-picker {
@@ -149,10 +170,10 @@
     .overlay.open { display: block; }
 
     /* ── Today strip ──────────────────────────────────── */
-    /* margin-top was -12px, fighting the .saved-row above it's own bottom
+    /* margin-top was -12px, fighting the section above it's own bottom
        margin to fake a tighter gap (Vera visual critique, 2026-07-18:
        "fighting section rhythm"). Normalized: top:0 so this strip follows the
-       same 0/16px shorthand pattern as .saved-row and .scenario-grid above/
+       same 0/16px shorthand pattern as .hero-card and .scenario-grid above/
        below it, and the natural gap comes from a single positive margin
        (the preceding element's own bottom margin) instead of a subtractive
        hack. */
@@ -160,7 +181,7 @@
       background: #fff;
       margin: 0 16px 16px;
       border-radius: var(--r);
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow-card);
       padding: 16px; /* normalized from 14px 16px */
       display: flex;
       align-items: center;
@@ -203,7 +224,12 @@
       text-transform: uppercase;
     }
 
-    /* ── Scenario Grid ───────────────────────────────── */
+    /* ── Scenario Grid (v2: horizontal tinted-icon rows) ─
+       Home-v2 proposal, ported: bottom color bar replaced by a 44px
+       color-mix() tinted icon tile; card becomes a horizontal flex row so
+       more scenarios are visible per screen. The 2-column grid itself is
+       unchanged (mock keeps grid-template-columns:1fr 1fr — only the card's
+       internal layout goes horizontal). */
     .scenario-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -213,8 +239,12 @@
     .scenario-card {
       background: var(--card);
       border-radius: var(--r);
-      box-shadow: var(--shadow);
-      padding: 16px;
+      box-shadow: var(--shadow-card);
+      padding: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 76px;
       cursor: pointer;
       transition: transform .15s, box-shadow .15s;
       position: relative;
@@ -224,48 +254,73 @@
     }
     .scenario-card:active { transform: scale(.97); }
     /* Glyph-metric normalization (Vera visual critique, 2026-07-18): a bare
-       32px/line-height:1 emoji in a 36px flex-centered box jitters
-       card-to-card because color-emoji glyphs carry their own font-specific
-       ascent/descent padding baked into the glyph data — different code
-       points (🛁 🍽️ 😴 …) report different effective heights at the *same*
+       32px/line-height:1 emoji in a flex-centered box jitters card-to-card
+       because color-emoji glyphs carry their own font-specific ascent/
+       descent padding baked into the glyph data — different code points
+       (🛁 🍽️ 😴 …) report different effective heights at the *same*
        font-size, so flexbox centers each one's line-box consistently but the
        ink inside that box lands at a different vertical offset per glyph.
-       Fix: shrink the font-size relative to the box (fewer glyphs clip/
-       overflow their nominal metrics) and give line-height an explicit px
-       value equal to the box height instead of the font-relative `1`, so
-       every icon centers against the same fixed reference regardless of the
-       font's internal metrics for that particular character. */
-    .scenario-card .s-icon {
-      font-size: 26px;
-      line-height: 36px;
-      width: 36px; height: 36px;
+       Fix: shrink the font-size relative to the box and give line-height an
+       explicit px value equal to the box height instead of the font-relative
+       `1`, so every icon centers against the same fixed reference regardless
+       of the font's internal metrics for that particular character.
+       Tint: --tint-color is set inline per-card from the scenario's existing
+       color token (JS: renderScenarioGrid()); color-mix() derives a light
+       wash so no hardcoded 7-color tint map is needed and the tile always
+       tracks the scenario's real color identity. */
+    .scenario-card .s-icon-tile {
+      width: 44px; height: 44px;
+      border-radius: 14px;
       display: flex; align-items: center; justify-content: center;
-      text-align: center;
-      margin-bottom: 8px;
+      flex-shrink: 0;
+      background: color-mix(in srgb, var(--tint-color, var(--accent)) 16%, white);
     }
+    .scenario-card .s-icon {
+      font-size: 24px;
+      line-height: 44px;
+      text-align: center;
+    }
+    .scenario-card .s-body { flex: 1; min-width: 0; }
     /* Bumped 15px -> 16px: the scenario name is the primary label a parent
        reads to pick a scenario (typography sweep, 2026-07-18). */
-    .scenario-card .s-name { font-size: 16px; font-weight: 600; }
-    /* Bumped 12px -> 16px [explicit sweep target]. */
-    .scenario-card .s-count { font-size: 16px; color: var(--muted); margin-top: 4px; }
-    .scenario-card { min-height: 120px; }
-    .scenario-card .s-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .scenario-card .s-bar {
-      position: absolute; bottom: 0; left: 0; height: 3px; width: 100%;
-      border-radius: 0 0 0 var(--r);
-    }
+    .scenario-card .s-name { font-size: 16px; font-weight: 600; line-height: 1.3; }
+    /* Bumped 12px -> 16px [explicit sweep target]. Conflict-rule floor: the
+       v2 mock shows this at 14px, but the 16px reading-floor ruling
+       overrides the mock for real reading content (rules handoff below). */
+    .scenario-card .s-count { font-size: 16px; color: var(--muted); margin-top: 2px; }
 
-    /* ── Saved quick row ─────────────────────────────── */
-    .saved-row {
-      margin: 0 16px 16px;
+    /* ── Recent-saves hero card (home-v2 proposal, ported) ──────
+       Replaces the old flat .saved-row: negative top margin overlaps the
+       header's bottom edge so the DOM order is header -> hero-card
+       (hero-card DOM change, per rules/06 handoff below). Distinct shadow
+       value from --shadow-card per the home-v2 spec (a deliberately
+       stronger "just lifted off the header" shadow, not the standard card
+       shadow used elsewhere in the grid). */
+    .hero-card {
+      margin: -36px 16px 16px;
       background: var(--card);
-      border-radius: var(--r);
-      box-shadow: var(--shadow);
+      border-radius: 20px;
+      box-shadow: 0 4px 20px rgba(45,45,45,.10);
       padding: 16px;
+      position: relative;
     }
-    /* Bumped 14px -> 16px: real card heading a parent reads (typography sweep, 2026-07-18). */
-    .saved-row h3 { font-size: 16px; font-weight: 600; margin-bottom: 10px; }
-    .saved-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+    .hero-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .hero-top h3 { font-size: 17px; font-weight: 700; margin: 0; flex: 1; }
+    /* Chrome-exempt per the conflict rule: this is the due-review COUNT
+       badge, not a reading sentence — kept at the mock's 14px rather than
+       bumped to the 16px floor. */
+    .hero-badge {
+      display: none;
+      flex-shrink: 0;
+      background: var(--warm);
+      color: var(--accent-deep);
+      border-radius: 12px;
+      padding: 4px 10px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .hero-badge.show { display: inline-block; }
+    .saved-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 4px; }
     .saved-chips::-webkit-scrollbar { display: none; }
     /* Bumped 12px -> 16px [explicit sweep target]. */
     .saved-chip {
@@ -282,6 +337,26 @@
     }
     /* Bumped 13px -> 16px: real message content a parent reads (typography sweep, 2026-07-18). */
     .saved-empty { font-size: 16px; color: var(--muted); }
+    /* Full-width review CTA (home-v2 proposal): replaces the old standalone
+       .review-strip banner — same "go review" behavior (showTab('saved')),
+       now surfaced as the hero card's primary action instead of a separate
+       element, only shown once there's something saved to review/browse. */
+    .review-cta {
+      display: none;
+      width: 100%;
+      background: var(--accent);
+      color: var(--ink-on-brand); /* white on --accent is 2.59:1 (fails AA); ink reaches 6.73:1 */
+      border: none;
+      border-radius: 12px;
+      min-height: 48px;
+      font-size: 16px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      margin-top: 4px;
+      touch-action: manipulation;
+    }
+    .review-cta.show { display: block; }
 
     /* ── Bottom Nav ──────────────────────────────────── */
     .bottom-nav {
@@ -370,67 +445,90 @@
     .screen-header h2 { font-size: 18px; font-weight: 700; flex: 1; }
     .screen-header .h-icon { font-size: 26px; }
 
-    /* Phrase list */
+    /* Phrase list (phrase-card-v2 proposal, ported) */
     .phrase-list { padding: 12px 16px calc(100px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; }
     .phrase-card {
       background: var(--card);
       border-radius: var(--r);
-      box-shadow: var(--shadow);
-      padding: 16px;
+      box-shadow: var(--shadow-card);
+      /* Left padding grown 16 -> 20px to clear the new 4px scenario-color
+         rail (bullet 2 below). */
+      padding: 16px 16px 16px 20px;
       cursor: pointer;
       transition: transform .15s;
       touch-action: manipulation;
       user-select: none;
+      position: relative;
+      overflow: hidden;
     }
     .phrase-card:active { transform: scale(.98); }
-    .phrase-en { font-size: 17px; font-weight: 600; line-height: 1.4; }
-    /* zh is the parent's primary reading language — must carry AT LEAST equal
-       visual weight to the English line, not trail it (Pillar 4 / hierarchy
-       finding, 2026-07-15 visual critique #3). Was 16px/500 (lighter+smaller
-       than .phrase-en's 17px/600); now 17px/700 so it reads as the loudest
-       line on the card, matching the same fix already applied to
-       .saved-item-zh above. */
-    .phrase-zh { font-size: 17px; font-weight: 700; color: var(--zh-ink); margin-top: 4px; line-height: 1.4; }
+    /* Scenario-color 4px left rail (phrase-card-v2 bullet 2): --rail is set
+       inline per-card from the current scenario's existing color token
+       (JS: renderPhrases()), so the card carries its scenario's color
+       identity even in the flat phrase-list view. */
+    .phrase-card::before {
+      content: "";
+      position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+      background: var(--rail, var(--accent));
+    }
+    /* zh-first reading order (phrase-card-v2 bullet 1, Pillar 4): the parent
+       reads the Chinese first to find the phrase they want, then the
+       English as the learning target — so English is now visually the
+       *heavier* line (17->19px) while Chinese keeps full 700-weight so it
+       never trails, matching the reading order to the usage order. */
+    .phrase-zh { font-size: 17px; font-weight: 700; color: var(--zh-ink); line-height: 1.45; }
+    .phrase-en { font-size: 19px; font-weight: 650; line-height: 1.4; margin-top: 2px; letter-spacing: -.1px; }
     .phrase-actions {
       display: flex;
       flex-wrap: wrap; /* keeps the 0-1 band's 4-button row from overflowing at 320px */
       gap: 8px;
       row-gap: 8px;
-      margin-top: 12px;
+      margin-top: 14px;
       align-items: center;
     }
-    /* Font-size bumped 13px -> 16px [explicit sweep target: play-btn/save-btn/
-       used-btn]; padding trimmed slightly so the 4-button 0-1 row still fits
-       two-per-line at 320px under .phrase-actions' flex-wrap (typography
-       sweep, 2026-07-18). */
+    /* Primary CTA (phrase-card-v2 bullet 3): play is promoted to a pill
+       button with a soft brand-color glow so it reads as the one primary
+       action on the card; slow/save/used are demoted to icon-only ghost
+       buttons below. Font-size 16px [explicit sweep target retained]. */
     .play-btn {
       background: var(--accent);
       color: var(--ink-on-brand); /* white on --accent is 2.59:1; ink reaches 6.73:1 */
       border: none;
-      border-radius: 10px;
-      padding: 8px 14px;
+      border-radius: 22px;
+      padding: 0 18px;
       min-height: 44px; /* tap target */
       font-size: 16px;
+      font-weight: 600;
       cursor: pointer;
-      display: flex; align-items: center; justify-content: center; gap: 6px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      box-shadow: 0 2px 8px rgba(255,122,69,.35);
       touch-action: manipulation;
     }
-    /* white on --accent2 measures 1.78:1 (fails AA); --ink-on-brand reaches ~9.8:1 */
-    .play-btn.playing { background: var(--accent2); color: var(--ink-on-brand); }
-    .play-btn-slow {
-      background: var(--blue);
-      color: var(--ink-on-brand); /* white on --blue is 2.74:1; ink reaches 6.35:1 */
-      border: none;
-      border-radius: 10px;
-      padding: 8px 12px;
+    /* Playing state: --accent-deep bg, white text (phrase-card-v2 bullet 3).
+       White on --accent-deep measures 5.20:1 — clear AA. */
+    .play-btn.playing { background: var(--accent-deep); color: #fff; box-shadow: none; }
+    /* Icon-only ghost buttons (phrase-card-v2 bullet 3): slow / save / used
+       demoted from filled buttons to transparent, bordered, icon-only
+       controls. Shared base rule keeps all three visually consistent;
+       state-specific overrides below layer the color-coded feedback back
+       in. min-width added alongside min-height so a single emoji glyph
+       still clears the >=44px tap-target floor in both dimensions. */
+    .play-btn-slow, .save-btn, .used-btn {
+      background: transparent;
+      color: var(--muted);
+      border: 1.5px solid var(--border);
+      border-radius: 22px;
+      padding: 0 14px;
       min-height: 44px; /* tap target */
-      font-size: 16px; /* bumped 13px -> 16px, same family as .play-btn */
+      min-width: 44px;  /* tap target */
+      font-size: 18px;
       cursor: pointer;
-      display: flex; align-items: center; justify-content: center; gap: 4px;
+      transition: all .15s;
+      display: inline-flex; align-items: center; justify-content: center;
       touch-action: manipulation;
     }
     /* white on --slow-playing measures 3.78:1 (fails AA); --ink-on-brand reaches ~4.6:1 */
-    .play-btn-slow.playing { background: var(--slow-playing); color: var(--ink-on-brand); }
+    .play-btn-slow.playing { background: var(--slow-playing); color: var(--ink-on-brand); border-color: var(--slow-playing); }
     /* Dead-tap fix (2026-07-15 visual critique #2, Sev A): when the MP3 fails
        to load AND no window.speechSynthesis fallback exists either, a tap on
        any of these audio buttons must never resolve to silent nothing. This
@@ -441,39 +539,36 @@
     .play-btn.unavailable, .play-btn-slow.unavailable,
     .review-btn-play.unavailable, .result-play-btn.unavailable {
       background: var(--border); color: var(--muted); cursor: not-allowed;
+      font-size: 16px; /* readable fallback text on an otherwise icon-only ghost btn */
     }
-    /* Font-size bumped 13px -> 16px [explicit sweep target]. */
-    .save-btn, .used-btn {
-      border: 1px solid var(--border);
-      background: #fff;
-      border-radius: 10px;
-      padding: 8px 12px;
-      min-height: 44px; /* tap target */
-      font-size: 16px;
-      cursor: pointer;
-      transition: all .15s;
-      touch-action: manipulation;
-    }
-    /* var(--accent) on #FFF2EC measured 2.36:1 (fails AA); --accent-deep reaches 4.75:1 */
-    .save-btn.saved { border-color: var(--accent); color: var(--accent-deep); background: var(--tint-accent); }
-    /* var(--green) on #F0FAF5 measured 2.54:1 (fails AA); --green-deep reaches 4.99:1 */
+    /* Saved state: --accent-deep border + text (phrase-card-v2 bullet 3).
+       --accent-deep on --tint-accent measured 4.75:1 — AA. */
+    .save-btn.saved { border-color: var(--accent-deep); color: var(--accent-deep); background: var(--tint-accent); }
+    /* "Used today" ghost button: not in the v2 mock (which has no used-today
+       concept), added to the same icon-only ghost family for visual
+       consistency with slow/save — existing green "used" semantics/colors
+       preserved unchanged. var(--green) on #F0FAF5 measured 2.54:1 (fails
+       AA); --green-deep reaches 4.99:1. */
     .used-btn.used  { border-color: var(--green);  color: var(--green-deep); background: var(--tint-green); }
 
-    /* Tip expandable — a reading surface, sized up from 12px, then again from
-       14px (2026-07-15 visual critique #4: 14px too small for a primary
-       reading surface at 320px width) */
+    /* Tip block (phrase-card-v2 bullet 4): flex row with the 💡 emoji in its
+       own column so it never hangs mid-wrap into the tip text on narrow
+       screens. The emoji moved here from the toggle button label (toggle
+       now reads plain "使用提示"/"收起提示" — its state is still legible via
+       the existing rotating-caret ::after below). */
     .phrase-tip {
       margin-top: 10px;
       background: var(--tint-warm);
-      border-left: 3px solid var(--accent2);
-      border-radius: 0 8px 8px 0;
-      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
       font-size: 16px;
       color: var(--tip-ink);
       line-height: 1.6;
       display: none;
     }
-    .phrase-tip.open { display: block; }
+    .phrase-tip.open { display: flex; gap: 10px; align-items: flex-start; }
+    .phrase-tip .tip-em { flex-shrink: 0; }
     /* touch-action/user-select hygiene, matching the rest of the tappable
        controls on the card (2026-07-15 visual critique #7) */
     /* var(--accent2) #FFB347 on white measured 1.78:1 (fails AA); --accent-deep
@@ -536,7 +631,7 @@
     .saved-item {
       background: var(--card);
       border-radius: 12px;
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow-card);
       padding: 14px 16px;
       display: flex;
       align-items: flex-start;
@@ -612,7 +707,7 @@
     .translate-result {
       background: #fff;
       border-radius: var(--r);
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow-card);
       padding: 16px;
       display: none;
     }
@@ -747,7 +842,7 @@
     /* ── Today progress bar ──────────────────────────── */
     .today-progress {
       display: none; margin: 0 16px 12px; padding: 12px 16px;
-      background: #fff; border-radius: var(--r); box-shadow: var(--shadow);
+      background: #fff; border-radius: var(--r); box-shadow: var(--shadow-card);
     }
     .today-progress.show { display: block; }
     /* Sub-16px, kept: uppercase section-eyebrow label ("今天已用"), same
@@ -873,14 +968,14 @@
       width: 100%; border: 1.5px solid var(--border); border-radius: 14px;
       background: var(--card); padding: 12px 14px; font-size: 16px;
       font-family: inherit; color: var(--text); outline: none;
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow-card);
     }
     .search-input:focus { border-color: var(--accent); }
     .search-results { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     #homeScreen.searching .hide-on-search { display: none !important; }
     .search-result {
       background: var(--card); border-radius: var(--r); padding: 12px 16px;
-      box-shadow: var(--shadow); cursor: pointer;
+      box-shadow: var(--shadow-card); cursor: pointer;
       touch-action: manipulation; user-select: none;
     }
     /* .sr-en/.sr-meta [explicit sweep target ".sr-* text"]. .sr-meta renders
@@ -914,28 +1009,21 @@
     /* Jump-to-phrase highlight */
     @keyframes flashCard {
       0%, 55% { box-shadow: 0 0 0 3px var(--accent); }
-      100%    { box-shadow: var(--shadow); }
+      100%    { box-shadow: var(--shadow-card); }
     }
     .phrase-card.flash { animation: flashCard 2.2s ease-out; }
 
     /* ── Review strip (home) ─────────────────────────── */
-    /* Bumped 14px -> 16px: real message a parent reads ("今天有 X 句待复习，
-       趁热练一练 →") (typography sweep, 2026-07-18). */
-    .review-strip {
-      display: none; align-items: center; gap: 8px;
-      margin: 12px 16px 0; padding: 12px 16px;
-      background: var(--card); border-left: 4px solid var(--teal);
-      border-radius: var(--r); box-shadow: var(--shadow);
-      font-size: 16px; font-weight: 600; cursor: pointer;
-      min-height: 44px; touch-action: manipulation;
-    }
-    .review-strip.show { display: flex; }
+    /* Removed (home-v2 redesign, 2026-07-18): the standalone due-review
+       banner is now the .hero-badge + .review-cta inside .hero-card — same
+       due-count + "go review" behavior, folded into the hero card instead
+       of a separate element (see rules/06 handoff below). */
 
     /* ── Review card (saved screen) ──────────────────── */
     .review-area { padding: 12px 16px 0; }
     .review-card {
       background: var(--card); border-radius: var(--r); padding: 16px;
-      box-shadow: var(--shadow); border-top: 4px solid var(--teal);
+      box-shadow: var(--shadow-card); border-top: 4px solid var(--teal);
     }
     /* Bumped 14px -> 16px: real status line a parent reads each review
        ("📅 今日复习 · 还剩 X 句" + scenario name) (typography sweep, 2026-07-18). */
@@ -989,7 +1077,7 @@
     /* Bumped 13px -> 16px: real message content ("✅ 今天的复习完成了…"). */
     .review-done {
       text-align: center; color: var(--muted); font-size: 16px;
-      padding: 12px; background: var(--card); border-radius: var(--r); box-shadow: var(--shadow);
+      padding: 12px; background: var(--card); border-radius: var(--r); box-shadow: var(--shadow-card);
     }
     /* Bumped 14px -> 16px: reading tip content, same family as .phrase-tip. */
     .saved-item-tip { font-size: 16px; color: var(--tip-ink); margin-top: 4px; line-height: 1.5; }
@@ -1068,25 +1156,30 @@
     </div>
   </div>
 
+  <!-- Recent-saves hero card (home-v2 proposal, ported): immediately after
+       the header in DOM order so its -36px margin overlaps the header's
+       bottom edge (hero-card DOM change, see rules/06 handoff below).
+       Elevated above the search bar for the same reason the old .saved-row
+       was elevated above the scenario grid — "open app → see what you
+       saved → review" needs no scroll or extra tap. See Unit C rationale in
+       the handoff report. -->
+  <div class="hero-card hide-on-search" id="heroCard">
+    <div class="hero-top">
+      <h3>⭐ 最近收藏</h3>
+      <span class="hero-badge" id="heroBadge"></span>
+    </div>
+    <div id="savedChipsArea">
+      <div class="saved-empty">还没有收藏 — 去场景里探索吧！</div>
+    </div>
+    <button class="review-cta" id="reviewCta" onclick="showTab('saved')">开始复习</button>
+  </div>
+
   <!-- Search: type what you want to say → jump to preset phrases -->
   <div class="search-wrap">
     <input id="searchInput" class="search-input" type="search" autocomplete="off"
            placeholder="🔍 想对宝宝说什么？如：睡觉、吃饭、勇敢"
            oninput="onSearchInput()" />
     <div class="search-results" id="searchResults"></div>
-  </div>
-
-  <!-- Review reminder -->
-  <div class="review-strip hide-on-search" id="reviewStrip" role="button" tabindex="0" onclick="showTab('saved')"></div>
-
-  <!-- Recent saves — elevated to the top of the landing screen (above the
-       scenario grid) so "open app → see what you saved → review" needs no
-       scroll or extra tap. See Unit C rationale in the handoff report. -->
-  <div class="saved-row hide-on-search">
-    <h3>♡ 我收藏的短句</h3>
-    <div id="savedChipsArea">
-      <div class="saved-empty">还没有收藏 — 去场景里探索吧！</div>
-    </div>
   </div>
 
   <!-- Today strip -->
@@ -1216,9 +1309,29 @@
 <script src="./scenarios.js" defer></script>
 <script>
 // ── State ─────────────────────────────────────────────
-let currentAge = "1-2";
+const AGE_KEYS = ["0-1", "1-2", "2-3", "3-6"];
+const TRANSLATE_AGE_KEYS = ["1-2", "2-3", "3-6"]; // /api/translate VALID_AGES — no 0-1
+
+// 0-1 has no translate surface (no age-opt, no preset/AI age bucket) — map
+// down to the youngest supported translate band rather than sending an
+// invalid `age` to /api/translate or leaving the picker with nothing active.
+function translateAgeForBand(age) {
+  return TRANSLATE_AGE_KEYS.includes(age) ? age : "1-2";
+}
+
+// Guard the read exactly like safeParseArray below: a missing/corrupt/
+// invalid stored value must fall back to the pre-existing default ("1-2"),
+// never throw.
+function loadStoredAge() {
+  try {
+    const v = localStorage.getItem("ll_age");
+    return AGE_KEYS.includes(v) ? v : "1-2";
+  } catch { return "1-2"; }
+}
+
+let currentAge = loadStoredAge();
 let currentScenario = null;
-let translateAge = "1-2";
+let translateAge = translateAgeForBand(currentAge);
 let currentUtterance = null;
 let currentTier = "all";
 
@@ -1309,18 +1422,25 @@ function renderScenarioGrid() {
     card.setAttribute("tabindex", "0");
     card.setAttribute("data-id", id);
     card.onclick = () => openScenario(id);
+    // Tinted icon tile (home-v2 bullet 4) replaces the old bottom color bar:
+    // --tint-color is set inline from the scenario's existing color token so
+    // the CSS color-mix() wash always tracks the real scenario color, no
+    // hardcoded 7-color tint map to keep in sync.
+    const tile = document.createElement("div"); tile.className = "s-icon-tile";
+    tile.style.setProperty("--tint-color", s.color);
     const icon = document.createElement("div"); icon.className = "s-icon"; icon.textContent = s.icon;
+    tile.appendChild(icon);
+    const body = document.createElement("div"); body.className = "s-body";
     const name = document.createElement("div"); name.className = "s-name"; name.textContent = s.name;
     const cnt  = document.createElement("div"); cnt.className  = "s-count"; cnt.id = "cnt-" + id;
     cnt.textContent = count + " 个短句";
-    const bar  = document.createElement("div"); bar.className  = "s-bar";
-    bar.style.background = s.color;
-    card.append(icon, name, cnt, bar);
+    body.append(name, cnt);
     if (usedCount > 0) {
       const used = document.createElement("div"); used.className = "s-used";
       used.textContent = "✓ 今天说了 " + usedCount + " 句";
-      card.append(used);
+      body.append(used);
     }
+    card.append(tile, body);
     grid.appendChild(card);
   });
 }
@@ -1366,6 +1486,7 @@ const AGE_LABELS = {"0-1":"0–1岁","1-2":"1–2岁","2-3":"2–3岁","3-6":"3�
 
 function setCurrentAge(age) {
   currentAge = age;
+  localStorage.setItem("ll_age", age);
   document.getElementById("ageBadgeLabel").textContent = AGE_LABELS[age];
   document.querySelectorAll(".age-picker .age-opt").forEach(e =>
     e.classList.toggle("active", e.dataset.age === age)
@@ -1410,6 +1531,13 @@ function showTab(tab) {
     renderReviewArea();
   } else if (tab === "translate") {
     document.getElementById("translateScreen").classList.add("open");
+    // Main band is the single source of truth (rules/06 handoff below):
+    // every fresh visit to translate re-adopts it (mapped away from 0-1,
+    // which has no translate age-opt). One-way sync, not live/bidirectional
+    // — picking a different band inside the translate picker only affects
+    // that visit and is not written back to `currentAge`/`ll_age`.
+    translateAge = translateAgeForBand(currentAge);
+    syncTranslateAgeUI();
   }
 
   document.querySelectorAll(".nav-item[data-tab]").forEach(el => {
@@ -1449,7 +1577,8 @@ function switchAge(age) {
 
 function renderPhrases() {
   const list = document.getElementById("phraseList");
-  const allPhrases = scenarios[currentScenario].phrases[currentAge] || [];
+  const s = scenarios[currentScenario];
+  const allPhrases = s.phrases[currentAge] || [];
   const phrases = currentTier === "all"
     ? allPhrases
     : allPhrases.filter((p, i) => getPhraseTier(p, i, allPhrases.length) === currentTier);
@@ -1466,14 +1595,16 @@ function renderPhrases() {
   }
 
   phrases.forEach(p => {
-    const isSaved = savedPhrases.some(s => s.id === p.id);
+    const isSaved = savedPhrases.some(sv => sv.id === p.id);
     const isUsed  = usedToday.includes(p.id);
     const hasCoaching = p.why && p.next && p.fallback;
     const card = document.createElement("div");
     card.className = "phrase-card";
     card.id = "card-" + p.id;
+    // Scenario-color left rail (phrase-card-v2 bullet 2).
+    card.style.setProperty("--rail", s.color);
     const slowBtn = currentAge === "0-1"
-      ? `<button class="play-btn-slow" id="slow-${p.id}" onclick="speakPhrase('${p.id}', this, 0.6)">🐢 慢速</button>`
+      ? `<button class="play-btn-slow" id="slow-${p.id}" aria-label="慢速播放" onclick="speakPhrase('${p.id}', this, 0.6)">🐢</button>`
       : "";
     const coachingHtml = hasCoaching
       ? `<div class="coaching-chips">
@@ -1484,34 +1615,55 @@ function renderPhrases() {
          <div class="coaching-panel why-panel"  id="coach-why-${p.id}"></div>
          <div class="coaching-panel next-panel" id="coach-next-${p.id}"></div>
          <div class="coaching-panel fb-panel"   id="coach-fb-${p.id}"></div>`
-      : `<button class="tip-toggle" id="tip-toggle-${p.id}" aria-expanded="false" onclick="toggleTip('${p.id}')">💡 使用提示</button>
+      : `<button class="tip-toggle" id="tip-toggle-${p.id}" aria-expanded="false" onclick="toggleTip('${p.id}')">使用提示</button>
          <div class="phrase-tip" id="tip-${p.id}"></div>`;
 
+    // zh-first reading order (phrase-card-v2 bullet 1): Chinese line renders
+    // before English so the reading order matches the parent's usage order
+    // (find the Chinese meaning first, then the English to say aloud).
     card.innerHTML = `
-      <div class="phrase-en">${p.en}</div>
       <div class="phrase-zh">${p.zh}</div>
+      <div class="phrase-en">${p.en}</div>
       <div class="phrase-actions">
         <button class="play-btn" id="play-${p.id}" onclick="speakPhrase('${p.id}', this)">▶ 朗读</button>
         ${slowBtn}
-        <button class="save-btn ${isSaved?'saved':''}" id="save-${p.id}" onclick="toggleSave('${p.id}')">
-          ${isSaved ? '♡ 已收藏' : '♡ 收藏'}
+        <button class="save-btn ${isSaved?'saved':''}" id="save-${p.id}" aria-label="${isSaved?'已收藏':'收藏'}" onclick="toggleSave('${p.id}')">
+          ${isSaved ? '★' : '☆'}
         </button>
-        <button class="used-btn ${isUsed?'used':''}" id="used-${p.id}" onclick="markUsed('${p.id}')">
-          ${isUsed ? '✓ 用了！' : '今天用了'}
+        <button class="used-btn ${isUsed?'used':''}" id="used-${p.id}" aria-label="${isUsed?'已使用':'今天用了'}" onclick="markUsed('${p.id}')">
+          ${isUsed ? '✅' : '▢'}
         </button>
       </div>
       <div class="audio-bar" id="bar-${p.id}"><div class="audio-fill" id="fill-${p.id}"></div></div>
       ${coachingHtml}
     `;
 
-    // Set text content safely after inserting structure
+    // Set text content safely after inserting structure.
+    // Pre-existing bug fix (found during v2 handoff verification, present in
+    // HEAD before this change, unrelated to the visual redesign): this ran
+    // via document.getElementById() while `card` was still a detached node
+    // (list.appendChild(card) happens further below) — getElementById can
+    // only find elements already attached to `document`, so it silently
+    // returned null for the tip case and threw "Cannot set properties of
+    // null" for the coaching case, which broke rendering for any band with
+    // why/next/fallback fields (e.g. bath 2-3). Scoping the lookup to
+    // `card.querySelector()` finds the element within the still-detached
+    // subtree either way, and works identically once attached.
     if (hasCoaching) {
-      document.getElementById("coach-why-"  + p.id).textContent = p.why;
-      document.getElementById("coach-next-" + p.id).textContent = p.next;
-      document.getElementById("coach-fb-"   + p.id).textContent = p.fallback;
+      card.querySelector(".why-panel").textContent = p.why;
+      card.querySelector(".next-panel").textContent = p.next;
+      card.querySelector(".fb-panel").textContent = p.fallback;
     } else {
-      const tipEl = document.getElementById("tip-" + p.id);
-      if (tipEl) tipEl.textContent = p.tip || "";
+      // Tip block (phrase-card-v2 bullet 4): built as two flex children
+      // (emoji column + text column) via DOM nodes, not innerHTML, so
+      // phrase-tip content from scenarios.js is never re-parsed as markup.
+      const tipEl = card.querySelector(".phrase-tip");
+      if (tipEl) {
+        tipEl.innerHTML = "";
+        const em = document.createElement("span"); em.className = "tip-em"; em.textContent = "💡";
+        const txt = document.createElement("span"); txt.textContent = p.tip || "";
+        tipEl.append(em, txt);
+      }
     }
 
     list.appendChild(card);
@@ -1599,7 +1751,7 @@ function stopAllAudio() {
   if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
   document.querySelectorAll('.play-btn.playing, .play-btn-slow.playing').forEach(b => {
     b.classList.remove("playing");
-    b.textContent = b.classList.contains("play-btn-slow") ? "🐢 慢速" : "▶ 朗读";
+    b.textContent = b.classList.contains("play-btn-slow") ? "🐢" : "▶ 朗读";
   });
   document.querySelectorAll('.audio-bar').forEach(b => b.style.display = "none");
   document.querySelectorAll('.audio-fill').forEach(f => f.style.width = "0%");
@@ -1619,14 +1771,17 @@ function speakPhrase(id, btn, rate) {
 
   const spokenRate = rate ?? 0.82;
   const isSlow = spokenRate < 0.75;
-  const idleLabel = isSlow ? "🐢 慢速" : "▶ 朗读";
+  // Icon-only ghost slow button (phrase-card-v2 bullet 3): idle/playing
+  // labels drop the "慢速"/"播放中" text so the button stays icon-only; the
+  // text pill play-btn keeps its full label.
+  const idleLabel = isSlow ? "🐢" : "▶ 朗读";
   const suffix = isSlow ? "slow_wbw" : "normal";
   const bar  = document.getElementById("bar-"  + id);
   const fill = document.getElementById("fill-" + id);
 
   function onStart() {
     btn.classList.add("playing");
-    btn.textContent = "⏸ 播放中";
+    btn.textContent = isSlow ? "⏸" : "⏸ 播放中";
     if (bar) bar.style.display = "block";
   }
   function onEnd() {
@@ -1715,7 +1870,10 @@ function toggleSave(id) {
   if (btn) {
     const isSaved = savedPhrases.some(s => s.id === id);
     btn.className = "save-btn" + (isSaved ? " saved" : "");
-    btn.textContent = isSaved ? "♡ 已收藏" : "♡ 收藏";
+    // Icon-only ghost button (phrase-card-v2 bullet 3): ☆/★ outline/filled
+    // pair replaces the old "♡ 收藏"/"♡ 已收藏" text labels.
+    btn.textContent = isSaved ? "★" : "☆";
+    btn.setAttribute("aria-label", isSaved ? "已收藏" : "收藏");
   }
   updateNavBadge();
 }
@@ -1728,7 +1886,14 @@ function markUsed(id) {
     renderTodayProgress();
   }
   const btn = document.getElementById("used-" + id);
-  if (btn) { btn.className = "used-btn used"; btn.textContent = "✓ 用了！"; }
+  if (btn) {
+    btn.className = "used-btn used";
+    // Icon-only ghost button (phrase-card-v2 bullet 3, extended to the
+    // used-today control for visual consistency): ▢/✅ outline/filled pair
+    // replaces the old "今天用了"/"✓ 用了！" text labels.
+    btn.textContent = "✅";
+    btn.setAttribute("aria-label", "已使用");
+  }
 }
 
 // Non-color state cue (state-cue sweep, 2026-07-18): previously the
@@ -1745,7 +1910,11 @@ function toggleTip(id) {
   if (btn) {
     btn.classList.toggle("open", isOpen);
     btn.setAttribute("aria-expanded", String(isOpen));
-    btn.textContent = isOpen ? "💡 收起提示" : "💡 使用提示";
+    // 💡 moved off the toggle label into its own flex column inside the
+    // revealed .phrase-tip block (phrase-card-v2 bullet 4) — the toggle
+    // itself now reads plain text; the rotating caret above still carries
+    // the open/closed state cue.
+    btn.textContent = isOpen ? "收起提示" : "使用提示";
   }
 }
 
@@ -1855,11 +2024,19 @@ function updateNavBadge() {
   badge.classList.toggle("show", n > 0);
 }
 
+// Home-v2 redesign (2026-07-18): the standalone .review-strip banner is
+// folded into the hero card's .hero-badge (due count) + .review-cta ("开始
+// 复习", showTab('saved')) — same due-review data, same navigation target,
+// now rendered inside the hero card instead of a separate element.
 function renderReviewStrip() {
-  const strip = document.getElementById("reviewStrip");
+  const badge = document.getElementById("heroBadge");
+  const cta = document.getElementById("reviewCta");
   const n = dueReviews().length;
-  strip.textContent = `📅 今天有 ${n} 句待复习，趁热练一练 →`;
-  strip.classList.toggle("show", n > 0);
+  if (badge) {
+    badge.textContent = n + " 句待复习";
+    badge.classList.toggle("show", n > 0);
+  }
+  if (cta) cta.classList.toggle("show", savedPhrases.length > 0);
 }
 
 function renderReviewArea() {
@@ -2010,6 +2187,14 @@ const defaultTranslations = {
   "2-3": { en: "That's great! I'm so proud of you!", tip: "蹲下来和宝宝拍一个响亮的击掌，笑着看着他。" },
   "3-6": { en: "You're doing so well. I'm really proud of you!", tip: "拍拍孩子的肩膀，指出他刚才做得好的那一步。" },
 };
+
+// Reflects `translateAge` onto the translate screen's own age-opt row
+// (`[data-tage]`, distinct DOM from the main app's age-picker `[data-age]`).
+function syncTranslateAgeUI() {
+  document.querySelectorAll("[data-tage]").forEach(e =>
+    e.classList.toggle("active", e.dataset.tage === translateAge)
+  );
+}
 
 function selectTranslateAge(el, age) {
   document.querySelectorAll("[data-tage]").forEach(e => e.classList.remove("active"));
@@ -2396,8 +2581,13 @@ function llStartApp() {
 
   todayId = scenarioOrder[Math.floor(Date.now() / 86400000) % scenarioOrder.length];
 
-  renderScenarioGrid();
-  renderTodayStrip();
+  // Sync the DOM (age-tab / age-picker age-opt / badge label, and the
+  // translate screen's own age-opt row) to the restored `currentAge` — the
+  // markup's hardcoded "1-2 active" default only matches first-run with no
+  // `ll_age` stored. setCurrentAge() already calls renderScenarioGrid() and
+  // renderTodayStrip(), so no separate calls to those are needed here.
+  setCurrentAge(currentAge);
+  syncTranslateAgeUI();
   renderSavedChips();
   renderTodayProgress();
   renderReviewStrip();

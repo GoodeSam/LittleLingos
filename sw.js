@@ -8,7 +8,7 @@
 // fresh hash, an already-installed offline client can keep serving a stale
 // shell or stale phrase data indefinitely even though NETWORK_FIRST tries to
 // refresh them opportunistically on every online GET.
-const CACHE = 'll-cbf881a0';
+const CACHE = 'll-9dfb7b12';
 const SHELL = [
   './',
   './index.html',

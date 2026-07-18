@@ -1,0 +1,71 @@
+#!/usr/bin/env node
+// LittleLingos sw.js cache-version stamper.
+//
+// Fixes the Codex functional-critique Severity-A finding: a hand-bumped
+// `CACHE` constant in sw.js is not mechanically verifiable, so a deploy that
+// changes index.html or scenarios.js without a matching bump can leave an
+// installed client serving a stale shell/data forever (rules/05, sw.js
+// header comment). This script makes the cache key a deterministic function
+// of the shipped content instead of a human's memory.
+//
+//   node scripts/stamp-sw.mjs            # stamp sw.js in place, print old -> new
+//   node scripts/stamp-sw.mjs --check     # exit 1 if sw.js CACHE is stale, 0 if fresh
+//
+// Style follows scripts/codex-eval.mjs: small, containment-checked, no deps.
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const SW_PATH = resolve(REPO, "sw.js");
+const SOURCES = ["index.html", "scenarios.js"].map((f) => resolve(REPO, f));
+
+const die = (m, code = 2) => { console.error("✗ stamp-sw: " + m); process.exit(code); };
+const contained = (p) => { const r = resolve(p); return r === REPO || r.startsWith(REPO + sep); };
+
+function computeHash8() {
+  const hash = createHash("sha256");
+  for (const src of SOURCES) {
+    if (!existsSync(src)) die("missing source file required for hash: " + src);
+    hash.update(readFileSync(src));
+  }
+  return hash.digest("hex").slice(0, 8);
+}
+
+const CACHE_LINE_RE = /const CACHE = '([^']*)';/;
+
+function main() {
+  const checkOnly = process.argv.includes("--check");
+
+  if (!contained(SW_PATH)) die("refusing to write outside the repo: " + SW_PATH);
+  if (!existsSync(SW_PATH)) die("missing sw.js at " + SW_PATH);
+
+  const swSrc = readFileSync(SW_PATH, "utf8");
+  const m = swSrc.match(CACHE_LINE_RE);
+  if (!m) die("could not find `const CACHE = '...';` line in sw.js");
+  const oldCache = m[1];
+
+  const hash8 = computeHash8();
+  const newCache = `ll-${hash8}`;
+
+  if (checkOnly) {
+    if (oldCache === newCache) {
+      console.log(`✓ stamp-sw --check: sw.js CACHE is fresh (${oldCache})`);
+      process.exit(0);
+    }
+    console.error(`✗ stamp-sw --check: sw.js CACHE is stale: '${oldCache}' -> '${newCache}'`);
+    process.exit(1);
+  }
+
+  if (oldCache === newCache) {
+    console.log(`= stamp-sw: sw.js CACHE already up to date (${oldCache}), no write needed`);
+    process.exit(0);
+  }
+
+  const newSrc = swSrc.replace(CACHE_LINE_RE, `const CACHE = '${newCache}';`);
+  writeFileSync(SW_PATH, newSrc);
+  console.log(`✓ stamp-sw: '${oldCache}' -> '${newCache}'`);
+}
+
+main();

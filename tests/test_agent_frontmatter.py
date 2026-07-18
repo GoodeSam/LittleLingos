@@ -8,6 +8,9 @@ from scripts.operating_validators import validate_agent_frontmatter
 AGENTS = Path(".claude/agents")
 SPECS = Path(".nlpm-test")
 EXPECTED_AGENTS = {
+    "ada-ceo",
+    "felix-function-critic",
+    "vera-visual-critic",
     "scout-product-lead",
     "maya-curriculum-designer",
     "leo-linguist",

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Validate the LittleLingos agent delegation graph.
 
-The crew is a bounded DAG rooted at ``scout-product-lead`` with a maximum
-delegation depth of 2. Delegation edges are declared in agent frontmatter as
+The crew is a bounded DAG rooted at ``ada-ceo`` (the Company-of-One single
+interface, ``rules/07-ceo-single-interface.md``) with a maximum delegation
+depth of 3: ada -> scout -> maya -> (leo, nina), with the two Codex critics
+as depth-1 leaves. Delegation edges are declared in agent frontmatter as
 ``Agent(child-name)`` entries inside the ``tools:`` field. Adapted from the
 GoodeSam ``check_agent_graph.py``.
 """
@@ -19,8 +21,8 @@ NAME_RE = re.compile(r"^\s*name:\s*(.+?)\s*$")
 TOOLS_RE = re.compile(r"^\s*tools:\s*(.+?)\s*$")
 AGENT_CALL_RE = re.compile(r"Agent\(([^)]*)\)")
 
-ROOT_AGENT = "scout-product-lead"
-MAX_DEPTH = 2
+ROOT_AGENT = "ada-ceo"
+MAX_DEPTH = 3
 
 
 @dataclass(frozen=True)

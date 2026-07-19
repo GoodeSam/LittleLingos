@@ -12,7 +12,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="LittleLingos" />
-  <link rel="apple-touch-icon" href="./icon.svg" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+
+  <!-- Favicon -->
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="alternate icon" href="icons/icon-192.png" type="image/png" />
 
   <!-- Android / general -->
   <meta name="mobile-web-app-capable" content="yes" />
@@ -144,7 +148,7 @@
     /* ── Age Picker ───────────────────────────────────── */
     .age-picker {
       display: none;
-      background: #fff;
+      background: var(--card); /* was #fff hardcode; --card is the same #FFFFFF token (2026-07-19 visual critique, Sev C) */
       border-radius: var(--r) var(--r) 0 0;
       padding: 20px;
       position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
@@ -164,6 +168,10 @@
       cursor: pointer;
       font-size: 16px;
       transition: all .15s;
+      /* touch hygiene, matching .tier-tab / .age-tab / .scenario-card /
+         .play-btn (2026-07-19 visual critique, Sev C) */
+      touch-action: manipulation;
+      user-select: none;
     }
     .age-opt.active { border-color: var(--accent); background: var(--tint-accent); color: var(--accent-deep); font-weight: 600; } /* accent on tint was 2.36:1; accent-deep is 4.75:1 */
     .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 100; }
@@ -178,7 +186,7 @@
        (the preceding element's own bottom margin) instead of a subtractive
        hack. */
     .today-strip {
-      background: #fff;
+      background: var(--card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
       margin: 0 16px 16px;
       border-radius: var(--r);
       box-shadow: var(--shadow-card);
@@ -361,7 +369,7 @@
     /* ── Bottom Nav ──────────────────────────────────── */
     .bottom-nav {
       margin-top: auto;
-      background: #fff;
+      background: var(--card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
       border-top: 1px solid var(--border);
       display: flex;
       position: sticky;
@@ -424,7 +432,7 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      background: #fff;
+      background: var(--card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
       border-bottom: 1px solid var(--border);
       position: sticky;
       top: 0;
@@ -473,17 +481,26 @@
     }
     /* zh-first reading order (phrase-card-v2 bullet 1, Pillar 4): the parent
        reads the Chinese first to find the phrase they want, then the
-       English as the learning target — so English is now visually the
-       *heavier* line (17->19px) while Chinese keeps full 700-weight so it
-       never trails, matching the reading order to the usage order. */
-    .phrase-zh { font-size: 17px; font-weight: 700; color: var(--zh-ink); line-height: 1.45; }
-    .phrase-en { font-size: 19px; font-weight: 650; line-height: 1.4; margin-top: 2px; letter-spacing: -.1px; }
+       English as the learning target. Chinese is the parent's primary
+       scanning language, so it must never render smaller than the English
+       (2026-07-19 visual critique, Sev B: zh<en rule) — both lines now
+       share the same 19px size and 700 weight so neither trails the other;
+       the English keeps a touch of letter-spacing so it still reads as the
+       distinct "target" line without being visually inverted. */
+    /* Scan-hierarchy fix (2026-07-19 visual critique, Sev B): --zh-ink
+       (#4A4A4A) was LIGHTER than .phrase-en's inherited --text (#2D2D2D),
+       inverting the zh-first scan priority documented above. .phrase-zh now
+       uses --text directly so it is at least as dark as .phrase-en, and its
+       existing 700 weight (vs. .phrase-en's 650) is what carries the extra
+       scan priority on top of the now-equal ink. */
+    .phrase-zh { font-size: 19px; font-weight: 700; color: var(--text); line-height: 1.45; }
+    .phrase-en { font-size: 19px; font-weight: 650; line-height: 1.4; margin-top: 4px; letter-spacing: -.1px; }
     .phrase-actions {
       display: flex;
       flex-wrap: wrap; /* keeps the 0-1 band's 4-button row from overflowing at 320px */
       gap: 8px;
       row-gap: 8px;
-      margin-top: 14px;
+      margin-top: 16px; /* 4px spacing scale: 4/8/12/16/20 (2026-07-19 visual critique, Sev B) */
       align-items: center;
     }
     /* Primary CTA (phrase-card-v2 bullet 3): play is promoted to a pill
@@ -557,7 +574,7 @@
        now reads plain "使用提示"/"收起提示" — its state is still legible via
        the existing rotating-caret ::after below). */
     .phrase-tip {
-      margin-top: 10px;
+      margin-top: 12px; /* 4px spacing scale (2026-07-19 visual critique, Sev B) */
       background: var(--tint-warm);
       border: 1px solid var(--border);
       border-radius: 12px;
@@ -595,7 +612,10 @@
 
     /* Audio progress bar */
     .audio-bar {
-      height: 3px; background: var(--border); border-radius: 3px; margin-top: 10px; display: none;
+      /* margin-top 10px -> 8px: only non-multiple-of-4 value in the
+         phrase-card cluster (4/16/12/8 elsewhere); normalized onto the same
+         4px spacing scale (2026-07-19 visual critique, Sev B). */
+      height: 3px; background: var(--border); border-radius: 3px; margin-top: 8px; display: none;
     }
     .audio-fill { height: 100%; background: var(--accent); border-radius: 3px; width: 0%; transition: width .3s linear; }
 
@@ -609,7 +629,7 @@
     .age-tabs::-webkit-scrollbar { display: none; }
     .age-tab {
       flex-shrink: 0;
-      background: #fff;
+      background: var(--card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
       border: 1px solid var(--border);
       border-radius: 20px;
       padding: 0 16px;
@@ -692,7 +712,7 @@
     textarea {
       width: 100%; border: 1px solid var(--border); border-radius: 12px;
       padding: 14px; font-size: 16px; font-family: inherit;
-      resize: none; background: #fff; color: var(--text);
+      resize: none; background: var(--card); color: var(--text); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
       outline: none; transition: border-color .15s;
     }
     textarea:focus { border-color: var(--accent); }
@@ -703,9 +723,10 @@
       color: var(--ink-on-brand); border: none; border-radius: 12px;
       padding: 15px; font-size: 16px; font-weight: 600;
       cursor: pointer; width: 100%;
+      touch-action: manipulation; user-select: none; /* touch hygiene, matching .back-btn / .phrase-card (2026-07-19 visual critique, Sev C) */
     }
     .translate-result {
-      background: #fff;
+      background: var(--card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
       border-radius: var(--r);
       box-shadow: var(--shadow-card);
       padding: 16px;
@@ -731,7 +752,7 @@
     /* Bumped 13px -> 16px: button labels ("▶ 朗读" / "♡ 收藏") a parent reads
        before tapping (typography sweep, 2026-07-18). */
     .result-actions button {
-      flex: 1; border: 1px solid var(--border); background: #fff;
+      flex: 1; border: 1px solid var(--border); background: var(--card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
       border-radius: 10px; padding: 10px; min-height: 44px; font-size: 16px; cursor: pointer;
       touch-action: manipulation;
     }
@@ -770,7 +791,7 @@
     .tier-tabs { display: flex; gap: 8px; padding: 8px 16px 4px; overflow-x: auto; }
     .tier-tabs::-webkit-scrollbar { display: none; }
     .tier-tab {
-      flex-shrink: 0; background: #fff; border: 1px solid var(--border);
+      flex-shrink: 0; background: var(--card); border: 1px solid var(--border);
       border-radius: 20px; padding: 0 16px; min-height: 44px;
       display: inline-flex; align-items: center; justify-content: center;
       /* bumped 12px -> 14px -> 16px [explicit sweep target] (2026-07-17
@@ -787,7 +808,7 @@
     .tier-tab[data-tier="expressive"].active { background: var(--purple); border-color: var(--purple); color: var(--ink-on-brand); }
 
     /* ── Coaching chips ──────────────────────────────── */
-    .coaching-chips { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+    .coaching-chips { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
     /* Font-size bumped 12px -> 16px (typography sweep, 2026-07-18): these are
        substantive labels a parent reads to choose which coaching panel to
        open ("💡 为什么有效" / "💬 接下来说什么" / "🔄 没反应时"), not
@@ -796,7 +817,7 @@
        320-390px without overflowing. */
     .coaching-chip {
       font-size: 16px; border-radius: 8px; padding: 6px 10px; min-height: 40px;
-      cursor: pointer; border: 1px solid; background: #fff; transition: all .15s;
+      cursor: pointer; border: 1px solid; background: var(--card); transition: all .15s; /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
       touch-action: manipulation; user-select: none;
       display: inline-flex; align-items: center;
     }
@@ -822,7 +843,7 @@
        next/fallback text) — a primary reading surface, same class of
        content as .phrase-tip (typography sweep, 2026-07-18). */
     .coaching-panel {
-      display: none; font-size: 16px; line-height: 1.65; margin-top: 6px;
+      display: none; font-size: 16px; line-height: 1.65; margin-top: 8px;
       padding: 8px 12px; border-radius: 8px; color: var(--text);
     }
     .coaching-panel.why-panel  { background: var(--chip-why-bg); }
@@ -842,7 +863,7 @@
     /* ── Today progress bar ──────────────────────────── */
     .today-progress {
       display: none; margin: 0 16px 12px; padding: 12px 16px;
-      background: #fff; border-radius: var(--r); box-shadow: var(--shadow-card);
+      background: var(--card); border-radius: var(--r); box-shadow: var(--shadow-card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
     }
     .today-progress.show { display: block; }
     /* Sub-16px, kept: uppercase section-eyebrow label ("今天已用"), same
@@ -885,7 +906,7 @@
     .install-banner .ib-text strong { display: block; font-size: 17px; }
     /* Bumped 13px -> 16px: CTA button text. */
     .install-btn {
-      background: #fff;
+      background: var(--card);
       /* var(--accent) on white measured 2.59:1 (fails AA); --accent-deep reaches 5.20:1 */
       color: var(--accent-deep);
       border: none; border-radius: 10px;
@@ -902,6 +923,7 @@
     .install-close {
       background: none; border: none; color: var(--ink-on-brand); opacity: .85;
       font-size: 20px; cursor: pointer; padding: 0 4px;
+      touch-action: manipulation; user-select: none; /* touch hygiene, matching .back-btn / .phrase-card (2026-07-19 visual critique, Sev C) */
     }
 
     /* iOS install sheet */
@@ -911,7 +933,8 @@
     }
     .ios-sheet.open { display: flex; }
     .ios-sheet-inner {
-      background: #fff; border-radius: 20px 20px 0 0;
+      background: var(--card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
+      border-radius: 20px 20px 0 0;
       padding: 24px 24px calc(24px + env(safe-area-inset-bottom));
       width: 100%; max-width: 430px; margin: 0 auto;
     }
@@ -944,6 +967,7 @@
       width: 100%; background: var(--warm); border: none;
       border-radius: 12px; padding: 14px; font-size: 16px;
       font-weight: 600; color: var(--accent-deep); cursor: pointer; margin-top: 4px;
+      touch-action: manipulation; user-select: none; /* touch hygiene, matching .back-btn / .phrase-card (2026-07-19 visual critique, Sev C) */
     }
 
     /* ── Offline toast ───────────────────────────────── */
@@ -952,7 +976,10 @@
        system feedback (typography sweep, 2026-07-18). */
     .offline-toast {
       position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
-      background: #2D2D2D; color: #fff;
+      /* was #2D2D2D/#fff hardcodes; --text is already #2D2D2D and --card is
+         already #FFFFFF, so both reuse existing tokens rather than adding
+         new ones (2026-07-19 visual critique, Sev C). */
+      background: var(--text); color: var(--card);
       padding: 10px 20px; border-radius: 20px;
       font-size: 13px; z-index: 500;
       opacity: 0; pointer-events: none;
@@ -1004,6 +1031,7 @@
       /* white on this gradient measured 2.59:1 / 1.78:1 across ends; --ink-on-brand
          reaches 6.73:1 / 9.77:1 */
       color: var(--ink-on-brand); font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer;
+      touch-action: manipulation; user-select: none; /* touch hygiene, matching .back-btn / .phrase-card (2026-07-19 visual critique, Sev C) */
     }
 
     /* Jump-to-phrase highlight */

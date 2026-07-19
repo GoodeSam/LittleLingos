@@ -1,21 +1,27 @@
 // INVARIANT (checked by the critique gate): CACHE below is mechanically
 // derived — never hand-edit it. Run `node scripts/stamp-sw.mjs` after any
-// change to index.html or scenarios.js to rewrite this line to
-// `ll-<sha256-8 of index.html+scenarios.js>`; run
+// change to index.html, scenarios.js, or any file under audio/ to rewrite
+// this line to `ll-<sha256-8 of index.html+scenarios.js+audio/ listing>`
+// (the audio fold is each filename + byte length, sorted, so a regenerated
+// mp3 with the same name always changes the hash); run
 // `node scripts/stamp-sw.mjs --check` (exit 1 on mismatch) to verify it is
 // still fresh before deploy. CACHE is the only cache-busting signal for the
-// install/activate handlers (old caches are deleted on activate); without a
-// fresh hash, an already-installed offline client can keep serving a stale
-// shell or stale phrase data indefinitely even though NETWORK_FIRST tries to
-// refresh them opportunistically on every online GET.
-const CACHE = 'll-9dfb7b12';
+// install/activate handlers (old caches are deleted on activate, which is
+// also what evicts stale cached audio served by the cache-first branch
+// below); without a fresh hash, an already-installed offline client can keep
+// serving a stale shell, stale phrase data, or a stale audio recording
+// indefinitely even though NETWORK_FIRST tries to refresh the shell/data
+// opportunistically on every online GET.
+const CACHE = 'll-49aa0489';
 const SHELL = [
   './',
   './index.html',
   './scenarios.js',
   './manifest.json',
-  './icon.svg',
-  './icon-maskable.svg',
+  './icons/icon.svg',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/apple-touch-icon.png',
 ];
 
 // HTML and data files that must always be fresh. Confirmed both index.html and

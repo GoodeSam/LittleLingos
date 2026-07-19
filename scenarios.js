@@ -182,7 +182,7 @@ window.scenarios = {
         { id:"e22", en:"Do you need a hug?", zh:"需要抱抱吗？", tip:"张开双臂等在宝宝面前，边问边让他自己决定要不要抱。" },
         { id:"e23", en:"What happened? Tell me.", zh:"发生什么了？告诉我。", tip:"蹲下来握住宝宝的手，看着他的眼睛请他告诉你发生了什么。" },
         { id:"e24", en:"It's hard, isn't it? I understand.", zh:"这很难，对不对？我理解。", tip:"挨着宝宝坐下轻轻揽住他的肩，边靠边说这很难我理解。" },
-        { id:"e25", en:"Let's take a deep breath together. In... and out.", zh:"我们一起深呼吸。吸气……呼气。", tip:"呼吸练习对2岁以上有效，父母带头做，宝宝会跟上。" },
+        { id:"e25", en:"Let's take a deep breath together. In... and out.", zh:"我们一起深呼吸。吸气……呼气。", tip:"一只手放在自己肚子上、另一只手轻放在宝宝肚子上，用鼻子慢慢吸气再从嘴巴慢慢呼气，让宝宝感受到肚子起伏的节奏跟着一起做。" },
       ],
       "3-6": [
         { id:"e31", en:"It looks like you're feeling angry. Is that right?", zh:"你好像很生气。对吗？", tip:"蹲到孩子面前看着他的表情，边看边帮他把生气这个词说出来。" },
@@ -222,7 +222,7 @@ window.scenarios = {
         { id:"mo31", en:"Good morning! Time to get up. Can you do it by yourself?", zh:"早上好！起床时间了。你能自己起来吗？", tip:"掀开被子退后一步，指指孩子鼓励他自己坐起来。" },
         { id:"mo32", en:"What's your plan for today? What are you excited about?", zh:"今天有什么计划？你期待什么？", tip:"坐到床边摸摸孩子，问他今天最期待什么让他想起床。" },
         { id:"mo33", en:"Let's see who can get dressed the fastest!", zh:"我们看看谁穿衣服最快！", tip:"自己也拿起衣服和孩子比赛穿，边穿边喊看谁快。" },
-        { id:"mo34", en:"You slept so well! Your body is all charged up!", zh:"你睡得好好！身体充满能量了！", tip:"捏捏孩子的手臂假装给他充电，边捏边说身体充满了能量。" },
+        { id:"mo34", en:"You slept so well! You're all charged up and ready to go!", zh:"你睡得真好！现在浑身充满能量，准备好出发啦！", tip:"捏捏孩子的手臂假装给他充电，边捏边说身体充满了能量。" },
         { id:"mo35", en:"What are you going to do first this morning?", zh:"今天早上你要先做什么？", tip:"扳着手指和孩子一起数晨间要做的事，让他排出先做什么。" },
       ],
     }
@@ -392,7 +392,7 @@ window.scenarios = {
         { id:"mu31", en:"Let's learn the words to this song! Repeat after me!", zh:"我们来学这首歌的歌词！跟我说！", tip:"一句一句唱给孩子听，每句停下来让他跟着你说。" },
         { id:"mu32", en:"Can you tap the beat on your knees? Listen to the music!", zh:"你能用手拍膝盖打节拍吗？听听音乐！", tip:"拍拍自己的膝盖打节拍给孩子看，再请他跟着一起拍。" },
         { id:"mu33", en:"Is this song fast or slow? Happy or sad?", zh:"这首歌是快还是慢？快乐还是悲伤？", tip:"跟着音乐做出快乐或悲伤的表情，问孩子这首歌是哪一种。" },
-        { id:"mu34", en:"Let's make up our own song! What rhymes with cat?", zh:"我们自己编一首歌！什么词和「猫」押韵？", tip:"拍着手打拍子和孩子一起找和猫押韵的词，边拍边编。" },
+        { id:"mu34", en:"Let's make up our own song! What rhymes with cat?", zh:"我们自己编一首歌！什么英文词和「cat」押韵呀？", tip:"拍着手打拍子，和孩子一起用英文找和 cat 押韵的词（比如 hat、bat、mat），边拍边编。" },
         { id:"mu35", en:"You are a great dancer! Show me your best move!", zh:"你是超棒的舞蹈家！给我看你最厉害的动作！", tip:"自己先跳一个动作，再退到一旁给孩子舞台让他展示。" },
       ],
     }
@@ -402,7 +402,7 @@ window.scenarios = {
     icon: "🎨", name: "涂鸦美工", color: "var(--pink)",
     phrases: {
       "0-1": [
-        { id:"ar01", en:"Red! You're making red marks!", zh:"红色！你在画红色的印记！", tip:"指着宝宝画下的红色印记，边指边说出颜色。" },
+        { id:"ar01", en:"Red! So much red!", zh:"红色！好多红色呀！", tip:"宝宝涂画时，指着纸上的红色，边指边说出颜色。" },
         { id:"ar02", en:"Squish squish! Soft and squishy!", zh:"捏捏捏！软软的！", tip:"手指触碰颜料时描述触感，丰富宝宝的感觉词汇。" },
         { id:"ar03", en:"Big circle! Round and round!", zh:"大圆圈！转啊转！", tip:"手握宝宝的小手画圆，边说边做，感受形状。" },
         { id:"ar04", en:"Look what you made!", zh:"看你画的！", tip:"指向宝宝的作品，让他感受到自己的行为有意义。" },
@@ -529,7 +529,7 @@ window.scenarios = {
         { id:"pt32", en:"You can go to the bathroom by yourself now. You're so grown up!", zh:"你现在能自己上厕所了。你长大了好多！", tip:"拍拍孩子的肩夸他现在能自己上厕所、长大了。" },
         { id:"pt33", en:"Don't forget to flush and wash your hands! That's the rule.", zh:"别忘了冲水和洗手！这是规定。", tip:"指着冲水按钮和水池，提醒孩子冲水、洗手一步都不少。" },
         { id:"pt34", en:"How do you know when you need to go? Your body tells you!", zh:"你怎么知道要上厕所了？是你的身体在告诉你！", tip:"摸摸孩子的小肚子，问他身体是怎么告诉他要上厕所的。" },
-        { id:"pt35", en:"You went all by yourself! High five!", zh:"你自己去上厕所了！击掌！", tip:"庆祝独立如厕，用互动仪式（击掌）强化成就感。" },
+        { id:"pt35", en:"You went all by yourself! High five!", zh:"你自己去上厕所了！击掌！", tip:"在宝宝的高度举起张开的手掌，等他抬手拍上来，啪地和他击一下掌。" },
       ],
     }
   },
@@ -739,7 +739,7 @@ window.scenarios = {
   },
 
   safety: {
-    icon: "⚠️", name: "安全规则", color: "var(--accent)",
+    icon: "🚸", name: "安全规则", color: "var(--accent)",
     phrases: {
       "0-1": [
         { id:"sf01", en:"Stop! Stop right there!", zh:"停！就停在那里！", tip:"伸手轻轻拦住宝宝，用坚定但不吓人的声音说停。" },
@@ -887,7 +887,7 @@ window.scenarios = {
       "1-2": [
         { id:"pw11", en:"Good job! You did it all by yourself!", zh:"好棒！你自己做到了！", tip:"指着宝宝独自完成的东西竖起大拇指，夸他自己做到了。" },
         { id:"pw12", en:"You tried so hard! I'm proud of you!", zh:"你那么努力尝试！我为你骄傲！", tip:"蹲下来抱抱宝宝，具体夸他刚才那么努力地尝试。" },
-        { id:"pw13", en:"Yay! You did it! High five!", zh:"耶！你做到了！击掌！", tip:"用击掌这个互动仪式让庆祝变得有形有趣。" },
+        { id:"pw13", en:"Yay! You did it! High five!", zh:"耶！你做到了！击掌！", tip:"伸出张开的手掌举到宝宝面前，让他用小手拍上来，完成击掌。" },
         { id:"pw14", en:"You're getting better and better!", zh:"你越来越好了！", tip:"比一比宝宝以前和现在的样子，笑着说你越来越好了。" },
         { id:"pw15", en:"I see you trying! That makes me so happy!", zh:"我看到你在努力！这让我好开心！", tip:"看着努力中的宝宝点点头，说我看到你在努力真开心。" },
       ],
@@ -916,7 +916,7 @@ window.scenarios = {
         { id:"ex02", en:"Tummy time! Look up, look up!", zh:"趴趴时间！抬头，抬头！", tip:"趴着时在宝宝前方吸引注意，鼓励头部力量发展。" },
         { id:"ex03", en:"Reach! Grab it! You can do it!", zh:"够！抓住它！你能做到！", tip:"把玩具放在稍远处鼓励伸手，发展上肢力量和协调。" },
         { id:"ex04", en:"Roll over! There you go!", zh:"翻身！好样的！", tip:"帮宝宝翻身时说，建立翻身动作和语言的联系。" },
-        { id:"ex05", en:"Up up up! Standing!", zh:"起来起来！站立！", tip:"扶着宝宝站立时说，为之后的独立站立做语言准备。" },
+        { id:"ex05", en:"Up up up! Stand up!", zh:"起来起来！站起来！", tip:"扶着宝宝站立时说，为之后的独立站立做语言准备。" },
       ],
       "1-2": [
         { id:"ex11", en:"Run run run! Fast feet!", zh:"跑跑跑！快脚丫！", tip:"跟着宝宝跑，配合夸张的语气，让运动充满乐趣。" },
@@ -947,7 +947,7 @@ window.scenarios = {
     phrases: {
       "0-1": [
         { id:"kt01", en:"Mommy is stirring! Round and round!", zh:"妈妈在搅拌！转啊转！", tip:"一边搅拌锅里的食物一边转给宝宝看，边做边说。" },
-        { id:"kt02", en:"Listen! Sizzle sizzle! That's cooking!", zh:"听！滋滋滋！这是在烹饪！", tip:"把宝宝抱到锅边听滋滋声，边听边说这是在做饭。" },
+        { id:"kt02", en:"Listen! Sizzle sizzle! Dinner's cooking!", zh:"听！滋滋滋！在做饭啦！", tip:"把宝宝抱到锅边听滋滋声，边听边说这是在做饭。" },
         { id:"kt03", en:"Mmm, it smells so good! Something yummy is cooking!", zh:"嗯，好香！有好吃的东西在做了！", tip:"抱着宝宝凑近锅边闻一闻，边闻边说好香。" },
         { id:"kt04", en:"Look at all the vegetables! Colors everywhere!", zh:"看这么多蔬菜！到处都是颜色！", tip:"拿起不同颜色的蔬菜举给宝宝看，边指边说颜色。" },
         { id:"kt05", en:"Daddy is chopping! Chop chop chop!", zh:"爸爸在切菜！切切切！", tip:"一边切菜一边发出切切切的声音给宝宝听。" },

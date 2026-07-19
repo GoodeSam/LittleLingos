@@ -13,16 +13,32 @@
 //
 // Style follows scripts/codex-eval.mjs: small, containment-checked, no deps.
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SW_PATH = resolve(REPO, "sw.js");
 const SOURCES = ["index.html", "scenarios.js"].map((f) => resolve(REPO, f));
+const AUDIO_DIR = resolve(REPO, "audio");
 
 const die = (m, code = 2) => { console.error("✗ stamp-sw: " + m); process.exit(code); };
 const contained = (p) => { const r = resolve(p); return r === REPO || r.startsWith(REPO + sep); };
+
+// Folds the audio/ directory into the hash so a regenerated mp3 (same
+// filename, new bytes) always changes the stamp, without hashing 1000+ files'
+// full contents on every run: sorted filename + byte length is a stable,
+// cheap proxy for "these bytes changed" (TTS output length varies phrase to
+// phrase, so a re-record essentially never lands on the exact same size).
+function foldAudioDir(hash) {
+  if (!existsSync(AUDIO_DIR)) die("missing audio/ directory required for hash: " + AUDIO_DIR);
+  const names = readdirSync(AUDIO_DIR).filter((f) => f.endsWith(".mp3")).sort();
+  if (names.length === 0) die("audio/ directory is empty: " + AUDIO_DIR);
+  for (const name of names) {
+    const size = statSync(resolve(AUDIO_DIR, name)).size;
+    hash.update(name + ":" + size + "\n");
+  }
+}
 
 function computeHash8() {
   const hash = createHash("sha256");
@@ -30,6 +46,7 @@ function computeHash8() {
     if (!existsSync(src)) die("missing source file required for hash: " + src);
     hash.update(readFileSync(src));
   }
+  foldAudioDir(hash);
   return hash.digest("hex").slice(0, 8);
 }
 

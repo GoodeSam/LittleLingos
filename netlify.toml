@@ -12,7 +12,7 @@
     X-Frame-Options        = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy        = "strict-origin-when-cross-origin"
-    Permissions-Policy     = "microphone=(), camera=()"
+    Permissions-Policy     = "microphone=(self), camera=()"
 
 # Service worker must not be long-cached so updates deploy immediately
 [[headers]]

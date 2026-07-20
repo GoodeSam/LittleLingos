@@ -2589,7 +2589,16 @@ function initVoiceSearch() {
   voiceRecognition.onend = () => setMicListening(false);
   // no-speech / network / not-allowed (permission denied) all land here —
   // always reset to idle so the button never gets stuck listening.
-  voiceRecognition.onerror = () => setMicListening(false);
+  voiceRecognition.onerror = (evt) => {
+    setMicListening(false);
+    const messages = {
+      'not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
+      'service-not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
+      'no-speech': '🤫 没有听到声音 — 请再说一次',
+      'network': '📡 网络错误 — 请检查网络连接后重试',
+    };
+    showOfflineToast(messages[evt.error] || '🎙️ 语音识别出错 — 请再试一次');
+  };
   voiceRecognition.onresult = (evt) => {
     const transcript = evt.results && evt.results[0] && evt.results[0][0]
       ? evt.results[0][0].transcript.trim()

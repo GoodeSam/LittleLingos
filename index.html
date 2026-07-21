@@ -2573,6 +2573,11 @@ window.addEventListener('online',  () => showOfflineToast('✅ 已恢复网络�
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 let voiceRecognition = null;
 let voiceListening = false;
+// Short cooldown after a session ends (or fails to start) so a rapid re-tap
+// can't hit the Chrome teardown race that makes .start() throw
+// InvalidStateError. Composes with the online/offline gate in
+// updateMicOnlineState(): disabled = offline OR cooldown.
+let micCooldown = false;
 
 function initVoiceSearch() {
   const micBtn = document.getElementById('micBtn');
@@ -2586,7 +2591,10 @@ function initVoiceSearch() {
 
   voiceRecognition.onstart = () => setMicListening(true);
   voiceRecognition.onaudiostart = () => setMicListening(true);
-  voiceRecognition.onend = () => setMicListening(false);
+  voiceRecognition.onend = () => {
+    setMicListening(false);
+    startMicCooldown();
+  };
   // no-speech / network / not-allowed (permission denied) all land here —
   // always reset to idle so the button never gets stuck listening.
   voiceRecognition.onerror = (evt) => {
@@ -2624,14 +2632,30 @@ function setMicListening(isListening) {
 function updateMicOnlineState() {
   const micBtn = document.getElementById('micBtn');
   if (!micBtn || !SpeechRecognitionCtor) return;
-  micBtn.disabled = !navigator.onLine;
+  // Disabled if offline OR still in the post-session cooldown — either
+  // source can veto enabling the button; neither can force-enable it.
+  micBtn.disabled = !navigator.onLine || micCooldown;
   if (!navigator.onLine && voiceListening) {
     voiceRecognition.stop();
   }
 }
 
+// Briefly disables the mic button after a session ends (or fails to start),
+// then re-enables it ONLY through updateMicOnlineState() — never by writing
+// micBtn.disabled = false directly — so a cooldown expiring while offline
+// can't accidentally re-enable a button the offline gate wants disabled.
+function startMicCooldown() {
+  micCooldown = true;
+  const micBtn = document.getElementById('micBtn');
+  if (micBtn) micBtn.disabled = true;
+  setTimeout(() => {
+    micCooldown = false;
+    updateMicOnlineState();
+  }, 400);
+}
+
 function toggleVoiceSearch() {
-  if (!voiceRecognition || !navigator.onLine) return;
+  if (!voiceRecognition || !navigator.onLine || micCooldown) return;
   if (voiceListening) {
     voiceRecognition.stop();
     return;
@@ -2639,9 +2663,14 @@ function toggleVoiceSearch() {
   try {
     voiceRecognition.start();
   } catch (e) {
-    // start() throws if a recognition session is already active/starting;
-    // reset defensively rather than leaving the button stuck.
+    // start() throws if a recognition session is already active/starting
+    // (Chrome teardown race from a rapid re-tap). Reset defensively so the
+    // button never sticks, surface it so the parent isn't left guessing why
+    // nothing happened, and start the same cooldown as a normal onend so the
+    // next tap doesn't hit the same race again.
     setMicListening(false);
+    showOfflineToast('🎙️ 请稍等一下再试');
+    startMicCooldown();
   }
 }
 

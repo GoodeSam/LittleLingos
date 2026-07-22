@@ -664,6 +664,42 @@
        still cedes hierarchy to the Chinese per Pillar 4 (zh>=en in both
        size AND weight — here size ties, zh's weight wins). */
     .saved-item-en { font-size: 16px; color: var(--muted); }
+    /* Saved-list recall mask (per-item reveal): the review card above already
+       hides its answer until tapped (.review-answer / .review-btn-reveal,
+       same --warm/--accent-deep palette reused here) — the saved list leaked
+       the same recall answer via .saved-item-en with no gate. Masked by
+       default, independent per row, unconditional (not gated on reviewQueue
+       state). Only .saved-item-en is masked; .saved-item-zh/-tip stay visible. */
+    .saved-item-en-wrap {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+      cursor: pointer;
+      touch-action: manipulation;
+      border-radius: 8px;
+    }
+    .saved-item-en-wrap .saved-item-en {
+      filter: blur(6px);
+      user-select: none;
+      transition: filter 0.15s ease;
+    }
+    .saved-item-en-wrap .saved-item-en-hint {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent-deep);
+      background: var(--warm);
+      border-radius: 8px;
+      padding: 2px 8px;
+    }
+    .saved-item-en-wrap.revealed .saved-item-en { filter: none; }
+    .saved-item-en-wrap.revealed .saved-item-en-hint { display: none; }
     /* zh is the parent's primary reading language for this card — made the loudest
        element (16px, darker --zh-ink, bold) per hierarchy finding; en demoted to
        muted color/lighter weight since it is the secondary/reference line here. */
@@ -2041,9 +2077,34 @@ function renderSavedScreen() {
     const textDiv = document.createElement('div');
     textDiv.className = 'saved-item-text';
 
+    const enWrap = document.createElement('div');
+    enWrap.className = 'saved-item-en-wrap';
+    enWrap.setAttribute('role', 'button');
+    enWrap.setAttribute('tabindex', '0');
+    enWrap.setAttribute('aria-pressed', 'false');
+    enWrap.setAttribute('aria-label', '点击显示英文');
+
     const enDiv = document.createElement('div');
     enDiv.className = 'saved-item-en';
     enDiv.textContent = p.en;
+
+    const enHint = document.createElement('span');
+    enHint.className = 'saved-item-en-hint';
+    enHint.textContent = '👁 点击显示英文';
+
+    const revealEn = () => {
+      if (enWrap.classList.contains('revealed')) return;
+      enWrap.classList.add('revealed');
+      enWrap.setAttribute('aria-pressed', 'true');
+      enWrap.setAttribute('aria-label', '英文已显示');
+    };
+    enWrap.onclick = revealEn;
+    enWrap.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); revealEn(); }
+    };
+
+    enWrap.appendChild(enDiv);
+    enWrap.appendChild(enHint);
 
     const zhDiv = document.createElement('div');
     zhDiv.className = 'saved-item-zh';
@@ -2067,7 +2128,7 @@ function renderSavedScreen() {
     unsaveBtn.setAttribute('aria-label', '取消收藏');
     unsaveBtn.onclick = () => removeSaved(p.id);
 
-    textDiv.appendChild(enDiv);
+    textDiv.appendChild(enWrap);
     textDiv.appendChild(zhDiv);
     if (tipDiv) textDiv.appendChild(tipDiv);
     textDiv.appendChild(badge);
@@ -2578,26 +2639,67 @@ let voiceListening = false;
 // InvalidStateError. Composes with the online/offline gate in
 // updateMicOnlineState(): disabled = offline OR cooldown.
 let micCooldown = false;
+// Monotonic session id (F3/F4). Every tap gets a fresh recognition instance
+// (see createVoiceSession) whose handlers close over "their" session number;
+// a handler or watchdog timer from an older, already-superseded instance
+// checks isCurrentSession() before touching shared state so a late/stray
+// event from a discarded object can never desync voiceListening from the
+// real engine.
+let voiceSessionId = 0;
 
 function initVoiceSearch() {
   const micBtn = document.getElementById('micBtn');
   if (!micBtn) return;
   if (!SpeechRecognitionCtor) return; // stays [hidden]; feature not shown at all
 
-  voiceRecognition = new SpeechRecognitionCtor();
-  voiceRecognition.lang = 'zh-CN';
-  voiceRecognition.interimResults = false;
-  voiceRecognition.maxAlternatives = 1;
+  micBtn.hidden = false;
+  updateMicOnlineState();
+}
 
-  voiceRecognition.onstart = () => setMicListening(true);
-  voiceRecognition.onaudiostart = () => setMicListening(true);
-  voiceRecognition.onend = () => {
+// Builds and fully wires a recognition instance for exactly one listen
+// session. A fresh instance per tap (instead of one long-lived, reused
+// object) eliminates the wedged-reuse InvalidStateError race, where a prior
+// session could leave the shared object in a state that made a later
+// .start() throw even after its onend had already fired (root cause 3).
+function createVoiceSession() {
+  const rec = new SpeechRecognitionCtor();
+  rec.lang = 'zh-CN';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+
+  const session = ++voiceSessionId;
+  const isCurrentSession = () => session === voiceSessionId;
+
+  let gotResult = false; // onresult fired at least once, any transcript (F1)
+  let gotError = false;  // onerror already surfaced its own toast (F1)
+  let started = false;   // onstart/onaudiostart fired (F4 watchdog)
+
+  rec.onstart = () => {
+    if (!isCurrentSession()) return;
+    started = true;
+    setMicListening(true);
+  };
+  rec.onaudiostart = () => {
+    if (!isCurrentSession()) return;
+    started = true;
+    setMicListening(true);
+  };
+  rec.onend = () => {
+    if (!isCurrentSession()) return;
     setMicListening(false);
     startMicCooldown();
+    // Chrome/Safari can fire onstart -> onend with neither onresult nor
+    // onerror ever firing (short/flaky utterance). A silent end must never
+    // be a dead tap with zero explanation (F1).
+    if (!gotResult && !gotError) {
+      showOfflineToast('🤫 没听清，请再说一次');
+    }
   };
   // no-speech / network / not-allowed (permission denied) all land here —
   // always reset to idle so the button never gets stuck listening.
-  voiceRecognition.onerror = (evt) => {
+  rec.onerror = (evt) => {
+    if (!isCurrentSession()) return;
+    gotError = true;
     setMicListening(false);
     const messages = {
       'not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
@@ -2607,18 +2709,40 @@ function initVoiceSearch() {
     };
     showOfflineToast(messages[evt.error] || '🎙️ 语音识别出错 — 请再试一次');
   };
-  voiceRecognition.onresult = (evt) => {
+  rec.onresult = (evt) => {
+    if (!isCurrentSession()) return;
+    gotResult = true;
     const transcript = evt.results && evt.results[0] && evt.results[0][0]
       ? evt.results[0][0].transcript.trim()
       : '';
-    if (!transcript) return;
+    if (!transcript) {
+      // Chrome's cloud STT can fire a result event with an empty/low-
+      // confidence transcript on a short utterance or a flaky connection.
+      // Previously swallowed with zero user feedback (F2) — give it the
+      // same "didn't catch that" toast as a silent onend.
+      showOfflineToast('🤫 没听清，请再说一次');
+      return;
+    }
     const input = document.getElementById('searchInput');
     input.value = transcript;
     onSearchInput(); // same path as manual typing
   };
 
-  micBtn.hidden = false;
-  updateMicOnlineState();
+  // Watchdog (F4): documented Chrome/Safari behavior across network
+  // transitions is .start() returning with neither onstart nor onerror ever
+  // firing, which previously left voiceListening stuck out of sync with the
+  // real engine — the button silently dead until page reload. If neither
+  // has landed within 1.5s, force state back to idle and tell the parent to
+  // retry instead of leaving them guessing.
+  setTimeout(() => {
+    if (!isCurrentSession() || started || gotError) return;
+    try { rec.abort(); } catch (e) {}
+    setMicListening(false);
+    startMicCooldown();
+    showOfflineToast('🎙️ 没有响应 — 请再试一次');
+  }, 1500);
+
+  return rec;
 }
 
 function setMicListening(isListening) {
@@ -2635,7 +2759,7 @@ function updateMicOnlineState() {
   // Disabled if offline OR still in the post-session cooldown — either
   // source can veto enabling the button; neither can force-enable it.
   micBtn.disabled = !navigator.onLine || micCooldown;
-  if (!navigator.onLine && voiceListening) {
+  if (!navigator.onLine && voiceListening && voiceRecognition) {
     voiceRecognition.stop();
   }
 }
@@ -2655,19 +2779,23 @@ function startMicCooldown() {
 }
 
 function toggleVoiceSearch() {
-  if (!voiceRecognition || !navigator.onLine || micCooldown) return;
+  if (!SpeechRecognitionCtor || !navigator.onLine || micCooldown) return;
   if (voiceListening) {
-    voiceRecognition.stop();
+    if (voiceRecognition) voiceRecognition.stop();
     return;
   }
+  // Fresh instance every tap (F3) — see createVoiceSession().
+  voiceRecognition = createVoiceSession();
   try {
     voiceRecognition.start();
   } catch (e) {
     // start() throws if a recognition session is already active/starting
-    // (Chrome teardown race from a rapid re-tap). Reset defensively so the
-    // button never sticks, surface it so the parent isn't left guessing why
-    // nothing happened, and start the same cooldown as a normal onend so the
-    // next tap doesn't hit the same race again.
+    // (Chrome teardown race from a rapid re-tap). Invalidate this session so
+    // its 1.5s watchdog becomes a no-op, reset defensively so the button
+    // never sticks, surface it so the parent isn't left guessing why nothing
+    // happened, and start the same cooldown as a normal onend so the next
+    // tap doesn't hit the same race again.
+    voiceSessionId++;
     setMicListening(false);
     showOfflineToast('🎙️ 请稍等一下再试');
     startMicCooldown();

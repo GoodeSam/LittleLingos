@@ -174,7 +174,7 @@ window.scenarios = {
         { id:"e11", en:"I know, I know. It's okay.", zh:"我知道，我知道。没事的。", tip:"把宝宝抱进怀里轻轻晃，先说我知道认可情绪再慢慢安抚。" },
         { id:"e12", en:"Come here. I've got you.", zh:"过来。我抱着你。", tip:"张开双臂，同时说这句话，让宝宝知道你随时可以接住他。" },
         { id:"e13", en:"That was scary, wasn't it?", zh:"刚才好吓人，对不对？", tip:"蹲下来搂着宝宝拍拍他的背，边拍边替他把害怕说出来。" },
-        { id:"e14", en:"Big feelings! Big feelings are okay.", zh:"大情绪！有大情绪是没问题的。", tip:"张开双臂把宝宝搂过来，边抱边说有大情绪没关系。" },
+        { id:"e14", en:"Whoa, big feelings! You're okay, you're okay.", zh:"哇，好大的情绪！你没事，你没事的。", tip:"张开双臂把宝宝搂过来，边抱边说有大情绪没关系。" },
         { id:"e15", en:"You're safe. I'm right here.", zh:"你很安全。我就在这里。", tip:"蹲到宝宝面前把他搂进怀里、额头贴额头，边抱边轻声说这句话；抱稳后再查看有没有磕碰。" },
       ],
       "2-3": [
@@ -1016,7 +1016,7 @@ window.scenarios = {
       "0-1": [
         { id:"sn01", en:"Snack time! Open wide.", zh:"零食时间！张开嘴巴。", tip:"把零食端到宝宝面前，笑着宣布零食时间张开嘴。" },
         { id:"sn02", en:"Mmm! So yummy!", zh:"嗯！好好吃！", tip:"夸张的表情和语气帮宝宝感受食物的乐趣。" },
-        { id:"sn03", en:"This is banana. Banana!", zh:"这是香蕉。香蕉！", tip:"举起香蕉在宝宝眼前晃一晃，边晃边重复说香蕉。" },
+        { id:"sn03", en:"It's a banana! Banana!", zh:"是香蕉！香蕉！", tip:"举起香蕉在宝宝眼前晃一晃，边晃边重复说香蕉。" },
         { id:"sn04", en:"One more. Yum yum!", zh:"再来一个。香香！", tip:"递上另一块零食，边送到宝宝手边边说。" },
         { id:"sn05", en:"All done! Good job!", zh:"吃完啦！真棒！", tip:"边说边和宝宝一起拍拍手，把「吃完了」和开心的动作连起来。" },
       ],

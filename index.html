@@ -45,7 +45,18 @@
          (phrase cards, scenario cards, saved rows, and the rest of the card
          family) per the phrase-card-v2 / home-v2 visual proposals. */
       --shadow-card: 0 1px 3px rgba(45,45,45,.06), 0 4px 16px rgba(45,45,45,.06);
+      /* Hero card's deliberately stronger "just lifted off the header"
+         elevation — a named token so it reads as part of the shadow system,
+         not a one-off literal (2026-07-26 visual critique, Sev C). */
+      --shadow-hero: 0 4px 20px rgba(45,45,45,.10);
       --r:       16px;
+      /* Hero-card overlap onto the header, expressed ONCE: the header
+         reserves exactly this much extra bottom padding and the hero card
+         pulls up by exactly the same amount (2026-07-26 visual critique,
+         Sev B: "compensating numbers" — now a single token, on the 4px
+         scale, instead of a 56px/-36px pair that had to be kept in sync
+         by hand). */
+      --hero-overlap: 32px;
       --teal:    #26B2AA;
       --pink:    #E8769A;
       /* On-brand-color text: white fails AA on --accent/--green/--blue/--purple at these
@@ -93,11 +104,10 @@
          (home-v2 spec bullet 1). Same two colors, so the prior AA
          measurements for text on this gradient still apply unchanged. */
       background: linear-gradient(160deg, var(--accent) 10%, var(--accent2) 110%);
-      /* padding grown 16/16/24 -> 20/16/56: the extra bottom padding is
-         reserved for the hero card's -36px overlap (home-v2 spec bullet 1 +
-         bullet 3) so the card visually "sits" on the header without eating
-         into the header's own content. */
-      padding: 20px 16px 56px;
+      /* Bottom padding = own 20px + the shared --hero-overlap token, so the
+         hero card "sits" on the header without eating its content and the
+         two values can never drift apart (home-v2 spec bullet 1 + 3). */
+      padding: 20px 16px calc(20px + var(--hero-overlap));
       /* white on this gradient measured 2.59:1 (accent end) / 1.78:1 (accent2 end);
          --ink-on-brand reaches 6.73:1 / 9.77:1 on the same two ends */
       color: var(--ink-on-brand);
@@ -195,7 +205,16 @@
       align-items: center;
       gap: 12px;
     }
-    .today-icon { font-size: 28px; }
+    /* Same glyph-metric-normalized tinted tile as .scenario-card .s-icon-tile
+       (2026-07-26 visual critique, Sev B: icon treatment was normalized in
+       the grid but raw everywhere else). --tint-color is set inline by
+       renderTodayStrip() from the scenario's color token. */
+    .today-icon {
+      width: 44px; height: 44px; flex-shrink: 0;
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--tint-color, var(--accent)) 16%, white);
+      font-size: 24px; line-height: 44px; text-align: center;
+    }
     .today-text { flex: 1; }
     /* Bumped 14px -> 16px: real reading content (today's recommended
        scenario + phrase count), not chrome (typography sweep, 2026-07-18). */
@@ -206,7 +225,7 @@
       /* white on --accent measured 2.59:1 (fails AA); --ink-on-brand reaches 6.73:1 */
       color: var(--ink-on-brand);
       border: none;
-      border-radius: 10px;
+      border-radius: 22px; /* pill, matching the .play-btn/.age-badge CTA family (radius-scale unification) */
       padding: 0 16px;
       min-height: 44px; /* tap target >=44px */
       display: inline-flex;
@@ -216,7 +235,10 @@
       cursor: pointer;
       white-space: nowrap;
       touch-action: manipulation;
+      user-select: none;
+      transition: transform .15s;
     }
+    .today-btn:active { transform: scale(.95); }
 
     /* ── Section Title ───────────────────────────────── */
     /* Sub-16px, kept: uppercase section-divider eyebrow label ("选择场景"),
@@ -305,10 +327,10 @@
        stronger "just lifted off the header" shadow, not the standard card
        shadow used elsewhere in the grid). */
     .hero-card {
-      margin: -36px 16px 16px;
+      margin: calc(-1 * var(--hero-overlap)) 16px 16px;
       background: var(--card);
-      border-radius: 20px;
-      box-shadow: 0 4px 20px rgba(45,45,45,.10);
+      border-radius: var(--r); /* card-system radius; elevation alone carries the hero emphasis */
+      box-shadow: var(--shadow-hero);
       padding: 16px;
       position: relative;
     }
@@ -340,6 +362,19 @@
       font-size: 16px;
       cursor: pointer;
       white-space: nowrap;
+      /* Long saved phrases (esp. AI translations) truncate with ellipsis
+         instead of stretching the row into excessive sideways scrolling
+         (2026-07-26 visual critique, Sev C). */
+      max-width: 240px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      /* Scenario-opening control → >=44px tap target like every other
+         tappable (2026-07-26 visual critique, Sev A). inline-flex keeps the
+         text vertically centered inside the taller pill; the ellipsis
+         truncation above still applies to the flexed text content. */
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
       touch-action: manipulation;
       user-select: none;
     }
@@ -382,11 +417,11 @@
       align-items: center;
       padding: 10px 0 14px;
       cursor: pointer;
-      /* Sub-16px, kept: 2-4 char icon+label bottom-nav chrome (首页/收藏/翻译),
-         universal small-label mobile-nav convention, not a body-reading
-         surface — space-constrained 3-item bar where a 16px label would
-         force wrapping under the icon (typography sweep, 2026-07-18). */
-      font-size: 13px;
+      /* Bumped 13px -> 16px (2026-07-26 visual critique, Sev B — supersedes
+         the 2026-07-18 chrome exemption): always-visible navigation the
+         parent reads on every visit; at 3 items / 2-char labels there is
+         ample width, so the original wrap concern doesn't apply. */
+      font-size: 16px;
       color: var(--muted);
       gap: 3px;
       transition: color .15s;
@@ -432,11 +467,17 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      background: var(--card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
+      /* Translucent + blur while content scrolls beneath the sticky header —
+         the native-app material feel this shell was missing (2026-07-26
+         appearance round). Solid --card stays as the no-support fallback. */
+      background: var(--card);
       border-bottom: 1px solid var(--border);
       position: sticky;
       top: 0;
       z-index: 10;
+    }
+    @supports (backdrop-filter: blur(12px)) {
+      .screen-header { background: rgba(255,255,255,.86); backdrop-filter: blur(12px) saturate(1.4); }
     }
     .back-btn {
       background: var(--warm);
@@ -451,7 +492,15 @@
       user-select: none;
     }
     .screen-header h2 { font-size: 18px; font-weight: 700; flex: 1; }
-    .screen-header .h-icon { font-size: 26px; }
+    /* Tinted tile, same family as .s-icon-tile/.today-icon (icon-treatment
+       unification, 2026-07-26 visual critique). --tint-color set inline by
+       openScenario(). */
+    .screen-header .h-icon {
+      width: 40px; height: 40px; flex-shrink: 0;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--tint-color, var(--accent)) 16%, white);
+      font-size: 22px; line-height: 40px; text-align: center;
+    }
 
     /* Phrase list (phrase-card-v2 proposal, ported) */
     .phrase-list { padding: 12px 16px calc(100px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; }
@@ -494,7 +543,18 @@
        existing 700 weight (vs. .phrase-en's 650) is what carries the extra
        scan priority on top of the now-equal ink. */
     .phrase-zh { font-size: 19px; font-weight: 700; color: var(--text); line-height: 1.45; }
-    .phrase-en { font-size: 19px; font-weight: 650; line-height: 1.4; margin-top: 4px; letter-spacing: -.1px; }
+    /* Layer separation (2026-07-26 visual critique, Sev B: zh and en were
+       "almost the same visual layer"): the English learning target now
+       carries the same --accent-deep ink the review card's .review-en
+       already uses (5.20:1 on white — AA at 19px), so the two lines read
+       as scan-line (dark zh) then target-line (brand-warm en) — one
+       consistent bilingual pattern across phrase card and review card.
+       Sized 17px (2026-07-26 visual critique, Sev B: hue alone separated
+       the layers too weakly) — the zh>=en rule (2026-07-19 Sev B) still
+       holds with zh at 19px, and the stack now separates on size + weight +
+       color + spacing rather than color alone. 17px/600 stays comfortably
+       readable for the line the parent says aloud. */
+    .phrase-en { font-size: 17px; font-weight: 600; line-height: 1.4; margin-top: 6px; letter-spacing: -.1px; color: var(--accent-deep); }
     .phrase-actions {
       display: flex;
       flex-wrap: wrap; /* keeps the 0-1 band's 4-button row from overflowing at 320px */
@@ -520,6 +580,7 @@
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       box-shadow: 0 2px 8px rgba(255,122,69,.35);
       touch-action: manipulation;
+      user-select: none; /* long-press must not select text (2026-07-26 visual critique, Sev C) */
     }
     /* Playing state: --accent-deep bg, white text (phrase-card-v2 bullet 3).
        White on --accent-deep measures 5.20:1 — clear AA. */
@@ -543,6 +604,7 @@
       transition: all .15s;
       display: inline-flex; align-items: center; justify-content: center;
       touch-action: manipulation;
+      user-select: none; /* long-press must not select text (2026-07-26 visual critique, Sev C) */
     }
     /* white on --slow-playing measures 3.78:1 (fails AA); --ink-on-brand reaches ~4.6:1 */
     .play-btn-slow.playing { background: var(--slow-playing); color: var(--ink-on-brand); border-color: var(--slow-playing); }
@@ -756,10 +818,11 @@
        .mic-btn family used by voice search (shared voice-input module). */
     .zh-input-row { display: flex; align-items: flex-end; gap: 8px; }
     .zh-input-row textarea { flex: 1; min-width: 0; }
-    /* Sub-16px, kept: ancillary data-processing disclosure under the input,
-       same secondary-note scale as .offline-toast; the instruction label
-       above the field stays 16px. */
-    .privacy-note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+    /* 16px: a substantive data-processing warning the parent must actually
+       read is reading content under the typography-sweep floor, not chrome
+       (2026-07-26 visual critique, Sev B — supersedes the earlier 13px
+       "ancillary note" classification). */
+    .privacy-note { font-size: 16px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
     .translate-btn {
       background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
       /* white on this gradient measured 2.59:1 / 1.78:1 across ends; --ink-on-brand
@@ -799,6 +862,7 @@
       flex: 1; border: 1px solid var(--border); background: var(--card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
       border-radius: 10px; padding: 10px; min-height: 44px; font-size: 16px; cursor: pointer;
       touch-action: manipulation;
+      user-select: none; /* high-frequency tappable, matching .play-btn family (2026-07-26 visual critique, Sev C) */
     }
     /* Visible playing state for the translate-result audio button (state-visibility finding).
        White on --accent2 measures 1.78:1 (fails); --ink-on-brand text reaches ~9.8:1. */
@@ -924,6 +988,12 @@
       display: flex; align-items: center; gap: 4px;
       background: var(--warm); border-radius: 20px; padding: 4px 10px; font-size: 12px;
     }
+    /* Normalized emoji size inside text chips (.today-badge / .saved-chip):
+       different code points render at wildly different effective sizes when
+       inheriting the chip's text size — a fixed size + line-height gives
+       every chip the same icon scale (icon-treatment unification,
+       2026-07-26 visual critique, Sev B). */
+    .chip-ico { font-size: 15px; line-height: 1; }
     /* color fixed var(--green) -> var(--green-deep): var(--green) on
        --warm measured 2.42:1 (fails AA); --green-deep reaches 4.76:1
        (contrast sweep, 2026-07-18). */
@@ -1026,6 +1096,14 @@
       background: var(--text); color: var(--card);
       padding: 10px 20px; border-radius: 20px;
       font-size: 13px; z-index: 500;
+      /* Long zh messages ("🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问")
+         must wrap inside a 320px viewport instead of clipping past both
+         edges (2026-07-26 visual critique, Sev A). width:max-content keeps
+         short toasts pill-tight; the max-width caps long ones. */
+      width: max-content;
+      max-width: calc(100vw - 32px);
+      text-align: center;
+      overflow-wrap: break-word;
       opacity: 0; pointer-events: none;
       transition: opacity .3s;
     }
@@ -1170,6 +1248,7 @@
       flex: 1; border: none; border-radius: 12px; padding: 12px;
       min-height: 44px; font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer;
       touch-action: manipulation;
+      user-select: none; /* high-frequency tappable, matching .play-btn family (2026-07-26 visual critique, Sev C) */
     }
     /* var(--accent) #FF7A45 on --warm #FFF0E0 measured 2.31:1 (fails AA);
        --accent-deep reaches 4.65:1 on the same --warm background
@@ -1620,7 +1699,7 @@ function renderTodayProgress() {
   usedMap.forEach((count, sid) => {
     const s = scenarios[sid];
     const b = document.createElement("div"); b.className = "today-badge";
-    b.innerHTML = s.icon + " " + s.name + " <span class='today-badge-count'>" + count + "句</span>";
+    b.innerHTML = "<span class='chip-ico'>" + s.icon + "</span> " + s.name + " <span class='today-badge-count'>" + count + "句</span>";
     icons.appendChild(b);
   });
 }
@@ -1629,7 +1708,11 @@ function renderTodayProgress() {
 function renderTodayStrip() {
   const s = scenarios[todayId];
   const count = (s.phrases[currentAge] || []).length;
-  document.getElementById("todayIcon").textContent = s.icon;
+  const todayIcon = document.getElementById("todayIcon");
+  todayIcon.textContent = s.icon;
+  // Tinted tile tracks the scenario's color identity, same mechanism as
+  // renderScenarioGrid()'s .s-icon-tile.
+  todayIcon.style.setProperty("--tint-color", s.color);
   document.getElementById("todayScenarioName").textContent = "今日推荐：" + s.name;
   document.getElementById("todaySubtitle").textContent = count + " 个短句，2 分钟学完";
 }
@@ -1705,7 +1788,9 @@ function openScenario(id) {
   currentScenario = id;
   currentTier = "all";
   const s = scenarios[id];
-  document.getElementById("scenarioIcon").textContent = s.icon;
+  const hIcon = document.getElementById("scenarioIcon");
+  hIcon.textContent = s.icon;
+  hIcon.style.setProperty("--tint-color", s.color); // tile tint, same as .s-icon-tile
   document.getElementById("scenarioTitle").textContent = s.name;
 
   document.querySelectorAll(".age-tab").forEach(t =>
@@ -1941,6 +2026,20 @@ function speakPhrase(id, btn, rate) {
   const bar  = document.getElementById("bar-"  + id);
   const fill = document.getElementById("fill-" + id);
 
+  // Immediate pending state (2026-07-26 visual critique, Sev A): the tap
+  // must never look dead while the MP3 loads — a slow cache miss can take
+  // up to the 8s loadTimer before any other handler fires. onStart()
+  // replaces this with the real playing state; every failure path already
+  // resets or replaces the button (error/timeout → fallbackTTS → onStart or
+  // flashAudioUnavailable; a superseding tap → stopAllAudio).
+  // Seed the true idle label BEFORE showing pending text, so a later
+  // flashAudioUnavailable() can never capture "⏳ 加载中" as the label to
+  // restore to.
+  if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = idleLabel;
+  btn.classList.add("playing");
+  btn.textContent = isSlow ? "⏳" : "⏳ 加载中";
+  if (bar) bar.style.display = "block";
+
   function onStart() {
     btn.classList.add("playing");
     btn.textContent = isSlow ? "⏸" : "⏸ 播放中";
@@ -2121,7 +2220,13 @@ function renderSavedChips() {
     const chip = document.createElement('div');
     chip.className = 'saved-chip';
     const s = scenarios[p.scenario];
-    chip.textContent = (s ? s.icon + ' ' : '🔤 ') + p.en;
+    // Icon in a normalized .chip-ico span; phrase text via textContent
+    // (user-adjacent data never goes through innerHTML).
+    const ico = document.createElement('span');
+    ico.className = 'chip-ico';
+    ico.textContent = s ? s.icon : '🔤';
+    chip.appendChild(ico);
+    chip.appendChild(document.createTextNode(' ' + p.en));
     if (s) {
       chip.onclick = () => openScenario(p.scenario);
       // Keyboard parity: the global keydown handler covers role="button".
@@ -2196,7 +2301,12 @@ function renderSavedScreen() {
     const badge = document.createElement('span');
     badge.className = 'saved-item-badge';
     const s = scenarios[p.scenario];
-    badge.textContent = s ? (s.icon + ' ' + s.name) : '🔤 翻译';
+    // Icon in a normalized .chip-ico span (icon-treatment unification).
+    const bIco = document.createElement('span');
+    bIco.className = 'chip-ico';
+    bIco.textContent = s ? s.icon : '🔤';
+    badge.appendChild(bIco);
+    badge.appendChild(document.createTextNode(' ' + (s ? s.name : '翻译')));
 
     const unsaveBtn = document.createElement('button');
     unsaveBtn.className = 'unsave-btn';
@@ -2285,7 +2395,12 @@ function renderReviewCard() {
   const left = document.createElement("span");
   left.textContent = "📅 今日复习 · 还剩 " + reviewQueue.length + " 句";
   const right = document.createElement("span");
-  right.textContent = s ? s.icon + " " + s.name : "🔤 AI 翻译";
+  // Icon in a normalized .chip-ico span (icon-treatment unification).
+  const rIco = document.createElement("span");
+  rIco.className = "chip-ico";
+  rIco.textContent = s ? s.icon : "🔤";
+  right.appendChild(rIco);
+  right.appendChild(document.createTextNode(" " + (s ? s.name : "AI 翻译")));
   head.append(left, right);
 
   const zh = document.createElement("div");
@@ -2616,7 +2731,12 @@ function buildResultRow(e) {
 
   const badge = document.createElement("span");
   badge.className = "sr-badge";
-  badge.textContent = `${e.sicon} ${e.sname} · ${AGE_LABELS[e.age]}`;
+  // Icon in a normalized .chip-ico span (icon-treatment unification).
+  const sIco = document.createElement("span");
+  sIco.className = "chip-ico";
+  sIco.textContent = e.sicon;
+  badge.appendChild(sIco);
+  badge.appendChild(document.createTextNode(` ${e.sname} · ${AGE_LABELS[e.age]}`));
 
   row.append(top, bottom, badge);
   return row;

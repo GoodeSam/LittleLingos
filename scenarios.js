@@ -300,7 +300,7 @@ window.scenarios = {
     icon: "🫧", name: "洗手时间", color: "var(--blue)",
     phrases: {
       "0-1": [
-        { id:"hw01", en:"Wash your hands! Water on!", zh:"洗手手！开水啦！", tip:"抱着宝宝到水龙头边时说，建立洗手的开始信号。" },
+        { id:"hw01", en:"Hand-washing time! Splash, splash!", zh:"洗手手啦！哗啦哗啦！", tip:"抱着宝宝到水龙头边时说，建立洗手的开始信号。" },
         { id:"hw02", en:"Here's the water. Nice and warm!", zh:"水来了。暖暖的！", tip:"把宝宝的小手伸到温水下，边冲边说暖暖的。" },
         { id:"hw03", en:"Rub rub rub! Soap on!", zh:"搓搓搓！抹上皂！", tip:"帮宝宝搓手时有节奏地说，让动作和语言同步。" },
         { id:"hw04", en:"Rinse it off! All the soap goes bye-bye!", zh:"冲干净！皂皂拜拜！", tip:"把宝宝的手放到水流下冲，边冲边和泡泡说拜拜。" },
@@ -711,7 +711,7 @@ window.scenarios = {
         { id:"mn01", en:"Please! More milk, please!", zh:"请！再要牛奶，请！", tip:"递东西给宝宝前先自己说一句please做示范。" },
         { id:"mn02", en:"Thank you! Thank you, sweetie!", zh:"谢谢！谢谢你，小宝贝！", tip:"宝宝把东西递给你时，微笑着接过来说谢谢，亲身示范感恩，不期待宝宝开口回应。" },
         { id:"mn03", en:"You're welcome! Of course!", zh:"不客气！当然！", tip:"宝宝或家人说谢谢时，笑着点点头回一句不客气做示范。" },
-        { id:"mn04", en:"So polite! Good manners!", zh:"真有礼貌！好规矩！", tip:"看到宝宝有礼貌的举动立刻竖起大拇指夸他真有礼貌。" },
+        { id:"mn04", en:"Ooh, so polite! Good job!", zh:"哦，真有礼貌！真棒！", tip:"看到宝宝有礼貌的举动立刻竖起大拇指夸他真有礼貌。" },
         { id:"mn05", en:"Excuse me! Pardon me!", zh:"打扰一下！借过！", tip:"牵着宝宝从别人身边经过时说一声借过做示范。" },
       ],
       "1-2": [
@@ -730,7 +730,7 @@ window.scenarios = {
       ],
       "3-6": [
         { id:"mn31", en:"It makes people feel good when you say thank you. Did you see them smile?", zh:"你说谢谢会让别人感觉很好。你看到他们笑了吗？", tip:"指向刚刚微笑的那个人，让孩子顺着你的手看过去，把「谢谢」和对方的笑脸联系起来。" },
-        { id:"mn32", en:"Which words make people feel respected? Please, thank you, excuse me!", zh:"哪些词让人感到被尊重？请、谢谢、打扰一下！", tip:"掰着手指一个个数请、谢谢、打扰一下，问孩子哪些让人被尊重。" },
+        { id:"mn32", en:"Do you know which words make people feel respected? Please, thank you, excuse me!", zh:"你知道哪些词能让人感到被尊重吗？请、谢谢、打扰一下！", tip:"掰着手指一个个数请、谢谢、打扰一下，问孩子哪些让人被尊重。" },
         { id:"mn33", en:"Even if you don't like the gift, what's the kind thing to say?", zh:"就算你不喜欢礼物，善意的说法是什么？", tip:"拿起一件礼物递到孩子手里，问他就算不喜欢该怎么说。" },
         { id:"mn34", en:"How do you ask politely when you want something at the table?", zh:"在餐桌上想要东西时，你怎么礼貌地请求？", tip:"在餐桌上指着孩子够不到的菜，问他怎么礼貌地请人递。" },
         { id:"mn35", en:"When you're polite, people can tell you really care about them.", zh:"你有礼貌，别人就能感受到你真的在乎他们。", tip:"指着刚被礼貌对待而微笑的人，让孩子看到有礼貌就是在乎别人。" },
@@ -753,7 +753,7 @@ window.scenarios = {
         { id:"sf12", en:"Wait for Mommy! Wait for Daddy!", zh:"等妈妈！等爸爸！", tip:"伸手拦住宝宝，指指自己让他等妈妈等爸爸。" },
         { id:"sf13", en:"Stop at the road! Cars are coming!", zh:"在马路边停下！有汽车来了！", tip:"指向道路同时说，建立视觉和语言的安全联系。" },
         { id:"sf14", en:"Don't run near the road! Walk with me!", zh:"马路边不要跑！和我一起走！", tip:"牵住宝宝放慢脚步一起走，边走边说马路边不能跑。" },
-        { id:"sf15", en:"Good waiting! You stopped! Well done!", zh:"等得真好！你停下来了！真棒！", tip:"宝宝停下来时立刻蹲下来抱抱他，夸他等得真好。" },
+        { id:"sf15", en:"You waited so nicely! You stopped! Well done!", zh:"等得真好！你停下来了！真棒！", tip:"宝宝停下来时立刻蹲下来抱抱他，夸他等得真好。" },
       ],
       "2-3": [
         { id:"sf21", en:"Why do we hold hands near cars?", zh:"为什么在汽车旁边要牵手？", tip:"在车旁牵着宝宝的手，问他为什么在汽车旁边要牵手。" },
@@ -896,14 +896,14 @@ window.scenarios = {
         { id:"pw22", en:"That was tricky and you did it anyway! Wow!", zh:"那很难，但你还是做到了！哇！", tip:"指着刚完成的难事，边拍手边说那么难你还是做到了。" },
         { id:"pw23", en:"You worked really hard on that! Look what you made!", zh:"你为那个真的很努力！看你做的！", tip:"指着孩子做出来的东西，边指边夸他为这个很努力。" },
         { id:"pw24", en:"Mistakes help you learn! You're getting smarter!", zh:"犯错帮助你学习！你越来越聪明了！", tip:"宝宝出错时摸摸他的头，笑着说犯错帮你越来越聪明。" },
-        { id:"pw25", en:"You should feel proud! You did something hard!", zh:"你应该感到骄傲！你做了一件困难的事！", tip:"指着孩子完成的难事，问他是不是也为自己感到骄傲。" },
+        { id:"pw25", en:"You did something hard! Are you proud of yourself?", zh:"你做了一件很难的事！你是不是也为自己感到骄傲呀？", tip:"指着孩子完成的难事，问他是不是也为自己感到骄傲。" },
       ],
       "3-6": [
         { id:"pw31", en:"You practiced and got better! That's how learning works!", zh:"你练习了然后进步了！这就是学习的方式！", tip:"比划出孩子练习前后的变化，指着说你练习了所以进步了。" },
         { id:"pw32", en:"I noticed you didn't give up when it was hard. That's real courage!", zh:"我注意到在困难的时候你没有放弃。那是真正的勇气！", tip:"蹲下来看着孩子的眼睛，说困难时你没放弃那是真勇气。" },
         { id:"pw33", en:"It's not about being the best — it's about doing your best!", zh:"不是要成为最好的——而是要尽力做到最好！", tip:"拍拍孩子的胸口，告诉他不用跟别人比只要尽力做到最好。" },
         { id:"pw34", en:"What part are you most proud of? Tell me!", zh:"你最骄傲哪个部分？告诉我！", tip:"指着孩子的作品，问他最骄傲哪个部分。" },
-        { id:"pw35", en:"I'm not just proud of what you did — I'm proud of how hard you tried.", zh:"我不只为你做了什么感到骄傲——我为你有多努力尝试感到骄傲。", tip:"搂着孩子告诉他，我为你的努力比为结果更骄傲。" },
+        { id:"pw35", en:"I'm proud of you not just for finishing, but for trying so hard.", zh:"我为你骄傲，不只是因为你做完了，更因为你这么努力。", tip:"搂着孩子告诉他，我为你的努力比为结果更骄傲。" },
       ],
     }
   },

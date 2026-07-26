@@ -2362,16 +2362,29 @@ function reviewAnswer(remembered) {
 
 function playReviewAudio(item, btn) {
   stopAllAudio();
+  // Same session pattern as speakPhrase(): captured after the bump in
+  // stopAllAudio(), so a stale ended/error/rejected-play from a superseded
+  // review element can't reset the newer playback's button or start stale TTS.
+  const session = playbackSession;
+  const isCurrent = () => session === playbackSession;
   if (btn) setPlayBtnPlaying(btn);
   // Scenario phrases have Azure MP3s named by id; AI translations don't
   if (item.id && !String(item.id).startsWith("t_")) {
     const mp3 = new Audio(`./audio/${item.id}_normal.mp3`);
     currentAudio = mp3;
-    mp3.addEventListener("ended", () => resetPlayBtnState(btn), { once: true });
-    mp3.addEventListener("error", () => { currentAudio = null; speakText(item.en, undefined, btn); }, { once: true });
-    mp3.play().catch(() => speakText(item.en, undefined, btn));
+    mp3.addEventListener("ended", () => {
+      if (!isCurrent()) return;
+      if (currentAudio === mp3) currentAudio = null;
+      resetPlayBtnState(btn);
+    }, { once: true });
+    mp3.addEventListener("error", () => {
+      if (!isCurrent()) return;
+      if (currentAudio === mp3) currentAudio = null;
+      speakText(item.en, undefined, btn, session);
+    }, { once: true });
+    mp3.play().catch(() => { if (isCurrent()) speakText(item.en, undefined, btn, session); });
   } else {
-    speakText(item.en, undefined, btn);
+    speakText(item.en, undefined, btn, session);
   }
 }
 
@@ -2504,7 +2517,13 @@ async function doTranslate() {
   }
 }
 
-function speakText(text, rate, btn) {
+// Optional `session`: a caller that already captured a playback session
+// (playReviewAudio's MP3-error fallback) passes it through so a stale
+// fallback can't fire after a newer playback started; direct callers
+// (playResultAudio) default to the current session.
+function speakText(text, rate, btn, session = playbackSession) {
+  const isCurrent = () => session === playbackSession;
+  if (!isCurrent()) return;
   // No speech-synthesis fallback available (used after an MP3 error in
   // playReviewAudio, or directly by playResultAudio for AI translations that
   // have no MP3 at all) — flash a visible state rather than resetting to
@@ -2518,8 +2537,8 @@ function speakText(text, rate, btn) {
   if (v) utter.voice = v;
   if (btn) {
     setPlayBtnPlaying(btn);
-    utter.onend = () => resetPlayBtnState(btn);
-    utter.onerror = () => resetPlayBtnState(btn);
+    utter.onend = () => { if (isCurrent()) resetPlayBtnState(btn); };
+    utter.onerror = () => { if (isCurrent()) resetPlayBtnState(btn); };
   }
   speechSynthesis.speak(utter);
 }

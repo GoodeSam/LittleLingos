@@ -1,0 +1,5 @@
+# Python test environment for the crew integrity suite (tests/, run by
+# `node test/run.mjs` via scripts/crew.mjs check). Install with:
+#   python3 -m pip install -r requirements-dev.txt
+# Supported runtimes: Python >= 3.9, Node >= 18.
+pytest==9.0.2

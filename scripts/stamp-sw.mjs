@@ -13,30 +13,42 @@
 //
 // Style follows scripts/codex-eval.mjs: small, containment-checked, no deps.
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SW_PATH = resolve(REPO, "sw.js");
-const SOURCES = ["index.html", "scenarios.js"].map((f) => resolve(REPO, f));
+// Every precached SHELL asset from sw.js participates in the stamp: a change
+// to ANY of them (not just index.html/scenarios.js) must install a new cache,
+// or cache-first clients keep serving the obsolete asset indefinitely.
+const SOURCES = [
+  "index.html",
+  "scenarios.js",
+  "manifest.json",
+  "icons/icon.svg",
+  "icons/icon-192.png",
+  "icons/icon-512.png",
+  "icons/apple-touch-icon.png",
+].map((f) => resolve(REPO, f));
 const AUDIO_DIR = resolve(REPO, "audio");
 
 const die = (m, code = 2) => { console.error("✗ stamp-sw: " + m); process.exit(code); };
 const contained = (p) => { const r = resolve(p); return r === REPO || r.startsWith(REPO + sep); };
 
-// Folds the audio/ directory into the hash so a regenerated mp3 (same
-// filename, new bytes) always changes the stamp, without hashing 1000+ files'
-// full contents on every run: sorted filename + byte length is a stable,
-// cheap proxy for "these bytes changed" (TTS output length varies phrase to
-// phrase, so a re-record essentially never lands on the exact same size).
+// Folds the audio/ directory into the hash by CONTENT, not name+length: a
+// regenerated mp3 with the same name and coincidentally identical byte count
+// (the failure mode of the old size-proxy fold) still changes the stamp.
+// Hashing the full ~120MB corpus costs about a second — cheap insurance
+// against an installed client serving a stale recording forever.
 function foldAudioDir(hash) {
   if (!existsSync(AUDIO_DIR)) die("missing audio/ directory required for hash: " + AUDIO_DIR);
   const names = readdirSync(AUDIO_DIR).filter((f) => f.endsWith(".mp3")).sort();
   if (names.length === 0) die("audio/ directory is empty: " + AUDIO_DIR);
   for (const name of names) {
-    const size = statSync(resolve(AUDIO_DIR, name)).size;
-    hash.update(name + ":" + size + "\n");
+    hash.update(name + ":");
+    hash.update(readFileSync(resolve(AUDIO_DIR, name)));
+    hash.update("\n");
   }
 }
 

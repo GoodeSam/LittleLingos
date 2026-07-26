@@ -1,18 +1,19 @@
 // INVARIANT (checked by the critique gate): CACHE below is mechanically
 // derived — never hand-edit it. Run `node scripts/stamp-sw.mjs` after any
-// change to index.html, scenarios.js, or any file under audio/ to rewrite
-// this line to `ll-<sha256-8 of index.html+scenarios.js+audio/ listing>`
-// (the audio fold is each filename + byte length, sorted, so a regenerated
-// mp3 with the same name always changes the hash); run
-// `node scripts/stamp-sw.mjs --check` (exit 1 on mismatch) to verify it is
-// still fresh before deploy. CACHE is the only cache-busting signal for the
-// install/activate handlers (old caches are deleted on activate, which is
-// also what evicts stale cached audio served by the cache-first branch
-// below); without a fresh hash, an already-installed offline client can keep
-// serving a stale shell, stale phrase data, or a stale audio recording
-// indefinitely even though NETWORK_FIRST tries to refresh the shell/data
-// opportunistically on every online GET.
-const CACHE = 'll-547b3401';
+// change to a precached file (index.html, scenarios.js, manifest.json, the
+// icons/ shell assets, or any mp3 under audio/) to rewrite this line to
+// `ll-<sha256-8>` of those files' CONTENTS — every SHELL entry and every
+// audio byte participates, so changing any shipped asset always produces a
+// new cache name. Run `node scripts/stamp-sw.mjs --check` (exit 1 on
+// mismatch) to verify it is still fresh before deploy. CACHE is the only
+// cache-busting signal for the install/activate handlers (old ll-* caches
+// are deleted on activate, which is also what evicts stale cached audio
+// served by the cache-first branch below); without a fresh hash, an
+// already-installed offline client can keep serving a stale shell, stale
+// phrase data, or a stale audio recording indefinitely even though
+// NETWORK_FIRST tries to refresh the shell/data opportunistically on every
+// online GET.
+const CACHE = 'll-a3d64e29';
 const SHELL = [
   './',
   './index.html',
@@ -38,10 +39,31 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+      // Delete only this app's own old caches (ll-*): other caches on the
+      // same origin belong to other pages/workers and are not ours to clear.
+      Promise.all(keys.filter(k => k !== CACHE && k.startsWith('ll-')).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
+
+// Single write policy for both strategies. Guards, in order:
+//  - only full 200 bodies (Cache Storage rejects 206 Partial Content, which
+//    audio Range requests produce — an uncaught put would also leave the
+//    file never cached for offline)
+//  - no Range requests (a partial-body request must not poison the
+//    full-body cache entry)
+//  - no query-string variants (each unique ?query would grow the cache
+//    without bound; every asset this app serves is query-less)
+// The write itself is attached to the event via waitUntil so the worker
+// isn't torn down mid-put, and failures (quota, private mode) are swallowed:
+// caching is an optimization, never a reason to fail the response.
+function cacheResponse(e, res) {
+  if (res.status !== 200) return;
+  if (e.request.headers.has('range')) return;
+  if (new URL(e.request.url).search) return;
+  const clone = res.clone();
+  e.waitUntil(caches.open(CACHE).then(c => c.put(e.request, clone)).catch(() => {}));
+}
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
@@ -55,22 +77,16 @@ self.addEventListener('fetch', e => {
     // Network-first: always fetch fresh HTML/data, fall back to cache offline
     e.respondWith(
       fetch(e.request).then(res => {
-        if (res.ok) {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, clone));
-        }
+        cacheResponse(e, res);
         return res;
       }).catch(() => caches.match(e.request).then(c => c || caches.match('./index.html')))
     );
   } else {
-    // Cache-first: icons, fonts, other static assets
+    // Cache-first: audio, icons, other static assets
     e.respondWith(
       caches.match(e.request).then(cached => {
         const network = fetch(e.request).then(res => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE).then(c => c.put(e.request, clone));
-          }
+          cacheResponse(e, res);
           return res;
         }).catch(() => Response.error());
         return cached || network;

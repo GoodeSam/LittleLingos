@@ -752,6 +752,14 @@
       outline: none; transition: border-color .15s;
     }
     textarea:focus { border-color: var(--accent); }
+    /* Voice input row on the translate screen: the zh textarea plus the same
+       .mic-btn family used by voice search (shared voice-input module). */
+    .zh-input-row { display: flex; align-items: flex-end; gap: 8px; }
+    .zh-input-row textarea { flex: 1; min-width: 0; }
+    /* Sub-16px, kept: ancillary data-processing disclosure under the input,
+       same secondary-note scale as .offline-toast; the instruction label
+       above the field stays 16px. */
+    .privacy-note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
     .translate-btn {
       background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
       /* white on this gradient measured 2.59:1 / 1.78:1 across ends; --ink-on-brand
@@ -1036,11 +1044,11 @@
       box-shadow: var(--shadow-card);
     }
     .search-input:focus { border-color: var(--accent); }
-    /* Mic button (voice search, progressive enhancement): same icon-only
+    /* Mic button (voice input, progressive enhancement): same icon-only
        ghost-button family as .play-btn-slow/.save-btn/.used-btn (44px tap
        target, transparent/bordered idle state) so it reads as native to the
-       search bar rather than bolted on. Stays [hidden] until
-       initVoiceSearch() confirms SpeechRecognition support. */
+       search bar / translate screen rather than bolted on. Stays [hidden]
+       until setupVoiceInputs() confirms SpeechRecognition support. */
     .mic-btn {
       flex-shrink: 0;
       background: var(--card);
@@ -1287,12 +1295,12 @@
              placeholder="🔍 想对宝宝说什么？如：睡觉、吃饭、勇敢"
              oninput="onSearchInput()" />
       <!-- Voice search (Web Speech API, zh-CN, online-only progressive enhancement):
-           hidden by default and only revealed by initVoiceSearch() when
+           hidden by default and only revealed by setupVoiceInputs() when
            SpeechRecognition/webkitSpeechRecognition actually exists, so browsers
            without support never see a dead mic button. Never gates typing —
-           #searchInput's oninput above is untouched. -->
-      <button id="micBtn" class="mic-btn" type="button" aria-label="语音输入"
-              onclick="toggleVoiceSearch()" hidden></button>
+           #searchInput's oninput above is untouched. Click wiring is attached
+           by the shared voice-input module. -->
+      <button id="micBtn" class="mic-btn" type="button" aria-label="语音输入" hidden></button>
     </div>
     <div class="search-results" id="searchResults"></div>
   </div>
@@ -1341,16 +1349,16 @@
     <h2 id="scenarioTitle">洗澡时间</h2>
   </div>
   <div class="age-tabs" id="ageTabs">
-    <div class="age-tab" data-age="0-1" onclick="switchAge('0-1')">0–1岁</div>
-    <div class="age-tab active" data-age="1-2" onclick="switchAge('1-2')">1–2岁</div>
-    <div class="age-tab" data-age="2-3" onclick="switchAge('2-3')">2–3岁</div>
-    <div class="age-tab" data-age="3-6" onclick="switchAge('3-6')">3–6岁</div>
+    <div class="age-tab" role="button" tabindex="0" data-age="0-1" onclick="switchAge('0-1')">0–1岁</div>
+    <div class="age-tab active" role="button" tabindex="0" data-age="1-2" onclick="switchAge('1-2')">1–2岁</div>
+    <div class="age-tab" role="button" tabindex="0" data-age="2-3" onclick="switchAge('2-3')">2–3岁</div>
+    <div class="age-tab" role="button" tabindex="0" data-age="3-6" onclick="switchAge('3-6')">3–6岁</div>
   </div>
   <div class="tier-tabs" id="tierTabs">
-    <div class="tier-tab active" data-tier="all"        onclick="filterTier('all')">全部</div>
-    <div class="tier-tab"        data-tier="starter"    onclick="filterTier('starter')">🌱 入门句</div>
-    <div class="tier-tab"        data-tier="basic"      onclick="filterTier('basic')">🌿 基础句</div>
-    <div class="tier-tab"        data-tier="expressive" onclick="filterTier('expressive')">🌳 进阶句</div>
+    <div class="tier-tab active" role="button" tabindex="0" data-tier="all"        onclick="filterTier('all')">全部</div>
+    <div class="tier-tab"        role="button" tabindex="0" data-tier="starter"    onclick="filterTier('starter')">🌱 入门句</div>
+    <div class="tier-tab"        role="button" tabindex="0" data-tier="basic"      onclick="filterTier('basic')">🌿 基础句</div>
+    <div class="tier-tab"        role="button" tabindex="0" data-tier="expressive" onclick="filterTier('expressive')">🌳 进阶句</div>
   </div>
   <div class="phrase-list" id="phraseList"></div>
 </div>
@@ -1378,14 +1386,24 @@
   <div class="translate-section">
     <div>
       <div class="translate-label">用中文说你想对宝宝说的话</div>
-      <textarea id="zhInput" rows="4" placeholder="例如：宝宝，今天你很棒，不哭了！"></textarea>
+      <div class="zh-input-row">
+        <textarea id="zhInput" rows="4" placeholder="例如：宝宝，今天你很棒，不哭了！"></textarea>
+        <!-- Same shared voice-input module as the search mic: hidden until
+             setupVoiceInputs() confirms SpeechRecognition support. Speech only
+             fills the textarea — translating stays a manual tap, so a mis-heard
+             transcript never fires an AI call the parent didn't review. -->
+        <button id="translateMicBtn" class="mic-btn" type="button" aria-label="语音输入" hidden></button>
+      </div>
+      <!-- Just-in-time data disclosure: free text leaves the device for the
+           translate API, unlike every other (fully local) surface. -->
+      <div class="privacy-note">🔒 输入内容会发送到在线翻译服务生成建议，请避免包含孩子姓名等个人信息</div>
     </div>
     <div>
       <div class="translate-label">宝宝年龄</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <div class="age-opt active" data-tage="1-2" onclick="selectTranslateAge(this,'1-2')">1–2岁</div>
-        <div class="age-opt" data-tage="2-3" onclick="selectTranslateAge(this,'2-3')">2–3岁</div>
-        <div class="age-opt" data-tage="3-6" onclick="selectTranslateAge(this,'3-6')">3–6岁</div>
+        <div class="age-opt active" role="button" tabindex="0" data-tage="1-2" onclick="selectTranslateAge(this,'1-2')">1–2岁</div>
+        <div class="age-opt" role="button" tabindex="0" data-tage="2-3" onclick="selectTranslateAge(this,'2-3')">2–3岁</div>
+        <div class="age-opt" role="button" tabindex="0" data-tage="3-6" onclick="selectTranslateAge(this,'3-6')">3–6岁</div>
       </div>
     </div>
     <button class="translate-btn" onclick="doTranslate()">翻译成儿童英语</button>
@@ -1411,10 +1429,10 @@
 <div class="age-picker" id="agePicker">
   <h3>宝宝现在多大？</h3>
   <div class="age-options">
-    <div class="age-opt" data-age="0-1" onclick="selectAge(this,'0-1')">0–1 岁</div>
-    <div class="age-opt active" data-age="1-2" onclick="selectAge(this,'1-2')">1–2 岁</div>
-    <div class="age-opt" data-age="2-3" onclick="selectAge(this,'2-3')">2–3 岁</div>
-    <div class="age-opt" data-age="3-6" onclick="selectAge(this,'3-6')">3–6 岁</div>
+    <div class="age-opt" role="button" tabindex="0" data-age="0-1" onclick="selectAge(this,'0-1')">0–1 岁</div>
+    <div class="age-opt active" role="button" tabindex="0" data-age="1-2" onclick="selectAge(this,'1-2')">1–2 岁</div>
+    <div class="age-opt" role="button" tabindex="0" data-age="2-3" onclick="selectAge(this,'2-3')">2–3 岁</div>
+    <div class="age-opt" role="button" tabindex="0" data-age="3-6" onclick="selectAge(this,'3-6')">3–6 岁</div>
   </div>
 </div>
 
@@ -1447,12 +1465,32 @@ function loadStoredAge() {
 let currentAge = loadStoredAge();
 let currentScenario = null;
 let translateAge = translateAgeForBand(currentAge);
-let currentUtterance = null;
 let currentTier = "all";
 
+// Drops non-object entries (e.g. a hand-edited or corrupted `[null]`) so the
+// migration and render paths below can dereference item fields without the
+// whole script aborting on one bad record.
 function safeParseArray(key) {
-  try { const v = JSON.parse(localStorage.getItem(key)); return Array.isArray(v) ? v : []; }
+  try {
+    const v = JSON.parse(localStorage.getItem(key));
+    return Array.isArray(v) ? v.filter(x => x && typeof x === "object") : [];
+  }
   catch { return []; }
+}
+
+// Storage writes throw synchronously when storage is disabled, full, or in
+// some private-browsing modes. In-memory state stays authoritative; a failed
+// persist must never abort the UI action that triggered it. Warned once per
+// session so the parent knows changes won't survive a reload.
+let storageWarned = false;
+function safeSetItem(key, value) {
+  try { localStorage.setItem(key, value); }
+  catch {
+    if (!storageWarned) {
+      storageWarned = true;
+      showOfflineToast("⚠️ 无法保存到本机 — 更改在关闭页面后会丢失");
+    }
+  }
 }
 
 function loadUsedToday() {
@@ -1464,7 +1502,7 @@ function loadUsedToday() {
 }
 
 function saveUsedToday() {
-  localStorage.setItem("ll_used_meta", JSON.stringify({ date: new Date().toDateString(), ids: usedToday }));
+  safeSetItem("ll_used_meta", JSON.stringify({ date: new Date().toDateString(), ids: usedToday }));
 }
 
 let savedPhrases = safeParseArray("ll_saved");
@@ -1480,7 +1518,7 @@ const REVIEW_INTERVALS = [1, 3, 7, 14, 30];
     if (!p.rv) { p.rv = { s: 0, due: Date.now() }; changed = true; }
     if (!p.savedAt) { p.savedAt = Date.now(); changed = true; }
   });
-  if (changed) localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+  if (changed) safeSetItem("ll_saved", JSON.stringify(savedPhrases));
 })();
 
 // ── Phrase Data — loaded from scenarios.js ─────────────
@@ -1601,7 +1639,7 @@ const AGE_LABELS = {"0-1":"0–1岁","1-2":"1–2岁","2-3":"2–3岁","3-6":"3�
 
 function setCurrentAge(age) {
   currentAge = age;
-  localStorage.setItem("ll_age", age);
+  safeSetItem("ll_age", age);
   document.getElementById("ageBadgeLabel").textContent = AGE_LABELS[age];
   document.querySelectorAll(".age-picker .age-opt").forEach(e =>
     e.classList.toggle("active", e.dataset.age === age)
@@ -1788,8 +1826,6 @@ function renderPhrases() {
 // ── Coaching chip toggle ───────────────────────────────
 function toggleCoach(id, type) {
   const panel = document.getElementById("coach-" + type + "-" + id);
-  const chip  = panel && panel.previousElementSibling &&
-                panel.closest(".phrase-card").querySelector(".coaching-chip." + type);
   if (!panel) return;
 
   // Find the right chip button
@@ -1809,6 +1845,12 @@ function toggleCoach(id, type) {
 // ── Speech ─────────────────────────────────────────────
 let cachedVoice = null;
 let currentAudio = null; // active HTMLAudioElement, if any
+// Monotonic playback session. stopAllAudio() bumps it, so media handlers
+// wired by an earlier speakPhrase() (late canplaythrough/error/ended from a
+// discarded element) check their captured session before touching shared
+// playback state — a rapid phrase switch can't start stale TTS or clobber
+// the new playback's UI.
+let playbackSession = 0;
 
 function getEnglishVoice() {
   if (cachedVoice) return cachedVoice;
@@ -1862,6 +1904,7 @@ function flashAudioUnavailable(btn) {
 }
 
 function stopAllAudio() {
+  playbackSession++;
   if (window.speechSynthesis) window.speechSynthesis.cancel();
   if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
   document.querySelectorAll('.play-btn.playing, .play-btn-slow.playing').forEach(b => {
@@ -1880,6 +1923,10 @@ function stopAllAudio() {
 
 function speakPhrase(id, btn, rate) {
   stopAllAudio();
+  // Captured AFTER the bump in stopAllAudio(): every handler below belongs
+  // to this session and no-ops once another playback (or stop) supersedes it.
+  const session = playbackSession;
+  const isCurrent = () => session === playbackSession;
 
   const phrase = findPhrase(id);
   if (!phrase) return;
@@ -1911,18 +1958,35 @@ function speakPhrase(id, btn, rate) {
   const mp3 = new Audio(`./audio/${id}_${suffix}.mp3`);
   currentAudio = mp3;
 
+  // Bounded load: a cache miss on a dead connection can leave the element
+  // with neither canplaythrough nor error for a long time — never a dead tap.
+  let mp3Settled = false;
+  const loadTimer = setTimeout(() => {
+    if (!isCurrent() || mp3Settled) return;
+    mp3Settled = true;
+    mp3.src = "";
+    fallbackTTS();
+  }, 8000);
+
   mp3.addEventListener("canplaythrough", () => {
+    if (!isCurrent() || mp3Settled) return;
+    mp3Settled = true;
+    clearTimeout(loadTimer);
     onStart();
     mp3.play().catch(() => fallbackTTS());
   }, { once: true });
 
   mp3.addEventListener("timeupdate", () => {
+    if (!isCurrent()) return;
     if (mp3.duration && fill) fill.style.width = (mp3.currentTime / mp3.duration * 100) + "%";
   });
 
-  mp3.addEventListener("ended", onEnd, { once: true });
+  mp3.addEventListener("ended", () => { if (isCurrent()) onEnd(); }, { once: true });
 
   mp3.addEventListener("error", () => {
+    if (!isCurrent() || mp3Settled) return;
+    mp3Settled = true;
+    clearTimeout(loadTimer);
     currentAudio = null;
     fallbackTTS();
   }, { once: true });
@@ -1931,11 +1995,14 @@ function speakPhrase(id, btn, rate) {
 
   // ── Browser TTS fallback ─────────────────────────────
   function fallbackTTS() {
+    // A stale mp3 error handler must not start TTS over a newer playback.
+    if (!isCurrent()) return;
     // MP3 load failed AND there's no browser speech-synthesis to fall back
     // to — surface that visibly instead of leaving the tap unanswered.
     if (!window.speechSynthesis) { flashAudioUnavailable(btn); return; }
     const spokenRate = rate ?? 0.82;
     const say = () => {
+      if (!isCurrent()) return;
       const utter = new SpeechSynthesisUtterance(phrase.en);
       utter.lang = "en-US";
       utter.rate = spokenRate;
@@ -1947,14 +2014,18 @@ function speakPhrase(id, btn, rate) {
       let start = null;
       const estimatedMs = Math.max(phrase.en.length * 75 * (0.82 / spokenRate), 1200);
       function animateFill(ts) {
+        if (!isCurrent()) return;
         if (!start) start = ts;
         const pct = Math.min(((ts - start) / estimatedMs) * 100, 95);
         if (fill) fill.style.width = pct + "%";
         if (pct < 95) requestAnimationFrame(animateFill);
       }
       requestAnimationFrame(animateFill);
-      utter.onend  = onEnd;
-      utter.onerror = () => { btn.classList.remove("playing"); btn.textContent = idleLabel; if (bar) bar.style.display = "none"; };
+      utter.onend  = () => { if (isCurrent()) onEnd(); };
+      utter.onerror = () => {
+        if (!isCurrent()) return;
+        btn.classList.remove("playing"); btn.textContent = idleLabel; if (bar) bar.style.display = "none";
+      };
       speechSynthesis.speak(utter);
     };
     speechSynthesis.getVoices().length > 0 ? say() : (speechSynthesis.onvoiceschanged = () => { cachedVoice = null; say(); });
@@ -1980,7 +2051,7 @@ function toggleSave(id) {
     savedPhrases.push({ ...phrase, scenario: currentScenario, age: currentAge,
                         savedAt: Date.now(), rv: { s: 0, due: Date.now() } });
   }
-  localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
   const btn = document.getElementById("save-" + id);
   if (btn) {
     const isSaved = savedPhrases.some(s => s.id === id);
@@ -2051,7 +2122,12 @@ function renderSavedChips() {
     chip.className = 'saved-chip';
     const s = scenarios[p.scenario];
     chip.textContent = (s ? s.icon + ' ' : '🔤 ') + p.en;
-    if (s) chip.onclick = () => openScenario(p.scenario);
+    if (s) {
+      chip.onclick = () => openScenario(p.scenario);
+      // Keyboard parity: the global keydown handler covers role="button".
+      chip.setAttribute('role', 'button');
+      chip.setAttribute('tabindex', '0');
+    }
     row.appendChild(chip);
   });
   area.appendChild(row);
@@ -2140,7 +2216,7 @@ function renderSavedScreen() {
 
 function removeSaved(id) {
   savedPhrases = savedPhrases.filter(s => s.id !== id);
-  localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
   renderSavedScreen();
   renderReviewArea();
 }
@@ -2277,7 +2353,7 @@ function reviewAnswer(remembered) {
     item.rv.due = now;
     reviewQueue.push(item);
   }
-  localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
   updateNavBadge();
   renderReviewStrip();
   if (reviewQueue.length) renderReviewCard();
@@ -2468,7 +2544,7 @@ function saveTranslation() {
     savedAt: Date.now(),
     rv: { s: 0, due: Date.now() },
   });
-  localStorage.setItem("ll_saved", JSON.stringify(savedPhrases));
+  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
   updateNavBadge();
   alert("已收藏！去「收藏 · 复习」页可以反复练习。");
 }
@@ -2625,186 +2701,233 @@ function showOfflineToast(msg) {
 window.addEventListener('offline', () => showOfflineToast('📴 离线模式 — 已缓存内容可正常使用'));
 window.addEventListener('online',  () => showOfflineToast('✅ 已恢复网络连接'));
 
-// ── Voice search (Web Speech API, zh-CN) ───────────────
-// Online-only progressive enhancement on top of #searchInput. Never gates or
-// replaces typing: onresult only writes into #searchInput.value and calls the
-// existing onSearchInput() path, exactly as if the parent had typed. Reuses
-// the same navigator.onLine + window 'online'/'offline' signal as the toast
-// above (parallel listeners, not a new network-state abstraction).
-const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
-let voiceRecognition = null;
-let voiceListening = false;
-// Short cooldown after a session ends (or fails to start) so a rapid re-tap
-// can't hit the Chrome teardown race that makes .start() throw
-// InvalidStateError. Composes with the online/offline gate in
-// updateMicOnlineState(): disabled = offline OR cooldown.
-let micCooldown = false;
-// Monotonic session id (F3/F4). Every tap gets a fresh recognition instance
-// (see createVoiceSession) whose handlers close over "their" session number;
-// a handler or watchdog timer from an older, already-superseded instance
-// checks isCurrentSession() before touching shared state so a late/stray
-// event from a discarded object can never desync voiceListening from the
-// real engine.
-let voiceSessionId = 0;
+// ── Voice input (Web Speech API, zh-CN) ────────────────
+// Online-only progressive enhancement shared by the search bar (#micBtn →
+// #searchInput) and the translate screen (#translateMicBtn → #zhInput).
+// Never gates or replaces typing: onresult only writes into the target
+// field's value (and, for search, calls the existing onSearchInput() path,
+// exactly as if the parent had typed). Reuses the same navigator.onLine +
+// window 'online'/'offline' signal as the toast above (parallel listeners,
+// not a new network-state abstraction).
+//
+// The module lives between the ll:voice-input markers so
+// test/voice-input.test.mjs can extract and exercise it in a vm with a stub
+// DOM. Keep everything it touches injectable through globals that exist in
+// both environments: window, document, navigator, setTimeout,
+// showOfflineToast, onSearchInput.
+/* ll:voice-input:start */
+function setupVoiceInputs() {
+  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const controllers = [];
+  // One physical microphone: the controller currently listening. Starting a
+  // different controller stops this one first.
+  let activeController = null;
 
-function initVoiceSearch() {
-  const micBtn = document.getElementById('micBtn');
-  if (!micBtn) return;
-  if (!SpeechRecognitionCtor) return; // stays [hidden]; feature not shown at all
+  // Builds one mic-button controller. All the hard-won voice-search race
+  // fixes live here exactly once, shared by every mic surface:
+  //  - fresh recognition instance per tap — eliminates the wedged-reuse
+  //    InvalidStateError race where a prior session left the shared object
+  //    unable to .start() again (root cause 3)
+  //  - monotonic session id (F3/F4): handlers and the watchdog close over
+  //    "their" session number and check isCurrentSession() before touching
+  //    state, so a late event from a discarded instance can never desync
+  //    the listening state from the real engine
+  //  - 1.5s watchdog (F4) for .start() returning with neither onstart nor
+  //    onerror ever firing (documented Chrome/Safari behavior across
+  //    network transitions)
+  //  - 400ms cooldown after every session end (Chrome teardown race), which
+  //    re-enables ONLY through updateOnlineState() so a cooldown expiring
+  //    while offline can't override the offline gate
+  //  - explicit toasts for silent/empty/error outcomes (F1/F2) — a tap is
+  //    never dead with zero explanation
+  function createVoiceInput(button, onTranscript) {
+    if (!button) return null;
+    let listening = false;
+    let cooldown = false;
+    let recognition = null;
+    let sessionId = 0;
 
-  micBtn.hidden = false;
-  updateMicOnlineState();
-}
-
-// Builds and fully wires a recognition instance for exactly one listen
-// session. A fresh instance per tap (instead of one long-lived, reused
-// object) eliminates the wedged-reuse InvalidStateError race, where a prior
-// session could leave the shared object in a state that made a later
-// .start() throw even after its onend had already fired (root cause 3).
-function createVoiceSession() {
-  const rec = new SpeechRecognitionCtor();
-  rec.lang = 'zh-CN';
-  rec.interimResults = false;
-  rec.maxAlternatives = 1;
-
-  const session = ++voiceSessionId;
-  const isCurrentSession = () => session === voiceSessionId;
-
-  let gotResult = false; // onresult fired at least once, any transcript (F1)
-  let gotError = false;  // onerror already surfaced its own toast (F1)
-  let started = false;   // onstart/onaudiostart fired (F4 watchdog)
-
-  rec.onstart = () => {
-    if (!isCurrentSession()) return;
-    started = true;
-    setMicListening(true);
-  };
-  rec.onaudiostart = () => {
-    if (!isCurrentSession()) return;
-    started = true;
-    setMicListening(true);
-  };
-  rec.onend = () => {
-    if (!isCurrentSession()) return;
-    setMicListening(false);
-    startMicCooldown();
-    // Chrome/Safari can fire onstart -> onend with neither onresult nor
-    // onerror ever firing (short/flaky utterance). A silent end must never
-    // be a dead tap with zero explanation (F1).
-    if (!gotResult && !gotError) {
-      showOfflineToast('🤫 没听清，请再说一次');
+    function setListening(on) {
+      listening = on;
+      button.classList.toggle('listening', on);
+      button.setAttribute('aria-label', on ? '正在聆听…（再次点击停止）' : '语音输入');
+      if (on) activeController = api;
+      else if (activeController === api) activeController = null;
     }
-  };
-  // no-speech / network / not-allowed (permission denied) all land here —
-  // always reset to idle so the button never gets stuck listening.
-  rec.onerror = (evt) => {
-    if (!isCurrentSession()) return;
-    gotError = true;
-    setMicListening(false);
-    const messages = {
-      'not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
-      'service-not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
-      'no-speech': '🤫 没有听到声音 — 请再说一次',
-      'network': '📡 网络错误 — 请检查网络连接后重试',
+
+    function updateOnlineState() {
+      // Disabled if offline OR still in the post-session cooldown — either
+      // source can veto enabling the button; neither can force-enable it.
+      button.disabled = !navigator.onLine || cooldown;
+      if (!navigator.onLine && listening && recognition) recognition.stop();
+    }
+
+    function startCooldown() {
+      cooldown = true;
+      button.disabled = true;
+      setTimeout(() => {
+        cooldown = false;
+        updateOnlineState();
+      }, 400);
+    }
+
+    // Builds and fully wires a recognition instance for exactly one listen
+    // session.
+    function createSession() {
+      const rec = new Ctor();
+      rec.lang = 'zh-CN';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+
+      const session = ++sessionId;
+      const isCurrentSession = () => session === sessionId;
+
+      let gotResult = false; // onresult fired at least once, any transcript (F1)
+      let gotError = false;  // onerror already surfaced its own toast (F1)
+      let started = false;   // onstart/onaudiostart fired (F4 watchdog)
+
+      rec.onstart = () => {
+        if (!isCurrentSession()) return;
+        started = true;
+        setListening(true);
+      };
+      rec.onaudiostart = () => {
+        if (!isCurrentSession()) return;
+        started = true;
+        setListening(true);
+      };
+      rec.onend = () => {
+        if (!isCurrentSession()) return;
+        setListening(false);
+        startCooldown();
+        // Chrome/Safari can fire onstart -> onend with neither onresult nor
+        // onerror ever firing (short/flaky utterance). A silent end must
+        // never be a dead tap with zero explanation (F1).
+        if (!gotResult && !gotError) {
+          showOfflineToast('🤫 没听清，请再说一次');
+        }
+      };
+      // no-speech / network / not-allowed (permission denied) all land here —
+      // always reset to idle so the button never gets stuck listening.
+      rec.onerror = (evt) => {
+        if (!isCurrentSession()) return;
+        gotError = true;
+        setListening(false);
+        const messages = {
+          'not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
+          'service-not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
+          'no-speech': '🤫 没有听到声音 — 请再说一次',
+          'network': '📡 网络错误 — 请检查网络连接后重试',
+        };
+        showOfflineToast(messages[evt.error] || '🎙️ 语音识别出错 — 请再试一次');
+      };
+      rec.onresult = (evt) => {
+        if (!isCurrentSession()) return;
+        gotResult = true;
+        // Read the LAST result, not the first: some engines deliver one
+        // event carrying earlier results plus the current one, and with
+        // interimResults=false every entry is final — the newest wins.
+        const last = evt.results && evt.results.length
+          ? evt.results[evt.results.length - 1] : null;
+        const transcript = last && last[0] ? last[0].transcript.trim() : '';
+        if (!transcript) {
+          // Chrome's cloud STT can fire a result event with an empty/low-
+          // confidence transcript on a short utterance or a flaky
+          // connection. Same "didn't catch that" toast as a silent onend (F2).
+          showOfflineToast('🤫 没听清，请再说一次');
+          return;
+        }
+        onTranscript(transcript);
+      };
+
+      // Watchdog (F4): if neither onstart nor onerror has landed within
+      // 1.5s, force state back to idle and tell the parent to retry instead
+      // of leaving the button silently dead until page reload.
+      setTimeout(() => {
+        if (!isCurrentSession() || started || gotError) return;
+        try { rec.abort(); } catch (e) {}
+        setListening(false);
+        startCooldown();
+        showOfflineToast('🎙️ 没有响应 — 请再试一次');
+      }, 1500);
+
+      return rec;
+    }
+
+    function toggle() {
+      if (!navigator.onLine || cooldown) return;
+      if (listening) {
+        if (recognition) recognition.stop();
+        return;
+      }
+      // One mic: a session running on another surface is preempted first —
+      // preempt() (not stop()) invalidates the old session, so a late
+      // onresult from the losing surface can't write into its field while
+      // the parent is already dictating on this one.
+      if (activeController && activeController !== api) activeController.preempt();
+      // Fresh instance every tap (F3) — see createSession().
+      recognition = createSession();
+      try {
+        recognition.start();
+      } catch (e) {
+        // start() throws if a recognition session is already active/starting
+        // (Chrome teardown race from a rapid re-tap). Invalidate this
+        // session so its 1.5s watchdog becomes a no-op, reset defensively so
+        // the button never sticks, surface it so the parent isn't left
+        // guessing, and cool down so the next tap doesn't hit the same race.
+        sessionId++;
+        setListening(false);
+        showOfflineToast('🎙️ 请稍等一下再试');
+        startCooldown();
+      }
+    }
+
+    const api = {
+      toggle,
+      updateOnlineState,
+      stopListening: () => { if (recognition) recognition.stop(); },
+      // Cross-surface takeover: invalidate the running session so its late
+      // events (onresult/onend after abort) are ignored, then tear down and
+      // reset to idle. A same-surface stop keeps using stopListening(),
+      // which still delivers the final transcript.
+      preempt: () => {
+        sessionId++;
+        if (recognition) { try { recognition.abort(); } catch (e) {} }
+        setListening(false);
+      },
+      isListening: () => listening,
     };
-    showOfflineToast(messages[evt.error] || '🎙️ 语音识别出错 — 请再试一次');
-  };
-  rec.onresult = (evt) => {
-    if (!isCurrentSession()) return;
-    gotResult = true;
-    const transcript = evt.results && evt.results[0] && evt.results[0][0]
-      ? evt.results[0][0].transcript.trim()
-      : '';
-    if (!transcript) {
-      // Chrome's cloud STT can fire a result event with an empty/low-
-      // confidence transcript on a short utterance or a flaky connection.
-      // Previously swallowed with zero user feedback (F2) — give it the
-      // same "didn't catch that" toast as a silent onend.
-      showOfflineToast('🤫 没听清，请再说一次');
-      return;
-    }
-    const input = document.getElementById('searchInput');
-    input.value = transcript;
+
+    button.hidden = false;
+    button.addEventListener('click', toggle);
+    updateOnlineState();
+    controllers.push(api);
+    return api;
+  }
+
+  if (!Ctor) {
+    // Buttons stay [hidden]; the feature is not shown at all.
+    return { search: null, translate: null, updateOnlineState: function () {} };
+  }
+
+  const search = createVoiceInput(document.getElementById('micBtn'), (transcript) => {
+    document.getElementById('searchInput').value = transcript;
     onSearchInput(); // same path as manual typing
-  };
+  });
+  const translate = createVoiceInput(document.getElementById('translateMicBtn'), (transcript) => {
+    // Fill only — translating costs an AI call, so the parent reviews the
+    // transcript and taps 翻译 themselves (doTranslate is never auto-fired).
+    document.getElementById('zhInput').value = transcript;
+  });
 
-  // Watchdog (F4): documented Chrome/Safari behavior across network
-  // transitions is .start() returning with neither onstart nor onerror ever
-  // firing, which previously left voiceListening stuck out of sync with the
-  // real engine — the button silently dead until page reload. If neither
-  // has landed within 1.5s, force state back to idle and tell the parent to
-  // retry instead of leaving them guessing.
-  setTimeout(() => {
-    if (!isCurrentSession() || started || gotError) return;
-    try { rec.abort(); } catch (e) {}
-    setMicListening(false);
-    startMicCooldown();
-    showOfflineToast('🎙️ 没有响应 — 请再试一次');
-  }, 1500);
-
-  return rec;
+  const updateOnlineState = () => controllers.forEach((c) => c.updateOnlineState());
+  window.addEventListener('online', updateOnlineState);
+  window.addEventListener('offline', updateOnlineState);
+  return { search, translate, updateOnlineState };
 }
+/* ll:voice-input:end */
 
-function setMicListening(isListening) {
-  voiceListening = isListening;
-  const micBtn = document.getElementById('micBtn');
-  if (!micBtn) return;
-  micBtn.classList.toggle('listening', isListening);
-  micBtn.setAttribute('aria-label', isListening ? '正在聆听…（再次点击停止）' : '语音输入');
-}
-
-function updateMicOnlineState() {
-  const micBtn = document.getElementById('micBtn');
-  if (!micBtn || !SpeechRecognitionCtor) return;
-  // Disabled if offline OR still in the post-session cooldown — either
-  // source can veto enabling the button; neither can force-enable it.
-  micBtn.disabled = !navigator.onLine || micCooldown;
-  if (!navigator.onLine && voiceListening && voiceRecognition) {
-    voiceRecognition.stop();
-  }
-}
-
-// Briefly disables the mic button after a session ends (or fails to start),
-// then re-enables it ONLY through updateMicOnlineState() — never by writing
-// micBtn.disabled = false directly — so a cooldown expiring while offline
-// can't accidentally re-enable a button the offline gate wants disabled.
-function startMicCooldown() {
-  micCooldown = true;
-  const micBtn = document.getElementById('micBtn');
-  if (micBtn) micBtn.disabled = true;
-  setTimeout(() => {
-    micCooldown = false;
-    updateMicOnlineState();
-  }, 400);
-}
-
-function toggleVoiceSearch() {
-  if (!SpeechRecognitionCtor || !navigator.onLine || micCooldown) return;
-  if (voiceListening) {
-    if (voiceRecognition) voiceRecognition.stop();
-    return;
-  }
-  // Fresh instance every tap (F3) — see createVoiceSession().
-  voiceRecognition = createVoiceSession();
-  try {
-    voiceRecognition.start();
-  } catch (e) {
-    // start() throws if a recognition session is already active/starting
-    // (Chrome teardown race from a rapid re-tap). Invalidate this session so
-    // its 1.5s watchdog becomes a no-op, reset defensively so the button
-    // never sticks, surface it so the parent isn't left guessing why nothing
-    // happened, and start the same cooldown as a normal onend so the next
-    // tap doesn't hit the same race again.
-    voiceSessionId++;
-    setMicListening(false);
-    showOfflineToast('🎙️ 请稍等一下再试');
-    startMicCooldown();
-  }
-}
-
-initVoiceSearch();
-window.addEventListener('online', updateMicOnlineState);
-window.addEventListener('offline', updateMicOnlineState);
+setupVoiceInputs();
 
 // ── Install prompt ─────────────────────────────────────
 let deferredInstallPrompt = null;
@@ -2843,7 +2966,7 @@ if (!isStandalone) {
 
 function dismissInstall() {
   document.getElementById('installBanner').classList.remove('show');
-  localStorage.setItem(isIOS ? 'll_ios_install_dismissed' : 'll_install_dismissed', '1');
+  safeSetItem(isIOS ? 'll_ios_install_dismissed' : 'll_install_dismissed', '1');
 }
 function openIosSheet()  { document.getElementById('iosSheet').classList.add('open'); }
 function closeIosSheet() { document.getElementById('iosSheet').classList.remove('open'); }

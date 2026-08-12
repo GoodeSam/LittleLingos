@@ -25,6 +25,7 @@ const SW_PATH = resolve(REPO, "sw.js");
 const SOURCES = [
   "index.html",
   "scenarios.js",
+  "dictionary-words.js",
   "manifest.json",
   "icons/icon.svg",
   "icons/icon-192.png",

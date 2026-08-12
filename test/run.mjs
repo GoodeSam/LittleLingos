@@ -45,6 +45,10 @@ step("L0 · product data gate (validate-scenarios.js)", () => run("node", ["vali
 step("L0 · sw cache stamp is current (scripts/stamp-sw.mjs --check)", () => run("node", ["scripts/stamp-sw.mjs", "--check"]));
 step("L0 · voice-input module behavior (test/voice-input.test.mjs)", () => run("node", ["test/voice-input.test.mjs"]));
 step("L0 · service-worker behavior (test/sw.test.mjs)", () => run("node", ["test/sw.test.mjs"]));
+step("L0 · dictionary API behavior (test/dictionary-api.test.mjs)", () => run("node", ["test/dictionary-api.test.mjs"]));
+step("L0 · dictionary/review client correctness (test/dictionary-review.test.mjs)", () => run("node", ["test/dictionary-review.test.mjs"]));
+step("L0 · dictionary-lookup CTA + form index (test/dictionary-lookup.test.mjs)", () => run("node", ["test/dictionary-lookup.test.mjs"]));
+step("L0 · dictionary save flows through the existing review engine (test/dictionary-review-engine.test.mjs)", () => run("node", ["test/dictionary-review-engine.test.mjs"]));
 // pytest runs INSIDE crew check (scripts/crew.mjs check) — no standalone
 // pytest step, or one underlying failure would be reported twice and the
 // suite would pay the collection cost twice per run.

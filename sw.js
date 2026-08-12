@@ -13,11 +13,12 @@
 // phrase data, or a stale audio recording indefinitely even though
 // NETWORK_FIRST tries to refresh the shell/data opportunistically on every
 // online GET.
-const CACHE = 'll-85005dcb';
+const CACHE = 'll-8ec83358';
 const SHELL = [
   './',
   './index.html',
   './scenarios.js',
+  './dictionary-words.js',
   './manifest.json',
   './icons/icon.svg',
   './icons/icon-192.png',
@@ -28,7 +29,17 @@ const SHELL = [
 // HTML and data files that must always be fresh. Confirmed both index.html and
 // scenarios.js are covered here (plus '/' and any navigate request below), so
 // the network-first path does reach both the shell and the phrase data.
-const NETWORK_FIRST = ['/', '/index.html', '/scenarios.js'];
+// dictionary-words.js joins them for the same reason scenarios.js is here,
+// not because it's static shell chrome: it's curated content maintained by
+// maya-curriculum-designer (currently mid-edit on entry wording/senses per
+// Unit B increment A's handoff), so a parent who already installed the app
+// should see corrected/expanded entries on next online load without waiting
+// for a new SW version to activate — cache-first would only pick up the
+// change on a LATER visit (the stale-while-revalidate write happens in the
+// background of the request that misses). It is still a SHELL entry above
+// too, so stamp-sw.mjs's content hash still forces a fresh install for an
+// offline client that never gets a network-first hit.
+const NETWORK_FIRST = ['/', '/index.html', '/scenarios.js', '/dictionary-words.js'];
 
 self.addEventListener('install', e => {
   e.waitUntil(

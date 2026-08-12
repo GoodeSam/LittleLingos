@@ -398,6 +398,7 @@
       cursor: pointer;
       margin-top: 4px;
       touch-action: manipulation;
+      user-select: none; /* long-press must not select text (2026-08-12 visual critique, Sev C) */
     }
     .review-cta.show { display: block; }
 
@@ -1139,6 +1140,7 @@
       transition: all .15s;
       display: inline-flex; align-items: center; justify-content: center;
       touch-action: manipulation;
+      user-select: none; /* long-press must not select text (2026-08-12 visual critique, Sev C) */
       box-shadow: var(--shadow-card);
     }
     .mic-btn::before { content: "🎤"; }
@@ -1197,6 +1199,60 @@
       color: var(--ink-on-brand); font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer;
       touch-action: manipulation; user-select: none; /* touch hygiene, matching .back-btn / .phrase-card (2026-07-19 visual critique, Sev C) */
     }
+    /* Dictionary-lookup CTA (Unit B increment A2): visually distinct from
+       .search-ai-btn's accent gradient (teal, matching .review-card's
+       border-top and the "reviewed" affordance elsewhere) so a parent can
+       tell "curated word card" apart from "AI, unreviewed" at a glance —
+       same tap-target hygiene as every other tappable control family. */
+    .search-dict-btn {
+      border: none; border-radius: 14px; padding: 13px;
+      background: var(--teal); color: var(--ink-on-brand);
+      font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer;
+      touch-action: manipulation; user-select: none;
+      margin-bottom: 8px;
+    }
+
+    /* Dictionary lookup result panel (Unit B increment B). Reuses the
+       .translate-result card language (card bg, radius, shadow, padding,
+       display:none/.show toggle) rather than inventing a new one — same
+       instruction that shaped .search-dict-btn above. */
+    .dict-lookup-panel { display: none; margin-top: 8px; }
+    .dict-lookup-panel.show { display: block; }
+    .dict-result-card {
+      background: var(--card); border-radius: var(--r);
+      box-shadow: var(--shadow-card); padding: 16px;
+      border-top: 4px solid var(--teal); /* echoes .review-card's teal top-border
+        ("reviewed"/curated affordance) so a parent recognizes the same visual
+        family as the review card, distinct from the AI-orange translate card */
+    }
+    .dict-result-lemma { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 8px; }
+    .dict-result-sense + .dict-result-sense { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .dict-result-sense-head { font-size: 18px; font-weight: 700; color: var(--zh-ink); line-height: 1.5; }
+    .dict-result-example { font-size: 16px; color: var(--text); margin-top: 4px; line-height: 1.5; }
+    .dict-result-tip { font-size: 16px; color: var(--tip-ink); background: var(--tint-warm); border-radius: 8px; padding: 8px 10px; margin-top: 8px; line-height: 1.6; }
+    .dict-result-card .dict-provenance-note { margin-top: 12px; }
+    /* Unit B increment C: per-sense save/update affordance (C1-C4). Same
+       tap-target hygiene as every other tappable control family (C7). */
+    .dict-sense-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    .dict-save-btn, .dict-update-btn {
+      border: none; border-radius: 10px; padding: 9px 14px;
+      font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer;
+      touch-action: manipulation; user-select: none;
+    }
+    .dict-save-btn { background: var(--teal); color: var(--ink-on-brand); }
+    .dict-update-btn { background: var(--warm); color: var(--accent-deep); }
+    .dict-saved-label { font-size: 15px; font-weight: 700; color: var(--muted); }
+    /* Just-in-time data disclosure for the dictionary lookup entry point
+       (Unit B increment C6) — same register/visual family as .privacy-note
+       on the translate screen, reused rather than a new style. */
+    .dict-privacy-note { margin-top: 6px; }
+    /* Loading / error / offline states share one simple centered-text
+       treatment — same family as .search-empty (already 16px/muted). */
+    .dict-lookup-status {
+      background: var(--card); border-radius: var(--r); box-shadow: var(--shadow-card);
+      padding: 14px 16px; text-align: center; color: var(--muted); font-size: 16px; line-height: 1.5;
+    }
+    .dict-lookup-status.dict-lookup-error { color: var(--text); }
 
     /* Jump-to-phrase highlight */
     @keyframes flashCard {
@@ -1259,6 +1315,7 @@
       min-height: 44px; font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer;
       background: var(--warm); color: var(--accent-deep);
       touch-action: manipulation;
+      user-select: none; /* long-press must not select text (2026-08-12 visual critique, Sev C) */
     }
     .review-btn-again  { background: var(--warm); color: var(--badge-ink); }
     /* white text on --green/--blue measured 2.71/2.74:1 (fails AA); --ink-on-brand
@@ -1381,7 +1438,20 @@
            by the shared voice-input module. -->
       <button id="micBtn" class="mic-btn" type="button" aria-label="语音输入" hidden></button>
     </div>
+    <!-- Just-in-time data disclosure for the dictionary lookup feature
+         (Unit B increment C6): same register as the translate screen's
+         .privacy-note, placed at the lookup entry point itself. States the
+         honest nuance — a curated local hit sends nothing. -->
+    <div class="privacy-note dict-privacy-note" id="dictPrivacyNote">🔒 词典查询：已收录的词不联网；查询新词时，这个词会发送到在线词典服务。</div>
     <div class="search-results" id="searchResults"></div>
+    <!-- Dictionary lookup result panel (Unit B increment B): separate from
+         #searchResults on purpose. #searchResults is rebuilt from scratch on
+         every keystroke (onSearchInput), which would blow away an in-flight
+         or just-rendered lookup result the instant the parent typed one more
+         character. Kept as its own persistent element so onSearchInput can
+         explicitly reset it (new query = stale lookup) without coupling it
+         to the per-keystroke rebuild of the phrase-search results. -->
+    <div class="dict-lookup-panel" id="dictLookupPanel"></div>
   </div>
 
   <!-- Today strip -->
@@ -1519,6 +1589,16 @@
      DATA & LOGIC
 ═══════════════════════════════════════════════════════ -->
 <script src="./scenarios.js" defer></script>
+<!-- Curated dictionary seed (Unit B increment A1): 45 lemma entries owned by
+     maya-curriculum-designer, shape in dictionary-words.js's own header
+     comment. Loaded the same way as scenarios.js (deferred external script,
+     precached in sw.js SHELL) so window.dictionaryWords is populated before
+     DOMContentLoaded but never blocks first paint. Nothing consumes it yet
+     this increment (lookup panel/fetch land in increment B) — a missing or
+     failed load leaves window.dictionaryWords undefined, which
+     buildDictionaryIndex() below tolerates (empty index), unlike the
+     scenarios.js DATA_OK guard which is load-bearing for the whole app. -->
+<script src="./dictionary-words.js" defer></script>
 <script>
 // ── State ─────────────────────────────────────────────
 const AGE_KEYS = ["0-1", "1-2", "2-3", "3-6"];
@@ -2203,6 +2283,60 @@ function toggleTip(id) {
   }
 }
 
+// ── Saved/review item classification (shared by playReviewAudio,
+// renderSavedScreen, renderReviewCard) ─────────────────
+// Marker-delimited (test/dictionary-review.test.mjs vm-loads this fragment
+// directly) so a future non-audio-backed / non-scenario item type (e.g. a
+// dictionary word) can only ever need ONE edit, here, instead of drifting
+// across every render path that used to hand-roll its own `scenarios[x]`
+// fallback. Unit B (dictionary lookup UI) extends this fragment.
+/* ll:dictionary-shared:start */
+// Classifies a saved/review item into exactly one kind:
+//   "scenario"  — a real phrase from scenarios.js (has a precached mp3)
+//   "translate" — an AI-generated translation save (no mp3, ever)
+//   "dict"      — a curated dictionary-word save (no mp3, ever)
+// Positive allowlist by design (rules/08 Sev-guaranteed-404 fix): a phrase
+// is only ever treated as "scenario" when `scenarios[item.scenario]`
+// actually resolves, so any future non-audio-backed type defaults safely to
+// "translate" without needing to be enumerated here. The one exception is
+// the legacy `t_`-prefixed id: pre-"__translate__" saves (commit a1f7181)
+// could carry a stale/misleading `scenario` value (e.g. "bath", from a since
+// -fixed bug) and must still classify as "translate" so already-saved user
+// data doesn't regress into a 404'ing mp3 request or a mislabeled card.
+function classifyItem(item) {
+  if (!item) return "translate";
+  const id = item.id != null ? String(item.id) : "";
+  if (id.startsWith("t_")) return "translate";
+  if (item.scenario === "__dict__") return "dict";
+  if (item.scenario && typeof scenarios !== "undefined" && scenarios[item.scenario]) return "scenario";
+  return "translate";
+}
+
+// True only for real scenario phrases, which alone have a pregenerated
+// `<id>_normal.mp3` (rules/05-audio-pipeline.md). Everything else (AI
+// translations, dictionary words, and any future non-audio-backed type)
+// must go straight to speechSynthesis — never construct an Audio() URL for
+// a file that was never generated.
+function isAudioBacked(item) {
+  return classifyItem(item) === "scenario";
+}
+
+// Single label/icon resolver for both renderSavedScreen() and
+// renderReviewCard() so the two can never again disagree on how a saved
+// item is labeled (they previously did: '翻译' vs "AI 翻译").
+function resolveItemLabel(item) {
+  const kind = classifyItem(item);
+  if (kind === "scenario") {
+    const s = scenarios[item.scenario];
+    return { icon: s.icon, name: s.name };
+  }
+  if (kind === "dict") {
+    return { icon: "📖", name: "单词" };
+  }
+  return { icon: "🔤", name: "AI 翻译" };
+}
+/* ll:dictionary-shared:end */
+
 // ── Saved screen ───────────────────────────────────────
 function renderSavedChips() {
   const area = document.getElementById("savedChipsArea");
@@ -2300,13 +2434,13 @@ function renderSavedScreen() {
 
     const badge = document.createElement('span');
     badge.className = 'saved-item-badge';
-    const s = scenarios[p.scenario];
+    const label = resolveItemLabel(p);
     // Icon in a normalized .chip-ico span (icon-treatment unification).
     const bIco = document.createElement('span');
     bIco.className = 'chip-ico';
-    bIco.textContent = s ? s.icon : '🔤';
+    bIco.textContent = label.icon;
     badge.appendChild(bIco);
-    badge.appendChild(document.createTextNode(' ' + (s ? s.name : '翻译')));
+    badge.appendChild(document.createTextNode(' ' + label.name));
 
     const unsaveBtn = document.createElement('button');
     unsaveBtn.className = 'unsave-btn';
@@ -2332,6 +2466,18 @@ function removeSaved(id) {
 }
 
 // ── Review queue (spaced repetition) ───────────────────
+// Marker-delimited (test/dictionary-review-engine.test.mjs vm-loads this
+// fragment directly), same idiom as ll:dictionary-shared / ll:dictionary-
+// lookup above (Unit B increment C). reviewAnswer() is deliberately kept
+// adjacent to dueReviews() here (relocated up from its previous spot just
+// above playReviewAudio, function declarations are hoisted so this changes
+// nothing about runtime order) so both the due-selection logic and the
+// REVIEW_INTERVALS-driven scheduling logic that Unit B's dictionary saves
+// must flow through are extractable as one small, DOM-light unit. The
+// DOM-heavy renderers (updateNavBadge, renderReviewStrip, renderReviewArea,
+// renderReviewCard) stay below, outside the marker, referencing
+// dueReviews/reviewAnswer/reviewQueue by name exactly as before.
+/* ll:review-engine:start */
 let reviewQueue = [];
 
 function dueReviews() {
@@ -2342,6 +2488,36 @@ function dueReviews() {
   // reordering is unaffected since it operates on the queue, not this sort.
   return sortedBySavedAtDesc(savedPhrases.filter(p => p.rv && p.rv.due <= now));
 }
+
+function reviewAnswer(remembered) {
+  const item = reviewQueue.shift();
+  const now = Date.now();
+  if (remembered) {
+    item.rv.s = Math.min((item.rv.s || 0) + 1, REVIEW_INTERVALS.length);
+    const days = REVIEW_INTERVALS[Math.min(item.rv.s - 1, REVIEW_INTERVALS.length - 1)];
+    item.rv.due = now + days * 86400000;
+  } else {
+    // Back to stage 0, stays due — comes around again this session
+    item.rv.s = 0;
+    item.rv.due = now;
+    reviewQueue.push(item);
+  }
+  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  updateNavBadge();
+  renderReviewStrip();
+  if (reviewQueue.length) renderReviewCard();
+  else renderReviewArea();
+}
+
+// Test-only introspection/priming hook (same idiom as
+// __dictProvenanceConstantsForTest() above and dictionary.mjs's
+// handler.__cacheSizeForTest): top-level `let reviewQueue` is NOT reflected
+// as an own property of the vm context object the way a `function`
+// declaration is, so test/dictionary-review-engine.test.mjs cannot seed it
+// directly. Not used by the running app at all — the real app always
+// populates reviewQueue via renderReviewArea()'s `reviewQueue = dueReviews()`.
+function __primeReviewQueueForTest(q) { reviewQueue = q; }
+/* ll:review-engine:end */
 
 function updateNavBadge() {
   const badge = document.getElementById("navBadge");
@@ -2385,7 +2561,7 @@ function renderReviewCard() {
   const area = document.getElementById("reviewArea");
   area.innerHTML = "";
   const item = reviewQueue[0];
-  const s = scenarios[item.scenario];
+  const label = resolveItemLabel(item);
 
   const card = document.createElement("div");
   card.className = "review-card";
@@ -2398,9 +2574,9 @@ function renderReviewCard() {
   // Icon in a normalized .chip-ico span (icon-treatment unification).
   const rIco = document.createElement("span");
   rIco.className = "chip-ico";
-  rIco.textContent = s ? s.icon : "🔤";
+  rIco.textContent = label.icon;
   right.appendChild(rIco);
-  right.appendChild(document.createTextNode(" " + (s ? s.name : "AI 翻译")));
+  right.appendChild(document.createTextNode(" " + label.name));
   head.append(left, right);
 
   const zh = document.createElement("div");
@@ -2455,26 +2631,6 @@ function renderReviewCard() {
   area.appendChild(card);
 }
 
-function reviewAnswer(remembered) {
-  const item = reviewQueue.shift();
-  const now = Date.now();
-  if (remembered) {
-    item.rv.s = Math.min((item.rv.s || 0) + 1, REVIEW_INTERVALS.length);
-    const days = REVIEW_INTERVALS[Math.min(item.rv.s - 1, REVIEW_INTERVALS.length - 1)];
-    item.rv.due = now + days * 86400000;
-  } else {
-    // Back to stage 0, stays due — comes around again this session
-    item.rv.s = 0;
-    item.rv.due = now;
-    reviewQueue.push(item);
-  }
-  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
-  updateNavBadge();
-  renderReviewStrip();
-  if (reviewQueue.length) renderReviewCard();
-  else renderReviewArea();
-}
-
 function playReviewAudio(item, btn) {
   stopAllAudio();
   // Same session pattern as speakPhrase(): captured after the bump in
@@ -2483,8 +2639,11 @@ function playReviewAudio(item, btn) {
   const session = playbackSession;
   const isCurrent = () => session === playbackSession;
   if (btn) setPlayBtnPlaying(btn);
-  // Scenario phrases have Azure MP3s named by id; AI translations don't
-  if (item.id && !String(item.id).startsWith("t_")) {
+  // Only real scenario phrases have a pregenerated Azure mp3 — everything
+  // else (AI translations, dictionary words, legacy t_ ids) goes straight
+  // to speechSynthesis. See isAudioBacked() (ll:dictionary-shared) for why
+  // this is a positive allowlist, not an id-prefix denylist.
+  if (isAudioBacked(item)) {
     const mp3 = new Audio(`./audio/${item.id}_normal.mp3`);
     currentAudio = mp3;
     mp3.addEventListener("ended", () => {
@@ -2742,11 +2901,507 @@ function buildResultRow(e) {
   return row;
 }
 
+// ── Dictionary lookup: predicate + form index (Unit B increment A2/A1) ──
+// Marker-delimited (test/dictionary-lookup.test.mjs vm-loads this fragment
+// directly), following the ll:dictionary-shared convention above. Chosen
+// name: ll:dictionary-lookup — distinct from ll:dictionary-shared, which
+// covers saved/review item classification, not the home-screen search box.
+// onSearchInput() is included in the fragment (not just the predicate)
+// because the regression this increment exists to prevent lives inside it:
+// the 📖 查词典 CTA below must render independently of the
+// `results.length < 3` gate that the pre-existing 🤖 AI CTA uses. Common
+// words like "eat" or "sleep" already match >=3 scenario phrases, so reusing
+// that threshold would hide the dictionary CTA exactly when a parent typed
+// a plain word most likely to have a curated entry.
+/* ll:dictionary-lookup:start */
+// True only for input that plausibly names a single English word or short
+// set phrase to look up — never Chinese (the /api/dictionary backend 400s on
+// Chinese input; there is no zh->en direction in v1, Chinese always routes to
+// the existing AI-translate screen instead), never digits/empty, and never
+// something long enough to really be a sentence (that belongs on the
+// AI-translate path, not a dictionary card).
+//
+// The character class deliberately mirrors WORD_RE in
+// netlify/functions/dictionary.mjs (the already-shipped /api/dictionary
+// backend this CTA will eventually call in increment B): Latin letters plus
+// a single internal space/apostrophe/hyphen between letter runs. Reusing
+// that allowlist rejects Chinese, digits, emoji, and stray punctuation with
+// one rule instead of a second, potentially drifting blocklist, and it means
+// the CTA only ever offers a query the backend would actually accept.
+//
+// DICT_LOOKUP_MAX_LEN (30) is intentionally TIGHTER than the backend's
+// MAX_INPUT_LEN (40): the backend bound is "don't reject a legitimate short
+// phrase", but this bound is a UX judgement call — a query in the 31-40
+// range is long enough that it reads as a sentence fragment, not a word
+// lookup, so the CTA should stay hidden even though the backend would still
+// accept it. DICT_LOOKUP_MAX_WORDS (4) is a frontend-only addition with no
+// backend counterpart: it keeps the CTA scoped to "a word or a short set
+// phrase" ("thank you", "all done") rather than a run of short words that
+// technically fits under 30 characters but reads as a clause.
+const DICT_LOOKUP_MAX_LEN = 30;   // characters, trimmed
+const DICT_LOOKUP_MAX_WORDS = 4;  // whitespace-separated words
+const DICT_LOOKUP_WORD_RE = /^[A-Za-z]+(?:[ '-][A-Za-z]+)*$/;
+function looksLikeEnglishLookup(q) {
+  if (typeof q !== "string") return false;
+  const trimmed = q.trim();
+  if (!trimmed) return false;
+  if (trimmed.length > DICT_LOOKUP_MAX_LEN) return false;
+  if (!DICT_LOOKUP_WORD_RE.test(trimmed)) return false;
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length > DICT_LOOKUP_MAX_WORDS) return false;
+  return true;
+}
+
+// form -> entry index over dictionary-words.js's curated list (shape per its
+// own header comment: each entry has a unique `lemma` and a `forms` array of
+// lowercase surface forms, globally unique across all entries). Takes the
+// word list as a parameter rather than reading window.dictionaryWords
+// implicitly, so it stays a pure, independently testable function; the real
+// caller passes window.dictionaryWords. Tolerates a missing/empty list
+// (returns an empty index) since dictionary-words.js has no consumer that
+// gates app startup on it this increment.
+function buildDictionaryIndex(words) {
+  const idx = new Map();
+  (words || []).forEach(entry => {
+    (entry.forms || []).forEach(form => {
+      idx.set(String(form).toLowerCase(), entry);
+    });
+  });
+  return idx;
+}
+
+// ── Dictionary lookup panel (Unit B increment B) ───────────────────────
+// Lazily built once per page load and reused — dictionary-words.js is a
+// static script-tag load, not a live data source, so there is nothing to
+// invalidate. Kept as its own module-scope variable (not stashed on
+// window) so a fresh vm context in tests always starts cold.
+let dictLookupIndex = null;
+function getDictLookupIndex() {
+  if (!dictLookupIndex) dictLookupIndex = buildDictionaryIndex(window.dictionaryWords);
+  return dictLookupIndex;
+}
+
+// Founder ruling in the Unit B increment B spec: curated entries do NOT
+// carry the AI disclaimer, but ONLY once leo-linguist AND nina-native-editor
+// have formally cleared dictionary-words.js (see that file's own "Review
+// status" header comment). As of Unit B increment C (2026-08-12) it says
+// CLEARED — rev 2, both reviewers returned an overall CLEARED verdict after
+// round 1 found 6 defects that maya fixed and round 2 re-audited clean. This
+// is the ONE place that decision is made; every render call site below
+// reads this constant instead of re-deciding clearance. Any FUTURE edit to
+// an entry in dictionary-words.js invalidates clearance for the edited
+// revision until leo/nina re-audit it — see that file's own header for the
+// same rule stated from the content side; if that happens, flip this back
+// to false until a fresh CLEARED verdict lands.
+const DICT_CURATED_CLEARED = true;
+
+// Distinct from the AI-disclaimer wording on purpose: these are
+// human-drafted (by maya-curriculum-designer), NOT AI output, so the "AI
+// 释义" wording would misdescribe their provenance. The uncleared state is
+// about missing a second pair of human eyes, not about being machine-
+// generated — calm, factual, no alarm implied.
+// NOTE (devon-frontend-engineer): the WORDING of DICT_UNCLEARED_NOTE itself
+// is Devon's own draft, not nina-cleared prose — it is currently dormant
+// (DICT_CURATED_CLEARED is true, so dictProvenanceNote() never selects this
+// branch today) but the code path is deliberately kept alive for the day an
+// edited/new entry drops clearance back to false. If that day comes, this
+// string should get the same nina pass any other parent-facing Chinese does
+// before it starts actually rendering again.
+const DICT_API_NOTE = "⚠ AI 释义，未经人工审核 — 使用前请先读一读，确认适合宝宝。";
+const DICT_UNCLEARED_NOTE = "📝 人工编写，审核进行中 — 内容出自课程设计师之手，尚未完成最终审校，请先读一读再用。";
+
+function dictProvenanceNote(provenance) {
+  if (provenance === "api") return DICT_API_NOTE;
+  if (provenance === "curated-uncleared") return DICT_UNCLEARED_NOTE;
+  return null; // "curated-cleared" — no disclaimer once formally reviewed
+}
+
+// Test-only introspection hook (same idiom as dictionary.mjs's
+// handler.__cacheSizeForTest): top-level `const` bindings in a vm script
+// are NOT reflected as own properties of the context object the way
+// function declarations are, so test/dictionary-lookup.test.mjs cannot read
+// DICT_API_NOTE / DICT_UNCLEARED_NOTE / DICT_CURATED_CLEARED directly. This
+// closure-captures them for the test to assert against. Not used by the
+// running app at all — devon-frontend-engineer, Unit B increment B.
+function __dictProvenanceConstantsForTest() {
+  return { DICT_API_NOTE, DICT_UNCLEARED_NOTE, DICT_CURATED_CLEARED };
+}
+
+// Normalized internal render shape — the ONE shape buildDictResultCard()
+// ever renders, regardless of source:
+//   { lemma: string, provenance: "curated-cleared"|"curated-uncleared"|"api",
+//     senses: [{ pos: string, zh: string, example: {en,zh}|null, tip: string|null, key: string }] }
+// Curated entries (dictionary-words.js) carry sense.zh + sense.example +
+// sense.tip. API entries (/api/dictionary) carry only sense.definition, with
+// no example and no tip — normalizeDictSense() maps `definition` onto the
+// same `zh` field and leaves example/tip null, so the render path never
+// branches on where the data came from, only on which fields are present.
+// `sense.key` is added here (Unit B increment C) — see the "C3: word
+// identity" block below for what it is and why every sense needs one.
+function normalizeDictSense(s, senseKey) {
+  return {
+    pos: typeof s.pos === "string" ? s.pos : "",
+    zh: typeof s.zh === "string" ? s.zh : (typeof s.definition === "string" ? s.definition : ""),
+    example: (s.example && typeof s.example.en === "string") ? s.example : null,
+    tip: typeof s.tip === "string" ? s.tip : null,
+    key: senseKey,
+  };
+}
+function normalizeDictResult(raw, provenance) {
+  const senseKeys = computeSenseKeys(raw.senses);
+  return {
+    lemma: raw.lemma,
+    provenance,
+    senses: (raw.senses || []).map((s, i) => normalizeDictSense(s, senseKeys[i])),
+  };
+}
+
+// ── C3: word identity = lemma + selected sense (Unit B increment C) ────
+// The founder's saved-shape spec says `id: "w_" + lemma`, which by itself
+// cannot distinguish two senses of one lemma ("watch" n. "手表" vs "watch"
+// v. "看，观看") — saving one would silently overwrite or collide with the
+// other. Every SAVED dictionary card is therefore keyed by lemma + a
+// per-sense "sense key", never by lemma alone:
+//   - Curated senses (dictionary-words.js) already carry a `key` field per
+//     that file's own shape contract ("key unique within the lemma") —
+//     reused as-is, slugified for id-safety.
+//   - API senses (/api/dictionary) carry NO key field, only `pos` — see
+//     that function's own header comment, which already anticipates this
+//     exact problem ("so the CLIENT can build a stable identity of lemma +
+//     selected sense"). There is no ID from the server to anchor to, so the
+//     scheme falls back to a slugified `pos` ("v." -> "v", "n." -> "n"),
+//     which is deterministic for a given response and distinguishes exactly
+//     the watch-n/watch-v case. If one response ever repeats the same pos
+//     twice (two "v." senses), a numeric suffix disambiguates the two
+//     within that one result. This does NOT guarantee the same API sense
+//     gets the same key across two SEPARATE lookups (the API has no stable
+//     per-sense id at all) — a save from one lookup and a save from a later
+//     re-lookup of the same word could theoretically land on different
+//     ids if Gemini reorders/renames senses between calls. Curated entries
+//     have no such risk since `key` is authored and frozen.
+function slugifyForId(s) {
+  return String(s || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+function computeSenseKeys(senses) {
+  const seen = new Map();
+  return (senses || []).map((s, i) => {
+    let key = (s && typeof s.key === "string" && s.key) ? slugifyForId(s.key) : slugifyForId(s && s.pos);
+    if (!key) key = "s" + i;
+    if (seen.has(key)) {
+      const n = seen.get(key) + 1;
+      seen.set(key, n);
+      key = key + n;
+    } else {
+      seen.set(key, 0);
+    }
+    return key;
+  });
+}
+// The id a SAVE of this specific lemma+sense is stored/looked-up under.
+function dictSaveId(lemma, senseKey) {
+  return "w_" + slugifyForId(lemma) + "__" + senseKey;
+}
+
+// ── C2: opt-in save shape (Unit B increment C) ──────────────────────────
+// Founder's literal shape:
+//   { id: "w_"+lemma, en: word, zh: definition, tip: example/usage,
+//     scenario: "__dict__", rv: { s: 0, due: Date.now() } }
+// Two additions beyond that literal shape, both called out here AND in the
+// devon-frontend-engineer handoff report for the founder to veto:
+//   1. `savedAt: Date.now()` — dueReviews()/sortedBySavedAtDesc() sort on
+//      it; saveTranslation() already sets it; an item without it sorts
+//      unpredictably against real saves.
+//   2. `en` carries the sense's `pos` in parentheses ("watch (n.)") when the
+//      looked-up lemma has more than one sense on offer. C3 already makes
+//      two senses of one lemma internally distinguishable by `id` — without
+//      this, two saved cards would both display the bare English "watch"
+//      in the saved list with nothing but the Chinese line telling them
+//      apart, which defeats the point of making them distinguishable at
+//      all. Single-sense lemmas are unaffected (`en` stays the bare word).
+// `tip` fallback: curated entries carry a real actionable tip; API results
+// never do (see dictionary.mjs — pos + definition only, no example/tip). If
+// there is no tip but there IS a curated example, that example (en + zh) is
+// used as the "usage" the founder's spec names as the tip-fallback source.
+// If neither exists (a bare API sense), tip is an empty string — no
+// fabricated content invented client-side.
+function dictSaveTip(sense) {
+  if (sense.tip) return sense.tip;
+  if (sense.example) return sense.example.zh ? `${sense.example.en} — ${sense.example.zh}` : sense.example.en;
+  return "";
+}
+function buildDictSaveEntry(lemma, sense, multiSense) {
+  return {
+    id: dictSaveId(lemma, sense.key),
+    en: (multiSense && sense.pos) ? `${lemma} (${sense.pos})` : lemma,
+    zh: sense.zh || "",
+    tip: dictSaveTip(sense),
+    scenario: "__dict__",
+    savedAt: Date.now(),
+    rv: { s: 0, due: Date.now() },
+  };
+}
+
+// C1 hard requirement: a lookup alone must never mutate ll_saved — only this
+// explicit tap does. No-ops (does not overwrite) if somehow already saved;
+// the render path never offers this button for an already-saved sense (see
+// buildDictResultCard below), so that path should be unreachable in normal
+// use.
+function saveDictSense(lemma, sense, multiSense, panel, data) {
+  const id = dictSaveId(lemma, sense.key);
+  if (savedPhrases.some(p => p.id === id)) return;
+  savedPhrases.push(buildDictSaveEntry(lemma, sense, multiSense));
+  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  updateNavBadge();
+  renderDictLookupPanel(panel, { state: "result", data });
+}
+
+// The explicit "更新卡片内容" action (C4): overwrites zh/tip on an already-
+// saved sense with the freshly looked-up content. Deliberately does NOT
+// touch rv — content refresh and review scheduling are two separate user
+// intents (see resetDueOnRepeatLookup below for the scheduling reset).
+function updateDictSaveContent(lemma, sense, panel, data) {
+  const id = dictSaveId(lemma, sense.key);
+  const existing = savedPhrases.find(p => p.id === id);
+  if (!existing) return;
+  existing.zh = sense.zh || existing.zh;
+  existing.tip = dictSaveTip(sense) || existing.tip;
+  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  renderDictLookupPanel(panel, { state: "result", data });
+}
+
+// ── C4: repeat lookup of an already-saved word = "forgot it" signal ────
+// Reuses the exact reviewAnswer(false) semantics (rv.s=0, rv.due=now) rather
+// than inventing new scheduling — see ll:review-engine's reviewAnswer().
+// Does NOT touch zh/tip (that is updateDictSaveContent()'s job, an explicit
+// separate tap).
+//
+// OPEN DESIGN POINT flagged for the founder (stated, not silently decided):
+// this fires ON THE LOOKUP ITSELF — called from performDictLookup right
+// before it renders a "result" state, for both the local-curated and the
+// API-hit branch — per the founder's literal wording ("Repeat lookup of an
+// already-saved word: reset…"), which reads as on-lookup rather than
+// requiring a further explicit tap. This sits in tension with C1's "a
+// lookup alone must never mutate ll_saved": the resolution applied here is
+// that C1 is read narrowly as guarding CREATION of a new save (never save
+// something the parent didn't explicitly star), while this guards
+// RESCHEDULING of a card that already exists — a different mutation with a
+// different risk profile (nothing new appears in the saved list; an
+// existing item's due date moves earlier). If the founder disagrees and
+// wants this gated behind its own explicit tap instead, that is a one-line
+// change: remove the two call sites below and add a button that calls it.
+function resetDueOnRepeatLookup(data) {
+  const now = Date.now();
+  let changed = false;
+  (data.senses || []).forEach(sense => {
+    const id = dictSaveId(data.lemma, sense.key);
+    const existing = savedPhrases.find(p => p.id === id);
+    if (existing) {
+      existing.rv = existing.rv || {};
+      existing.rv.s = 0;
+      existing.rv.due = now;
+      changed = true;
+    }
+  });
+  if (changed) {
+    safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+    updateNavBadge();
+  }
+}
+
+function buildDictResultCard(data, panel) {
+  const card = document.createElement("div");
+  card.className = "dict-result-card";
+
+  const lemma = document.createElement("div");
+  lemma.className = "dict-result-lemma";
+  lemma.textContent = data.lemma;
+  card.appendChild(lemma);
+
+  const multiSense = data.senses.length > 1;
+  data.senses.forEach(sense => {
+    const senseEl = document.createElement("div");
+    senseEl.className = "dict-result-sense";
+
+    const head = document.createElement("div");
+    head.className = "dict-result-sense-head";
+    head.textContent = [sense.pos, sense.zh].filter(Boolean).join(" ");
+    senseEl.appendChild(head);
+
+    if (sense.example) {
+      const ex = document.createElement("div");
+      ex.className = "dict-result-example";
+      ex.textContent = sense.example.zh ? `${sense.example.en} — ${sense.example.zh}` : sense.example.en;
+      senseEl.appendChild(ex);
+    }
+    if (sense.tip) {
+      const tip = document.createElement("div");
+      tip.className = "dict-result-tip";
+      tip.textContent = "💡 " + sense.tip;
+      senseEl.appendChild(tip);
+    }
+
+    // C1/C2/C3/C4: per-sense save/update affordance. Keyed per sense (not
+    // per lemma) so "watch n." and "watch v." get their own independent
+    // save state, per C3.
+    const actions = document.createElement("div");
+    actions.className = "dict-sense-actions";
+    const id = dictSaveId(data.lemma, sense.key);
+    const existing = (typeof savedPhrases !== "undefined") ? savedPhrases.find(p => p.id === id) : null;
+    if (existing) {
+      const label = document.createElement("span");
+      label.className = "dict-saved-label";
+      label.textContent = "★ 已加入复习";
+      actions.appendChild(label);
+
+      const updateBtn = document.createElement("button");
+      updateBtn.className = "dict-update-btn";
+      updateBtn.textContent = "更新卡片内容";
+      updateBtn.onclick = () => updateDictSaveContent(data.lemma, sense, panel, data);
+      actions.appendChild(updateBtn);
+    } else {
+      const saveBtn = document.createElement("button");
+      saveBtn.className = "dict-save-btn";
+      saveBtn.textContent = "⭐ 加入复习";
+      saveBtn.onclick = () => saveDictSense(data.lemma, sense, multiSense, panel, data);
+      actions.appendChild(saveBtn);
+    }
+    senseEl.appendChild(actions);
+
+    card.appendChild(senseEl);
+  });
+
+  const note = dictProvenanceNote(data.provenance);
+  if (note) {
+    const noteEl = document.createElement("div");
+    noteEl.className = "ai-disclaimer dict-provenance-note";
+    noteEl.textContent = note;
+    card.appendChild(noteEl);
+  }
+  return card;
+}
+
+// Every distinct outcome below gets its own `state` string so a stale
+// callback can be told apart from a current one AND so tests can assert on
+// exactly which handled state rendered (never a silent empty panel — see
+// increment B spec B5). Message text is deliberately distinct per state too
+// (not just internally distinct), since these read differently to a parent
+// even where the underlying HTTP mechanics differ only in status code.
+const DICT_ERROR_MESSAGES = {
+  "error-invalid": "这个词好像不太对，换个词试试？",
+  "error-upstream": "词典服务暂时遇到问题，请稍后再试。",
+  "error-nokey": "词典服务暂时不可用，请稍后再试。",
+  "error-timeout": "查词超时了，请检查网络后重试。",
+  "error-malformed": "词典服务返回异常，请稍后再试。",
+  "error-network": "网络连接失败，请检查网络后重试。",
+};
+// Exact wording per increment B spec (B6) — deliberately NOT the generic
+// showOfflineToast() copy: a curated hit still works fully offline, so this
+// message is specifically about NEW (uncached) lookups.
+const DICT_OFFLINE_MESSAGE = "需要联网才能查新单词 — 已加入复习的词随时可以离线复习";
+
+function renderDictLookupPanel(panel, view) {
+  if (!panel) return;
+  panel.innerHTML = "";
+  panel.classList.add("show");
+  if (view.state === "result") {
+    panel.appendChild(buildDictResultCard(view.data, panel));
+    return;
+  }
+  const el = document.createElement("div");
+  el.className = "dict-lookup-status" + (String(view.state).startsWith("error-") ? " dict-lookup-error" : "");
+  if (view.state === "loading") el.textContent = "⏳ 正在查询…";
+  else if (view.state === "offline") el.textContent = DICT_OFFLINE_MESSAGE;
+  else el.textContent = DICT_ERROR_MESSAGES[view.state] || "出错了，请稍后再试。";
+  panel.appendChild(el);
+}
+
+// Generation-counter session guard — same shape as stopAllAudio()/
+// speakPhrase()'s `playbackSession`: bump BEFORE starting new work, capture
+// the value right after the bump, and every async continuation below checks
+// isCurrentDictSession() before touching the DOM. Guarantees a stale
+// in-flight response (superseded by a newer lookup, or by the parent typing
+// a new query in onSearchInput) can never overwrite a newer render.
+let dictLookupSession = 0;
+function isCurrentDictSession(session) { return session === dictLookupSession; }
+
+// > the backend's own GEMINI_TIMEOUT_MS (6500ms, netlify/functions/
+// dictionary.mjs) so the server's more specific 502 wins the race in the
+// common slow-upstream case; still bounded so a request that never gets a
+// response at all (dropped connection) doesn't hang the panel forever.
+const DICT_LOOKUP_TIMEOUT_MS = 8000;
+
+function performDictLookup(query) {
+  dictLookupSession++;
+  const session = dictLookupSession;
+  const panel = document.getElementById("dictLookupPanel");
+
+  // LOCAL CURATED FIRST — hard requirement (increment B spec B2): a local
+  // hit must never reach the network. This branch returns before any fetch
+  // is constructed, so there is nothing to race or time out.
+  const local = getDictLookupIndex().get(String(query).trim().toLowerCase());
+  if (local) {
+    const provenance = DICT_CURATED_CLEARED ? "curated-cleared" : "curated-uncleared";
+    const data = normalizeDictResult(local, provenance);
+    resetDueOnRepeatLookup(data); // C4: repeat lookup of an already-saved sense resets its review clock
+    renderDictLookupPanel(panel, { state: "result", data });
+    return;
+  }
+
+  // No curated entry. A local hit works fully offline (handled above,
+  // before this check); a NEW lookup needs the network, so if we're
+  // offline there is nothing to try.
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    renderDictLookupPanel(panel, { state: "offline" });
+    return;
+  }
+
+  renderDictLookupPanel(panel, { state: "loading" });
+
+  const controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  const timer = setTimeout(() => { if (controller) controller.abort(); }, DICT_LOOKUP_TIMEOUT_MS);
+
+  fetch("/api/dictionary", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ word: String(query).trim() }),
+    signal: controller ? controller.signal : undefined,
+  }).then(res => {
+    clearTimeout(timer);
+    if (!isCurrentDictSession(session)) return;
+    if (res.status === 400) return renderDictLookupPanel(panel, { state: "error-invalid" });
+    if (res.status === 500) return renderDictLookupPanel(panel, { state: "error-nokey" });
+    if (res.status === 502) return renderDictLookupPanel(panel, { state: "error-upstream" });
+    if (!res.ok) return renderDictLookupPanel(panel, { state: "error-upstream" });
+    return res.json()
+      .then(body => {
+        if (!isCurrentDictSession(session)) return;
+        if (!body || typeof body.lemma !== "string" || !Array.isArray(body.senses)) {
+          return renderDictLookupPanel(panel, { state: "error-malformed" });
+        }
+        const data = normalizeDictResult(body, "api");
+        resetDueOnRepeatLookup(data); // C4: repeat lookup of an already-saved sense resets its review clock
+        renderDictLookupPanel(panel, { state: "result", data });
+      })
+      .catch(() => { if (isCurrentDictSession(session)) renderDictLookupPanel(panel, { state: "error-malformed" }); });
+  }).catch(err => {
+    clearTimeout(timer);
+    if (!isCurrentDictSession(session)) return;
+    if (err && err.name === "AbortError") return renderDictLookupPanel(panel, { state: "error-timeout" });
+    renderDictLookupPanel(panel, { state: "error-network" });
+  });
+}
+
 function onSearchInput() {
   const q = document.getElementById("searchInput").value.trim();
   const panel = document.getElementById("searchResults");
   const home = document.getElementById("homeScreen");
+  const dictPanel = document.getElementById("dictLookupPanel");
   panel.innerHTML = "";
+  // A new/changed query invalidates any prior lookup — bump the session so a
+  // response still in flight for the OLD query can never render, and clear
+  // the panel so a stale result isn't left showing under a new query.
+  dictLookupSession++;
+  if (dictPanel) { dictPanel.classList.remove("show"); dictPanel.innerHTML = ""; }
 
   if (!q) {
     home.classList.remove("searching");
@@ -2763,6 +3418,17 @@ function onSearchInput() {
     empty.textContent = "预设短语里没找到相关表达";
     panel.appendChild(empty);
   }
+
+  // Deliberately NOT gated on results.length — see fragment header. Must
+  // show even when results.length >= 3 (e.g. "eat", "sleep").
+  if (looksLikeEnglishLookup(q)) {
+    const dictBtn = document.createElement("button");
+    dictBtn.className = "search-dict-btn";
+    dictBtn.textContent = `📖 查词典「${q}」`;
+    dictBtn.onclick = () => performDictLookup(q);
+    panel.appendChild(dictBtn);
+  }
+
   if (results.length < 3) {
     const aiBtn = document.createElement("button");
     aiBtn.className = "search-ai-btn";
@@ -2771,6 +3437,7 @@ function onSearchInput() {
     panel.appendChild(aiBtn);
   }
 }
+/* ll:dictionary-lookup:end */
 
 function jumpToPhrase(sid, age, pid) {
   showTab("home");

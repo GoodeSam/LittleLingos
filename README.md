@@ -62,12 +62,19 @@ clients keep serving old content indefinitely.
 - Everything is local-first: saved phrases, review scheduling, and usage live
   in `localStorage` on the device; audio and the app shell are cached by the
   service worker for offline use.
-- The only data that leaves the device is the free text a parent submits on
-  the translate screen, sent to `/api/translate` (a Netlify function that
-  calls an AI translation backend). The UI carries a just-in-time notice
-  telling parents not to include personal information. Voice input uses the
-  browser's Web Speech API, which may route audio through the browser
-  vendor's speech service while dictating.
+- Two surfaces send data off-device, both disclosed in the UI at the point of
+  use, just-in-time: the translate screen sends the free text a parent
+  submits to `/api/translate` (a Netlify function that calls an AI
+  translation backend), and the home-screen dictionary lookup sends a typed
+  word to `/api/dictionary` (a Netlify function backed by an AI dictionary
+  service) — but ONLY when that word is not already in the app's built-in
+  curated word list. A curated hit is resolved entirely on-device and never
+  touches the network. Neither surface sends anything else (no saved
+  phrases, no usage history). The translate screen's notice tells parents
+  not to include personal information; the dictionary lookup's notice states
+  the curated-vs-new-word distinction above. Voice input uses the browser's
+  Web Speech API, which may route audio through the browser vendor's speech
+  service while dictating.
 
 ## Recovery
 

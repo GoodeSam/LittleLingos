@@ -42,6 +42,7 @@ function loadModule() {
   vm.runInContext(html.slice(s, e + END.length), ctx);
   assert.equal(typeof ctx.isAudioBacked, "function", "module must define isAudioBacked()");
   assert.equal(typeof ctx.resolveItemLabel, "function", "module must define resolveItemLabel()");
+  assert.equal(typeof ctx.savedHeadline, "function", "module must define savedHeadline()");
   return ctx;
 }
 
@@ -131,6 +132,68 @@ test("all three kinds produce mutually distinct name+icon pairs", () => {
   const dictLabel = resolveItemLabel({ id: "w_1", scenario: "__dict__" });
   const keys = [scenarioLabel, translateLabel, dictLabel].map(l => l.icon + "|" + l.name);
   assert.equal(new Set(keys).size, 3, "each kind must be visually and textually distinguishable");
+});
+
+// ── savedHeadline: the "(pos)"-in-`en` replacement, en · senseLabel ────
+// (founder-approved revision, replacing the earlier "en carries the sense's
+// pos in parentheses" design — see buildDictSaveEntry's comment block,
+// ll:dictionary-lookup, and the devon-frontend-engineer handoff report.)
+test("savedHeadline: bare en when senseLabel is absent (single-sense save / scenario phrase / AI translation)", () => {
+  const { savedHeadline } = loadModule();
+  assert.equal(savedHeadline({ en: "eat" }), "eat");
+});
+
+test("savedHeadline: bare en when senseLabel is an empty string (never a stray separator)", () => {
+  const { savedHeadline } = loadModule();
+  assert.equal(savedHeadline({ en: "eat", senseLabel: "" }), "eat");
+});
+
+test("savedHeadline: never renders a stray \"· \" or \"· undefined\" when senseLabel is missing", () => {
+  const { savedHeadline } = loadModule();
+  const out = savedHeadline({ en: "eat" });
+  assert.doesNotMatch(out, /·/, "no separator dot must appear without a real senseLabel");
+  assert.doesNotMatch(out, /undefined/);
+});
+
+test("savedHeadline: \"en · senseLabel\" when senseLabel is present and non-empty", () => {
+  const { savedHeadline } = loadModule();
+  assert.equal(savedHeadline({ en: "clap", senseLabel: "拍手" }), "clap · 拍手");
+});
+
+test("savedHeadline: distinct senseLabels for two saves of the same lemma render distinct headlines", () => {
+  const { savedHeadline } = loadModule();
+  const a = savedHeadline({ en: "clap", senseLabel: "拍手" });
+  const b = savedHeadline({ en: "clap", senseLabel: "掌声" });
+  assert.notEqual(a, b, "two senses of one lemma must be visually distinguishable in the saved list again");
+});
+
+test("savedHeadline: tolerates a missing/null item without throwing", () => {
+  const { savedHeadline } = loadModule();
+  assert.equal(savedHeadline(null), "");
+  assert.equal(savedHeadline(undefined), "");
+});
+
+// ── renderSavedScreen / renderReviewCard / renderSavedChips must all route
+// the headline through savedHeadline() (no drift, same idiom as the
+// resolveItemLabel checks above) ────────────────────────────────────────
+test("renderSavedScreen, renderReviewCard, and renderSavedChips source code all call savedHeadline (no drift)", () => {
+  const savedChipsSrc = html.slice(html.indexOf("function renderSavedChips"), html.indexOf("function renderSavedScreen"));
+  const savedScreenSrc = html.slice(html.indexOf("function renderSavedScreen"), html.indexOf("function removeSaved"));
+  // reviewAnswer() was relocated (Unit B increment C, ll:review-engine
+  // marker) to sit adjacent to dueReviews(), so it now appears BEFORE
+  // renderReviewCard in source order — playReviewAudio, the next function
+  // after renderReviewCard, is the stable boundary now.
+  const reviewCardSrc = html.slice(html.indexOf("function renderReviewCard"), html.indexOf("function playReviewAudio"));
+  assert.match(savedChipsSrc, /savedHeadline\(/, "renderSavedChips must use the shared headline builder");
+  assert.match(savedScreenSrc, /savedHeadline\(/, "renderSavedScreen must use the shared headline builder");
+  assert.match(reviewCardSrc, /savedHeadline\(/, "renderReviewCard must use the shared headline builder");
+});
+
+test("renderSavedScreen and renderReviewCard no longer assign bare p.en/item.en directly to their headline element", () => {
+  const savedScreenSrc = html.slice(html.indexOf("function renderSavedScreen"), html.indexOf("function removeSaved"));
+  const reviewCardSrc = html.slice(html.indexOf("function renderReviewCard"), html.indexOf("function playReviewAudio"));
+  assert.doesNotMatch(savedScreenSrc, /enDiv\.textContent\s*=\s*p\.en\s*;/, "must route through savedHeadline(), not raw p.en");
+  assert.doesNotMatch(reviewCardSrc, /en\.textContent\s*=\s*item\.en\s*;/, "must route through savedHeadline(), not raw item.en");
 });
 
 // ── renderSavedScreen / renderReviewCard must use the SAME resolver ────

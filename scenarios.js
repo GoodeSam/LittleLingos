@@ -947,8 +947,8 @@ window.scenarios = {
     phrases: {
       "0-1": [
         { id:"kt01", en:"Mommy is stirring! Round and round!", zh:"妈妈在搅拌！转啊转！", tip:"一边搅拌锅里的食物一边转给宝宝看，边做边说。" },
-        { id:"kt02", en:"Listen! Sizzle sizzle! Dinner's cooking!", zh:"听！滋滋滋！在做饭啦！", tip:"把宝宝抱到锅边听滋滋声，边听边说这是在做饭。" },
-        { id:"kt03", en:"Mmm, it smells so good! Something yummy is cooking!", zh:"嗯，好香！有好吃的东西在做了！", tip:"抱着宝宝凑近锅边闻一闻，边闻边说好香。" },
+        { id:"kt02", en:"Listen! Sizzle sizzle! Dinner's cooking!", zh:"听！滋滋滋！在做饭啦！", tip:"抱着宝宝站在离灶台几步远的安全位置，远远指着锅让他听滋滋声，边听边说在做饭啦；绝不要把宝宝抱到灶台边或锅的上方。" },
+        { id:"kt03", en:"Mmm, it smells so good! Something yummy is cooking!", zh:"嗯，好香！有好吃的东西在做了！", tip:"抱着宝宝远离灶台站好，用手把锅里的香味轻轻朝宝宝扇过来，边扇边说好香；热锅热油旁边不要抱宝宝去闻。" },
         { id:"kt04", en:"Look at all the vegetables! Colors everywhere!", zh:"看这么多蔬菜！到处都是颜色！", tip:"拿起不同颜色的蔬菜举给宝宝看，边指边说颜色。" },
         { id:"kt05", en:"Daddy is chopping! Chop chop chop!", zh:"爸爸在切菜！切切切！", tip:"一边切菜一边发出切切切的声音给宝宝听。" },
       ],
@@ -957,11 +957,11 @@ window.scenarios = {
         { id:"kt12", en:"Spoon! This is a spoon. Stir stir stir!", zh:"勺子！这是勺子。搅搅搅！", tip:"举起勺子给宝宝看，再示范用它搅一搅。" },
         { id:"kt13", en:"Bowl! Put it in the bowl! Plop plop!", zh:"碗！放进碗里！扑扑扑！", tip:"让宝宝把食材放入碗中，简单参与建立厨房自信心。" },
         { id:"kt14", en:"That's a carrot! Orange! Crunch crunch!", zh:"这是胡萝卜！橙色的！嚼嚼嚼！", tip:"拿起胡萝卜在宝宝眼前晃一晃，边晃边说橙色、嚼嚼嚼。" },
-        { id:"kt15", en:"Wash the vegetable! Rub rub rub! Clean and ready!", zh:"洗蔬菜！搓搓搓！干净可以吃了！", tip:"把菜和宝宝的手一起放到水下搓一搓，边搓边说。" },
+        { id:"kt15", en:"Wash the carrot! Splash splash! All clean!", zh:"洗胡萝卜！哗啦哗啦！洗干净啦！", tip:"先把水龙头调成温水，再握着宝宝的小手一起把胡萝卜放到水流下冲，让他看着水花溅起来，边冲边说。" },
       ],
       "2-3": [
         { id:"kt21", en:"Pour the water in! Slowly, carefully!", zh:"把水倒进去！慢慢的，小心！", tip:"扶着宝宝的手把水慢慢倒进碗里，边倒边说慢慢来。" },
-        { id:"kt22", en:"Wash the vegetable! Can you rub it clean?", zh:"洗蔬菜！你能把它搓干净吗？", tip:"把菜递到宝宝手里，请他在水下搓干净。" },
+        { id:"kt22", en:"Can you scrub the potatoes? Get all the dirt off!", zh:"你来把土豆刷干净好不好？把泥都刷掉！", tip:"在盆里接好水放进土豆，把小刷子递到孩子手里，让他自己一个个刷，刷完举起来给你看。" },
         { id:"kt23", en:"What do you think we're making? Can you guess?", zh:"你觉得我们在做什么？你能猜猜吗？", tip:"让宝宝闻一闻锅里的味道，问他猜猜我们在做什么。" },
         { id:"kt24", en:"Is it hot or cold? Don't touch the stove — it's hot!", zh:"是热的还是冷的？不要碰炉子——很烫！", tip:"指着炉子伸手拦住宝宝，边拦边说很烫不要碰。" },
         { id:"kt25", en:"You're my little helper! This soup is going to be so yummy!", zh:"你是我的小帮手！这汤会很好喝！", tip:"把搅汤的勺子递到宝宝手里，一起搅一搅，边搅边夸他是小帮手。" },

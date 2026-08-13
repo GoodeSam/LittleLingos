@@ -1028,6 +1028,9 @@
       padding: 8px 14px; font-size: 16px; font-weight: 600;
       cursor: pointer; white-space: nowrap;
       touch-action: manipulation; user-select: none;
+      /* min-height + inline-flex centering: padding alone computed to ~35px,
+         below the 44px tap-target floor (2026-08-12 vera visual round, Sev A). */
+      min-height: 44px; display: inline-flex; align-items: center; justify-content: center;
     }
     /* color fixed: rgba(255,255,255,.7) on this gradient measured 1.95:1 /
        1.50:1 across ends (fails AA badly on both — the elevated-severity
@@ -1236,12 +1239,18 @@
     .dict-sense-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
     .dict-save-btn, .dict-update-btn {
       border: none; border-radius: 10px; padding: 9px 14px;
-      font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer;
+      font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer;
       touch-action: manipulation; user-select: none;
+      /* min-height + inline-flex centering: padding alone computed to ~36px
+         (below the 44px tap-target floor); font bumped 15px -> 16px to clear
+         the phone-reading floor (2026-08-12 vera visual round, Sev A/B). */
+      min-height: 44px; display: inline-flex; align-items: center; justify-content: center;
     }
     .dict-save-btn { background: var(--teal); color: var(--ink-on-brand); }
     .dict-update-btn { background: var(--warm); color: var(--accent-deep); }
-    .dict-saved-label { font-size: 15px; font-weight: 700; color: var(--muted); }
+    /* Bumped 15px -> 16px: substantive status text ("★ 已加入复习"), not
+       decorative iconography (2026-08-12 vera visual round, Sev B). */
+    .dict-saved-label { font-size: 16px; font-weight: 700; color: var(--muted); }
     /* Just-in-time data disclosure for the dictionary lookup entry point
        (Unit B increment C6) — same register/visual family as .privacy-note
        on the translate screen, reused rather than a new style. */
@@ -2291,6 +2300,23 @@ function toggleTip(id) {
 // across every render path that used to hand-roll its own `scenarios[x]`
 // fallback. Unit B (dictionary lookup UI) extends this fragment.
 /* ll:dictionary-shared:start */
+// Single source for how a saved/review item's headline text is built, shared
+// by renderSavedScreen(), renderReviewCard(), and renderSavedChips() so the
+// three can never again disagree on the separator (same drift-prevention
+// motivation as resolveItemLabel() below). `en` is always the bare canonical
+// word/phrase (see buildDictSaveEntry, ll:dictionary-lookup) — a multi-sense
+// dictionary save additionally carries `senseLabel`, a short Chinese gloss
+// that disambiguates it from its sibling sense, appended here as
+// "en · senseLabel". Falls back to bare `en` whenever senseLabel is absent
+// or empty, so a single-sense save (the overwhelming majority of items:
+// every scenario phrase, every AI translation, every single-sense
+// dictionary word) renders exactly as it always has — no stray "· " or
+// "· undefined" ever reaches the DOM.
+function savedHeadline(item) {
+  const en = (item && item.en) ? item.en : "";
+  const label = item && item.senseLabel;
+  return label ? `${en} · ${label}` : en;
+}
 // Classifies a saved/review item into exactly one kind:
 //   "scenario"  — a real phrase from scenarios.js (has a precached mp3)
 //   "translate" — an AI-generated translation save (no mp3, ever)
@@ -2360,7 +2386,7 @@ function renderSavedChips() {
     ico.className = 'chip-ico';
     ico.textContent = s ? s.icon : '🔤';
     chip.appendChild(ico);
-    chip.appendChild(document.createTextNode(' ' + p.en));
+    chip.appendChild(document.createTextNode(' ' + savedHeadline(p)));
     if (s) {
       chip.onclick = () => openScenario(p.scenario);
       // Keyboard parity: the global keydown handler covers role="button".
@@ -2401,7 +2427,7 @@ function renderSavedScreen() {
 
     const enDiv = document.createElement('div');
     enDiv.className = 'saved-item-en';
-    enDiv.textContent = p.en;
+    enDiv.textContent = savedHeadline(p);
 
     const enHint = document.createElement('span');
     enHint.className = 'saved-item-en-hint';
@@ -2591,7 +2617,7 @@ function renderReviewCard() {
   answer.className = "review-answer";
   const en = document.createElement("div");
   en.className = "review-en";
-  en.textContent = item.en;
+  en.textContent = savedHeadline(item);
   answer.appendChild(en);
   if (item.tip) {
     const tip = document.createElement("div");
@@ -3111,13 +3137,30 @@ function dictSaveId(lemma, senseKey) {
 //   1. `savedAt: Date.now()` — dueReviews()/sortedBySavedAtDesc() sort on
 //      it; saveTranslation() already sets it; an item without it sorts
 //      unpredictably against real saves.
-//   2. `en` carries the sense's `pos` in parentheses ("watch (n.)") when the
-//      looked-up lemma has more than one sense on offer. C3 already makes
-//      two senses of one lemma internally distinguishable by `id` — without
-//      this, two saved cards would both display the bare English "watch"
-//      in the saved list with nothing but the Chinese line telling them
-//      apart, which defeats the point of making them distinguishable at
-//      all. Single-sense lemmas are unaffected (`en` stays the bare word).
+//   2. `senseLabel` (founder-approved revision, replacing an earlier
+//      "en carries the sense's pos in parentheses" design — see the
+//      devon-frontend-engineer handoff that made this change): `en` is
+//      ALWAYS the bare lemma, full stop — never "watch (n.)". Two reasons,
+//      both hard requirements, not style preference:
+//        a) `en` is the canonical "word being learned"; any UI-only
+//           qualifier leaking into it risks corrupting anything downstream
+//           that reads `item.en` as-is.
+//        b) it was a real, shipped, user-facing bug: playReviewAudio's TTS
+//           fallback (speakText(item.en, ...), ll:review-engine-adjacent —
+//           see the three call sites right after ll:review-engine) reads
+//           `item.en` literally with no special-casing, so a multi-sense
+//           saved card made the browser's speech synthesis literally say
+//           "watch open paren n dot close paren" out loud.
+//      Disambiguation between two saved senses of one lemma (still needed —
+//      C3 already makes them internally distinguishable by `id`, but a
+//      parent reads the headline, not the id) now happens via `senseLabel`:
+//      a short Chinese gloss sourced from `sense.zh`, truncated to
+//      SENSE_LABEL_MAX_CHARS (see truncateSenseLabel below), set ONLY when
+//      `multiSense` is true. Single-sense lemmas never get a `senseLabel`
+//      key at all (not even an empty string) — savedHeadline()
+//      (ll:dictionary-shared) renders bare `en` whenever it's absent, so
+//      every existing single-sense save (the overwhelming majority) renders
+//      byte-identical to before this change.
 // `tip` fallback: curated entries carry a real actionable tip; API results
 // never do (see dictionary.mjs — pos + definition only, no example/tip). If
 // there is no tip but there IS a curated example, that example (en + zh) is
@@ -3129,16 +3172,29 @@ function dictSaveTip(sense) {
   if (sense.example) return sense.example.zh ? `${sense.example.en} — ${sense.example.zh}` : sense.example.en;
   return "";
 }
+// Deterministic char-count bound (not display-width) on the Chinese gloss
+// kept in `senseLabel` — short enough that "en · senseLabel" stays a
+// one-line saved-item headline on a narrow phone screen. Chosen from the
+// curated word list's own gloss lengths (typically 1-4 characters, e.g.
+// "拍手"/"掌声"); 8 gives real headroom above that before truncating, and a
+// truncated gloss gets a trailing "…" so it reads as cut-off, not complete.
+const SENSE_LABEL_MAX_CHARS = 8;
+function truncateSenseLabel(zh) {
+  const s = String(zh || "");
+  return s.length > SENSE_LABEL_MAX_CHARS ? s.slice(0, SENSE_LABEL_MAX_CHARS) + "…" : s;
+}
 function buildDictSaveEntry(lemma, sense, multiSense) {
-  return {
+  const entry = {
     id: dictSaveId(lemma, sense.key),
-    en: (multiSense && sense.pos) ? `${lemma} (${sense.pos})` : lemma,
+    en: lemma,
     zh: sense.zh || "",
     tip: dictSaveTip(sense),
     scenario: "__dict__",
     savedAt: Date.now(),
     rv: { s: 0, due: Date.now() },
   };
+  if (multiSense && sense.zh) entry.senseLabel = truncateSenseLabel(sense.zh);
+  return entry;
 }
 
 // C1 hard requirement: a lookup alone must never mutate ll_saved — only this

@@ -756,8 +756,120 @@ test("C3: two senses of one lemma (clap n. vs v.) stay distinguishable — disti
   assert.equal(new Set(ids).size, 2, "the two senses must have distinct ids");
   assert.ok(ids.includes("w_clap__v"));
   assert.ok(ids.includes("w_clap__n"));
+  // Founder-approved revision: `en` is ALWAYS the bare lemma now, never
+  // "clap (n.)" / "clap (v.)" — see buildDictSaveEntry's comment block.
+  // Disambiguation moves to `senseLabel` (sourced from the sense's own
+  // `zh`), not a parenthetical grammar tag a non-technical parent may not
+  // read reliably.
   const ens = savedPhrases.map((p) => p.en).sort();
-  assert.deepEqual(ens, ["clap (n.)", "clap (v.)"], "multi-sense saves must be human-distinguishable in `en`, not just by id");
+  assert.deepEqual(ens, ["clap", "clap"], "multi-sense saves must keep `en` bare — no \"(n.)\"/\"(v.)\" leaking into the canonical word");
+  const labels = savedPhrases.map((p) => p.senseLabel).sort();
+  assert.deepEqual(labels, ["拍手", "掌声"], "senseLabel must carry the distinguishing Chinese gloss per sense, sourced from sense.zh");
+});
+
+// ── senseLabel: the (n.)/(v.) replacement — bare `en`, Chinese disambiguator ──
+test("single-sense save gets NO senseLabel at all (not even an empty string)", async () => {
+  const { ctx, els, savedPhrases } = makeEnv({ inputValue: "eat" });
+  ctx.performDictLookup("eat");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  findByClassToken(card, "dict-save-btn").onclick();
+  const saved = savedPhrases[0];
+  assert.equal(saved.en, "eat");
+  assert.equal("senseLabel" in saved, false, "single-sense save must not carry a senseLabel key at all");
+});
+
+test("multi-sense en is NEVER contaminated with a pos-in-parens qualifier, for either sense", async () => {
+  const { ctx, els, savedPhrases } = makeEnv({ inputValue: "clap" });
+  ctx.performDictLookup("clap");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  const saveBtns = findAllByClassToken(card, "dict-save-btn");
+  saveBtns[0].onclick();
+  saveBtns[1].onclick();
+  savedPhrases.forEach((p) => {
+    assert.doesNotMatch(p.en, /\(/, "en must never contain a parenthetical qualifier");
+    assert.equal(p.en, "clap");
+  });
+});
+
+test("senseLabel truncates an overlong zh gloss to SENSE_LABEL_MAX_CHARS with a trailing ellipsis", async () => {
+  const longGlossWords = [
+    {
+      lemma: "spring", forms: ["spring", "springs"],
+      senses: [
+        { key: "n1", pos: "n.", zh: "春天，一年四季中的第一个季节", example: { en: "It's spring!", zh: "春天到了！" }, tip: "t" },
+        { key: "n2", pos: "n.", zh: "弹簧", example: { en: "A metal spring.", zh: "一个金属弹簧。" }, tip: "t" },
+      ],
+    },
+  ];
+  const { ctx, els, savedPhrases } = makeEnv({ inputValue: "spring", words: longGlossWords });
+  ctx.performDictLookup("spring");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  const saveBtns = findAllByClassToken(card, "dict-save-btn");
+  saveBtns[0].onclick();
+  const saved = savedPhrases[0];
+  assert.equal(saved.senseLabel, "春天，一年四季中…", "must truncate to exactly 8 chars + an ellipsis");
+  assert.equal(saved.senseLabel.length, 9, "8 kept chars + 1 ellipsis char");
+});
+
+test("senseLabel is NOT truncated when the zh gloss already fits within the bound", async () => {
+  const { ctx, els, savedPhrases } = makeEnv({ inputValue: "clap" });
+  ctx.performDictLookup("clap");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  const saveBtns = findAllByClassToken(card, "dict-save-btn");
+  saveBtns[0].onclick();
+  assert.equal(savedPhrases[0].senseLabel, "拍手", "a short gloss must pass through untruncated, no ellipsis appended");
+});
+
+test("buildDictSaveEntry directly: senseLabel absent when multiSense is false even if sense.zh is set", () => {
+  const { ctx } = makeEnv({ inputValue: "x" });
+  const entry = ctx.buildDictSaveEntry("watch", { key: "n", pos: "n.", zh: "手表" }, false);
+  assert.equal(entry.en, "watch");
+  assert.equal("senseLabel" in entry, false);
+});
+
+test("buildDictSaveEntry directly: senseLabel absent when multiSense is true but sense.zh is missing/empty", () => {
+  const { ctx } = makeEnv({ inputValue: "x" });
+  const entry = ctx.buildDictSaveEntry("watch", { key: "n", pos: "n." }, true);
+  assert.equal(entry.en, "watch");
+  assert.equal("senseLabel" in entry, false, "no zh to source a label from — must not fabricate one");
+});
+
+test("buildDictSaveEntry directly: senseLabel present and equal to sense.zh when multiSense is true and zh is short", () => {
+  const { ctx } = makeEnv({ inputValue: "x" });
+  const entry = ctx.buildDictSaveEntry("watch", { key: "n", pos: "n.", zh: "手表" }, true);
+  assert.equal(entry.en, "watch", "en stays bare even for a multi-sense save");
+  assert.equal(entry.senseLabel, "手表");
+});
+
+// ── Regression: TTS fallback (playReviewAudio -> speakText(item.en, ...))
+// must always receive a clean bare word. The bug was real: `en` used to
+// carry "(n.)"/"(v.)" for a multi-sense save, and playReviewAudio's mp3-404
+// fallback (ll:review-engine-adjacent, index.html speakText call sites)
+// passes `item.en` straight into SpeechSynthesisUtterance with zero special-
+// casing — so the browser would literally speak "clap open paren v dot
+// close paren" out loud. Asserting `en` is always parenthetical-free for
+// every save shape (single- and multi-sense) closes this at the data layer,
+// which is the only layer this fix owns; speakText/playReviewAudio need no
+// code change because they already just forward item.en verbatim.
+test("regression: saved en is always TTS-safe (no parens, no pos qualifier) for both single- and multi-sense saves", async () => {
+  const { ctx: ctx1, els: els1, savedPhrases: saved1 } = makeEnv({ inputValue: "eat" });
+  ctx1.performDictLookup("eat");
+  await flush();
+  findByClassToken(panelChild(els1.dictLookupPanel, "dict-result-card"), "dict-save-btn").onclick();
+
+  const { ctx: ctx2, els: els2, savedPhrases: saved2 } = makeEnv({ inputValue: "clap" });
+  ctx2.performDictLookup("clap");
+  await flush();
+  const card2 = panelChild(els2.dictLookupPanel, "dict-result-card");
+  findAllByClassToken(card2, "dict-save-btn").forEach((b) => b.onclick());
+
+  [...saved1, ...saved2].forEach((p) => {
+    assert.doesNotMatch(p.en, /[()]/, `saved en "${p.en}" must never contain a paren — TTS would read it aloud literally`);
+  });
 });
 
 test("C3: computeSenseKeys assigns a deterministic slugified-pos fallback key for API senses (no `key` field)", () => {

@@ -962,7 +962,7 @@ window.scenarios = {
       "2-3": [
         { id:"kt21", en:"Pour the water in! Slowly, carefully!", zh:"把水倒进去！慢慢的，小心！", tip:"扶着宝宝的手把水慢慢倒进碗里，边倒边说慢慢来。" },
         { id:"kt22", en:"Can you scrub the potatoes? Get all the dirt off!", zh:"你来把土豆刷干净好不好？把泥都刷掉！", tip:"在盆里接好水放进土豆，把小刷子递到孩子手里，让他自己一个个刷，刷完举起来给你看。" },
-        { id:"kt23", en:"What do you think we're making? Can you guess?", zh:"你觉得我们在做什么？你能猜猜吗？", tip:"让宝宝闻一闻锅里的味道，问他猜猜我们在做什么。" },
+        { id:"kt23", en:"What do you think we're making? Can you guess?", zh:"你觉得我们在做什么？你能猜猜吗？", tip:"让孩子站在离灶台几步远的安全位置，你用手把锅里的香味朝他扇过去，让他远远闻一闻再猜猜今天做什么；绝不要让孩子凑到锅边或踩着凳子往锅里看。" },
         { id:"kt24", en:"Is it hot or cold? Don't touch the stove — it's hot!", zh:"是热的还是冷的？不要碰炉子——很烫！", tip:"指着炉子伸手拦住宝宝，边拦边说很烫不要碰。" },
         { id:"kt25", en:"You're my little helper! This soup is going to be so yummy!", zh:"你是我的小帮手！这汤会很好喝！", tip:"把搅汤的勺子递到宝宝手里，一起搅一搅，边搅边夸他是小帮手。" },
       ],

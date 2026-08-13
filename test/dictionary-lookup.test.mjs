@@ -64,6 +64,11 @@ function fakeElement() {
       toggle(c, force) { (force === undefined ? !this._set.has(c) : force) ? this._set.add(c) : this._set.delete(c); },
     },
     appendChild(child) { el.children.push(child); return child; },
+    // setAttribute is a no-op recorder, not a real attribute store: nothing
+    // in this module reads attributes back, only sets them (role/tabindex on
+    // the starter chips, Unit B increment D) — matching this stub's existing
+    // "record enough to not crash" idiom for onclick/classList above.
+    setAttribute(name, value) { el[`__attr_${name}`] = value; },
     get innerHTML() { return html; },
     set innerHTML(v) { html = v; el.children = []; },
   };
@@ -116,6 +121,12 @@ function makeEnv({
     searchResults: fakeElement(),
     homeScreen: fakeElement(),
     dictLookupPanel: fakeElement(),
+    // #dictScreen fixtures (Unit B increment D — the dedicated 📖 查词 nav
+    // tab). dictInput is a plain {value} stub like searchInput above, not a
+    // fakeElement, since production code only ever reads/writes .value on it.
+    dictInput: { value: "" },
+    dictScreenPanel: fakeElement(),
+    dictStarterChips: fakeElement(),
   };
   const searchPhrasesCalls = [];
   const goTranslateCalls = [];
@@ -170,6 +181,11 @@ function makeEnv({
   assert.equal(typeof ctx.buildDictionaryIndex, "function", "module must define buildDictionaryIndex()");
   assert.equal(typeof ctx.onSearchInput, "function", "module must define onSearchInput()");
   assert.equal(typeof ctx.performDictLookup, "function", "module must define performDictLookup()");
+  // Unit B increment D: #dictScreen module surface.
+  assert.equal(typeof ctx.onDictScreenInput, "function", "module must define onDictScreenInput()");
+  assert.equal(typeof ctx.doDictScreenLookup, "function", "module must define doDictScreenLookup()");
+  assert.equal(typeof ctx.renderDictStarterChips, "function", "module must define renderDictStarterChips()");
+  assert.equal(typeof ctx.resetDictScreenForEntry, "function", "module must define resetDictScreenForEntry()");
   return { ctx, els, searchPhrasesCalls, goTranslateCalls, fetchCalls, safeSetItemCalls, updateNavBadgeCalls, savedPhrases };
 }
 
@@ -937,6 +953,251 @@ test("C7: .dict-save-btn and .dict-update-btn carry touch-action:manipulation an
   const block = html.slice(html.indexOf(".dict-save-btn, .dict-update-btn {"), html.indexOf(".dict-save-btn, .dict-update-btn {") + 300);
   assert.match(block, /touch-action:\s*manipulation/);
   assert.match(block, /user-select:\s*none/);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Unit B increment D: the dedicated 📖 查词 nav tab + #dictScreen — fix for
+// real-user feedback #2 (the home search box only invites Chinese and gates
+// its dictionary CTA on English-looking input, so the dictionary was
+// unreachable by its own on-screen instructions).
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── 1: four nav items, one is the dict tab, in the required position ────
+test("bottom nav carries exactly 4 nav-item tabs in order home, dict, saved, translate", () => {
+  const start = html.indexOf('<div class="bottom-nav">');
+  const end = html.indexOf('</div>\n</div>', start);
+  assert.ok(start !== -1 && end !== -1, "must find the bottom-nav block");
+  const navBlock = html.slice(start, end);
+  const tabs = [...navBlock.matchAll(/data-tab="([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(tabs, ["home", "dict", "saved", "translate"],
+    "dict must sit at position 2 — right after home, the highest-scan slot — per the spec");
+  assert.ok(navBlock.includes('<span class="nav-icon">📖</span>查词'),
+    "dict tab label must be exactly the 2-character 查词, matching 首页/收藏/翻译");
+});
+
+// ── 2: the new screen and its two required ids exist ────────────────────
+test("#dictScreen, #dictInput, #dictScreenPanel exist in index.html", () => {
+  assert.match(html, /id="dictScreen"/);
+  assert.match(html, /id="dictInput"/);
+  assert.match(html, /id="dictScreenPanel"/);
+});
+
+test("#dictScreen reuses existing control families only — no mic button, lookup button is a full-width block below the input", () => {
+  const start = html.indexOf('id="dictScreen"');
+  const end = html.indexOf('<!-- Age picker overlay -->', start);
+  assert.ok(start !== -1 && end !== -1);
+  const block = html.slice(start, end);
+  assert.doesNotMatch(block, /mic-btn/, "the dict screen must not carry a mic button — the shared voice module is zh-CN only");
+  assert.match(block, /class="search-dict-btn"/, "lookup CTA must reuse the teal curated-family button class");
+  // The button must come AFTER the input in DOM order (below it, not beside it).
+  assert.ok(block.indexOf('id="dictInput"') < block.indexOf('class="search-dict-btn"'));
+});
+
+// ── 3: performDictLookup(query, panelId) renders into the NAMED panel ───
+test("performDictLookup renders into the panelId argument, not the default panel", async () => {
+  const { ctx, els } = makeEnv({ inputValue: "eat" });
+  ctx.performDictLookup("eat", "dictScreenPanel");
+  await flush();
+  assert.ok(panelChild(els.dictScreenPanel, "dict-result-card"), "must render into #dictScreenPanel when named");
+  assert.equal(panelChild(els.dictLookupPanel, "dict-result-card"), undefined, "must NOT also render into the home panel");
+});
+
+test("performDictLookup defaults to dictLookupPanel when panelId is omitted (home CTA call site, unchanged)", async () => {
+  const { ctx, els } = makeEnv({ inputValue: "eat" });
+  ctx.performDictLookup("eat");
+  await flush();
+  assert.ok(panelChild(els.dictLookupPanel, "dict-result-card"));
+});
+
+// ── 4: non-English input on #dictScreen explains itself, never a silent no-op, never a network call ──
+test("non-English input via onDictScreenInput renders a status pointing at 翻译, and never calls fetch", () => {
+  const { ctx, els, fetchCalls } = makeEnv({ inputValue: "x" });
+  els.dictInput.value = "吃饭";
+  ctx.onDictScreenInput();
+  const status = panelChild(els.dictScreenPanel, "dict-lookup-status");
+  assert.ok(status, "non-English input must render a status, never a silent no-op — this is the root-cause fix");
+  assert.match(status.textContent, /翻译/, "must point the parent at the 🔤 翻译 path for Chinese");
+  assert.equal(fetchCalls.length, 0, "must never reach the network for input the dictionary cannot handle");
+});
+
+test("non-English input via the 📖 查词 button (doDictScreenLookup) also renders a status and never calls fetch", () => {
+  const { ctx, els, fetchCalls } = makeEnv({ inputValue: "x" });
+  els.dictInput.value = "吃饭";
+  ctx.doDictScreenLookup();
+  const status = panelChild(els.dictScreenPanel, "dict-lookup-status");
+  assert.ok(status);
+  assert.equal(fetchCalls.length, 0);
+});
+
+// ── 4b: fix round ll-ea8a587e follow-up, Defect 2 — the message pointed at
+// an off-screen control (#dictScreen is a full-screen overlay; .bottom-nav
+// lives inside #homeScreen and is not visible while #dictScreen shows). The
+// fix drops positional wording and renders a real, actionable control
+// instead of a verbal direction the parent has to go guess at. ────────────
+test("DICT_NOT_ENGLISH_MESSAGE contains no positional reference (#dictScreen covers the nav the old copy pointed at)", () => {
+  const m = html.match(/const DICT_NOT_ENGLISH_MESSAGE = "([^"]*)"/);
+  assert.ok(m, "must find the DICT_NOT_ENGLISH_MESSAGE definition");
+  assert.doesNotMatch(m[1], /下方|上方|底部|下面/,
+    "must not tell the parent to look somewhere on screen — no positional control exists while #dictScreen is open");
+});
+
+test("non-English input renders an actionable .search-ai-btn control, not text alone", () => {
+  const { ctx, els } = makeEnv({ inputValue: "x" });
+  els.dictInput.value = "吃饭";
+  ctx.onDictScreenInput();
+  const aiBtn = panelChild(els.dictScreenPanel, "search-ai-btn");
+  assert.ok(aiBtn, "not-english state must render a real tappable .search-ai-btn, not just explanatory text pointing nowhere on screen");
+});
+
+test("tapping the not-english .search-ai-btn routes to translate carrying the parent's typed Chinese query", () => {
+  const { ctx, els, goTranslateCalls } = makeEnv({ inputValue: "x" });
+  els.dictInput.value = "吃饭";
+  ctx.onDictScreenInput();
+  const aiBtn = panelChild(els.dictScreenPanel, "search-ai-btn");
+  assert.ok(aiBtn);
+  aiBtn.onclick();
+  assert.deepEqual(goTranslateCalls, ["吃饭"], "must carry the typed query to goTranslateWithQuery — nothing retyped on the next screen");
+});
+
+test("doDictScreenLookup's not-english path also renders the actionable control and carries the query", () => {
+  const { ctx, els, goTranslateCalls } = makeEnv({ inputValue: "x" });
+  els.dictInput.value = "吃饭";
+  ctx.doDictScreenLookup();
+  const aiBtn = panelChild(els.dictScreenPanel, "search-ai-btn");
+  assert.ok(aiBtn);
+  aiBtn.onclick();
+  assert.deepEqual(goTranslateCalls, ["吃饭"]);
+});
+
+test("empty/whitespace #dictScreen input shows the idle hint, never a silent blank panel", () => {
+  const { ctx, els } = makeEnv({ inputValue: "x" });
+  els.dictInput.value = "   ";
+  ctx.onDictScreenInput();
+  const hint = panelChild(els.dictScreenPanel, "search-empty");
+  assert.ok(hint, "empty/whitespace input must show the idle hint, reusing the .search-empty family");
+});
+
+test("valid-but-unsubmitted English input clears any stale status without calling fetch (lookup waits for an explicit tap)", () => {
+  const { ctx, els, fetchCalls } = makeEnv({ inputValue: "x" });
+  els.dictInput.value = "吃饭";
+  ctx.onDictScreenInput(); // renders the not-English status first
+  assert.ok(panelChild(els.dictScreenPanel, "dict-lookup-status"));
+  els.dictInput.value = "eat";
+  ctx.onDictScreenInput();
+  assert.equal(els.dictScreenPanel.classList.contains("show"), false, "typing a valid word must clear the stale status, not trigger a lookup per keystroke");
+  assert.equal(fetchCalls.length, 0);
+});
+
+// ── 5: the home placeholder no longer instructs Chinese-only ────────────
+test("home search placeholder signals both intents (Chinese sentence AND English word), not Chinese-only", () => {
+  const m = html.match(/id="searchInput"[\s\S]*?placeholder="([^"]*)"/);
+  assert.ok(m, "must find #searchInput's placeholder");
+  const placeholder = m[1];
+  assert.doesNotMatch(placeholder, /^🔍 想对宝宝说什么/, "must no longer instruct Chinese-only — that placeholder is the root cause this round fixes");
+  assert.match(placeholder, /中文/, "must still signal the Chinese-sentence path");
+  assert.match(placeholder, /英文|英语/, "must now also signal the English-word lookup path");
+  assert.ok(placeholder.length <= "🔍 想对宝宝说什么？如：睡觉、吃饭、勇敢".length,
+    "must be no longer than the original so it cannot truncate worse at 320px");
+});
+
+// ── 6: showTab('dict') opens the screen and resets the panel ────────────
+test("showTab('dict') branch structurally opens #dictScreen and delegates panel reset to resetDictScreenForEntry", () => {
+  const fnStart = html.indexOf("function showTab(tab)");
+  assert.ok(fnStart !== -1);
+  const block = html.slice(fnStart, fnStart + 2200);
+  assert.match(block, /document\.getElementById\("dictScreen"\)\.classList\.remove\("open"\)/,
+    "dictScreen must be reset alongside the other screens at the top of showTab");
+  assert.match(block, /tab === "dict"/);
+  assert.match(block, /document\.getElementById\("dictScreen"\)\.classList\.add\("open"\)/);
+  assert.match(block, /resetDictScreenForEntry\(\)/,
+    "the dict branch must delegate its panel/session reset to the tested resetDictScreenForEntry() function");
+});
+
+test("resetDictScreenForEntry shows the idle hint and populates starter chips on entry", () => {
+  const { ctx, els } = makeEnv({ inputValue: "x" });
+  ctx.resetDictScreenForEntry();
+  const hint = panelChild(els.dictScreenPanel, "search-empty");
+  assert.ok(hint, "a fresh visit must show the idle hint, not a blank panel");
+  assert.ok(els.dictStarterChips.children.length > 0, "starter chips must be populated on entry");
+});
+
+test("resetDictScreenForEntry clears the HOME panel's visible state so a stale home lookup cannot resurface", async () => {
+  let resolveFetch;
+  const fetchImpl = () => new Promise((resolve) => { resolveFetch = resolve; });
+  const { ctx, els } = makeEnv({ inputValue: "zz", fetchImpl });
+  ctx.performDictLookup("zz"); // home CTA call site (default panelId)
+  await flush(2);
+  assert.ok(els.dictLookupPanel.classList.contains("show"), "loading state must be visible while the home lookup is in flight");
+
+  ctx.resetDictScreenForEntry(); // parent switches to #dictScreen mid-request
+
+  resolveFetch({ ok: true, status: 200, json: async () => ({ lemma: "zz", senses: [{ pos: "n.", definition: "x" }] }) });
+  await flush();
+
+  assert.equal(els.dictLookupPanel.classList.contains("show"), false,
+    "the stale home lookup must not resurrect the home panel after screen entry (session guard bump)");
+  assert.equal(panelChild(els.dictLookupPanel, "dict-result-card"), undefined);
+});
+
+// ── 7: starter-chip rendering tolerates a missing/empty word list ───────
+test("renderDictStarterChips tolerates a missing window.dictionaryWords (no crash, zero chips)", () => {
+  const { ctx, els } = makeEnv({ inputValue: "x" });
+  ctx.window.dictionaryWords = undefined; // `words: undefined` in makeEnv's options would fall through to its own default param instead — must clear post-construction
+  ctx.renderDictStarterChips();
+  assert.equal(els.dictStarterChips.children.length, 0);
+});
+
+test("renderDictStarterChips tolerates an empty window.dictionaryWords array", () => {
+  const { ctx, els } = makeEnv({ inputValue: "x", words: [] });
+  ctx.renderDictStarterChips();
+  assert.equal(els.dictStarterChips.children.length, 0);
+});
+
+test("renderDictStarterChips renders the first N entries in file order — mechanical, no editorial pick", () => {
+  const { ctx, els } = makeEnv({ inputValue: "x" }); // FIXTURE_WORDS has 3: eat, jump, clap
+  ctx.renderDictStarterChips();
+  assert.equal(els.dictStarterChips.children.length, 3);
+  assert.equal(els.dictStarterChips.children[0].textContent, "eat");
+  assert.equal(els.dictStarterChips.children[1].textContent, "jump");
+  assert.equal(els.dictStarterChips.children[2].textContent, "clap");
+});
+
+// ── Defect 1 fix (ll-ea8a587e follow-up, scout-product-lead's own spec
+// error): .age-opt is sized for the 2-up age picker (flex:1, min-width:
+// 120px) — six ~140px boxes of 3-5-char starter words wrapped across three
+// rows at 320px and buried the 📖 查词 button below the fold. .saved-chip is
+// a pill sized to its content instead. ─────────────────────────────────────
+test("renderDictStarterChips emits the .saved-chip class, not .age-opt", () => {
+  const { ctx, els } = makeEnv({ inputValue: "x" }); // FIXTURE_WORDS: eat, jump, clap
+  ctx.renderDictStarterChips();
+  assert.equal(els.dictStarterChips.children.length, 3);
+  for (const chip of els.dictStarterChips.children) {
+    assert.equal(chip.className, "saved-chip", "starter chips must reuse .saved-chip, not .age-opt");
+  }
+});
+
+test("#dictStarterChips row wraps and is never a horizontally-scrolling row (off-screen chips would reproduce the 'can't find it' failure this round exists to fix)", () => {
+  const start = html.indexOf('id="dictStarterChips"');
+  assert.ok(start !== -1);
+  const openTagStart = html.lastIndexOf("<div", start);
+  const openTag = html.slice(openTagStart, html.indexOf(">", start) + 1);
+  assert.match(openTag, /flex-wrap:\s*wrap/, "chip row must wrap, not overflow sideways");
+  assert.doesNotMatch(openTag, /overflow-x/, "must NOT become a horizontally-scrolling row like .saved-chips — that would reproduce the discoverability bug");
+});
+
+test("#dictStarterChips is preceded by a .translate-label so the chips read as suggestions, not filters", () => {
+  const chipsIdx = html.indexOf('id="dictStarterChips"');
+  assert.ok(chipsIdx !== -1);
+  const labelIdx = html.lastIndexOf('class="translate-label"', chipsIdx);
+  assert.ok(labelIdx !== -1 && labelIdx < chipsIdx, "a .translate-label must sit immediately above the starter-chip row");
+});
+
+test("tapping a starter chip fills #dictInput and runs the lookup end-to-end", () => {
+  const { ctx, els } = makeEnv({ inputValue: "x" });
+  ctx.renderDictStarterChips();
+  els.dictStarterChips.children[0].onclick();
+  assert.equal(els.dictInput.value, "eat");
+  assert.ok(panelChild(els.dictScreenPanel, "dict-result-card"), "chip tap must run the lookup, not just fill the input");
 });
 
 // ── Runner ───────────────────────────────────────────────

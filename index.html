@@ -420,8 +420,13 @@
       cursor: pointer;
       /* Bumped 13px -> 16px (2026-07-26 visual critique, Sev B — supersedes
          the 2026-07-18 chrome exemption): always-visible navigation the
-         parent reads on every visit; at 3 items / 2-char labels there is
-         ample width, so the original wrap concern doesn't apply. */
+         parent reads on every visit; at 3 items / 2-char labels there was
+         ample width, so the original wrap concern didn't apply. Re-checked
+         at 4 items / 2-char labels (📖 查词 added, real-user feedback #2):
+         320px / 4 = 80px per tab, a 2-char CJK label at 16px measures
+         ~32-36px — still well clear of wrapping, so the floor holds. If a
+         5th tab is ever added, re-verify at 320px before reusing this note
+         as justification. */
       font-size: 16px;
       color: var(--muted);
       gap: 3px;
@@ -1437,7 +1442,7 @@
   <div class="search-wrap">
     <div class="search-input-row">
       <input id="searchInput" class="search-input" type="search" autocomplete="off"
-             placeholder="🔍 想对宝宝说什么？如：睡觉、吃饭、勇敢"
+             placeholder="🔍 中文找句子 · 英文查单词"
              oninput="onSearchInput()" />
       <!-- Voice search (Web Speech API, zh-CN, online-only progressive enhancement):
            hidden by default and only revealed by setupVoiceInputs() when
@@ -1487,6 +1492,15 @@
   <div class="bottom-nav">
     <div class="nav-item active" role="button" tabindex="0" data-tab="home" onclick="showTab('home')">
       <span class="nav-icon">🏠</span>首页
+    </div>
+    <!-- 4th permanent nav tab (real-user feedback #2): the home search box
+         only asks for Chinese (placeholder above) and its dictionary CTA
+         only appears for English-looking input — a parent who typed Chinese
+         as instructed could never reach the dictionary at all. Placed at
+         position 2 (right after 首页, the highest-scan slot) so it is
+         reachable without typing anything first. -->
+    <div class="nav-item" role="button" tabindex="0" data-tab="dict" onclick="showTab('dict')">
+      <span class="nav-icon">📖</span>查词
     </div>
     <div class="nav-item" role="button" tabindex="0" data-tab="saved" onclick="showTab('saved')">
       <span class="nav-icon">♡</span>收藏<span class="nav-badge" id="navBadge"></span>
@@ -1579,6 +1593,48 @@
     </div>
     <div class="ai-disclaimer" id="aiDisclaimer">⚠ AI 即时生成，未经人工审核 — 使用前请先读一读，确认适合宝宝。</div>
     <div class="preset-matches" id="presetMatches"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     DICTIONARY SCREEN (📖 查词 — permanent 4th nav tab)
+     Fix for real-user feedback #2: the home search box only invites Chinese
+     input (placeholder above) and its dictionary CTA is gated on English-
+     looking input — a parent who typed Chinese as instructed could never
+     see the dictionary at all. This screen is a dedicated, always-visible
+     entry point reachable without typing anything first. Reuses existing
+     visual families only — .screen-header/.back-btn, the .translate-section
+     layout, .search-input, .search-dict-btn (teal = curated), .age-opt
+     chips, .search-empty, .privacy-note, .dict-lookup-panel — no new
+     control language. No mic button: the shared voice module is zh-CN only;
+     English voice lookup is out of scope this round. -->
+<div class="screen" id="dictScreen">
+  <div class="screen-header">
+    <button class="back-btn" onclick="showTab('home')">←</button>
+    <h2>📖 英语词典</h2>
+  </div>
+  <div class="translate-section">
+    <div>
+      <div class="translate-label">查一个英语单词或短语</div>
+      <input id="dictInput" class="search-input" type="search" autocomplete="off"
+             placeholder="例如：sleep / hug / all done" oninput="onDictScreenInput()" />
+    </div>
+    <!-- Starter chips: mechanical, first 6 window.dictionaryWords entries in
+         file order (word choice is maya-curriculum-designer's surface, file
+         order is not an editorial pick) — see renderDictStarterChips().
+         Gives the screen something useful before the parent types anything.
+         Label reuses .translate-label (devon-frontend-engineer draft, not
+         yet nina-cleared prose — same flag as DICT_IDLE_HINT/
+         DICT_NOT_ENGLISH_MESSAGE above) so the row reads as suggestions to
+         try, not as filters narrowing the input (fix round ll-ea8a587e
+         follow-up, Defect 1). -->
+    <div class="translate-label">试试这些常用词</div>
+    <div id="dictStarterChips" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+    <button class="search-dict-btn" onclick="doDictScreenLookup()">📖 查词</button>
+    <!-- Same disclosure string as #dictPrivacyNote on the home screen
+         (id must stay unique per the schema's global-uniqueness rule). -->
+    <div class="privacy-note dict-privacy-note" id="dictScreenPrivacyNote">🔒 词典查询：已收录的词不联网；查询新词时，这个词会发送到在线词典服务。</div>
+    <div class="dict-lookup-panel" id="dictScreenPanel"></div>
   </div>
 </div>
 
@@ -1844,6 +1900,7 @@ function showTab(tab) {
   document.getElementById("scenarioScreen").classList.remove("open");
   document.getElementById("savedScreen").classList.remove("open");
   document.getElementById("translateScreen").classList.remove("open");
+  document.getElementById("dictScreen").classList.remove("open");
 
   if (tab === "home") {
     document.getElementById("homeScreen").style.display = "flex";
@@ -1863,6 +1920,14 @@ function showTab(tab) {
     // that visit and is not written back to `currentAge`/`ll_age`.
     translateAge = translateAgeForBand(currentAge);
     syncTranslateAgeUI();
+  } else if (tab === "dict") {
+    document.getElementById("dictScreen").classList.add("open");
+    // resetDictScreenForEntry (ll:dictionary-lookup) bumps the shared
+    // dict-lookup session guard, clears both lookup panels' visible state,
+    // shows the idle hint, and refreshes the starter chips — see that
+    // function's own comment for why a fresh visit must not let a stale
+    // in-flight lookup clobber it later.
+    resetDictScreenForEntry();
   }
 
   document.querySelectorAll(".nav-item[data-tab]").forEach(el => {
@@ -3355,6 +3420,31 @@ const DICT_ERROR_MESSAGES = {
 // message is specifically about NEW (uncached) lookups.
 const DICT_OFFLINE_MESSAGE = "需要联网才能查新单词 — 已加入复习的词随时可以离线复习";
 
+// ── Unit B increment D: dedicated 📖 查词 nav-tab screen ────────────────
+// NOTE (devon-frontend-engineer): both strings below have been through a
+// nina-native-editor pass (rules/04-bilingual-style.md). DICT_IDLE_HINT was
+// revised for list-parallelism (the third list item now matches the first
+// two as a noun phrase); DICT_NOT_ENGLISH_MESSAGE was reviewed and approved
+// as-is.
+//
+// Idle hint (the .search-empty family, per increment D spec): shown on a
+// fresh visit to #dictScreen and whenever the input is cleared back to
+// empty, so the screen is never a blank box with no explanation.
+const DICT_IDLE_HINT = "查一个英语单词，就能看到中文意思、例句，还有可以对宝宝说的话。";
+// The root-cause fix (real-user feedback #2): the OLD home search box asked
+// for Chinese and silently produced nothing useful for it on this screen's
+// English-only surface. Non-English input here must explain itself and
+// point at the 🔤 翻译 path instead of failing silently.
+//
+// Fix round ll-ea8a587e follow-up (real bug, not a spec error): the ORIGINAL
+// wording said "请点下方「🔤 翻译」" — but #dictScreen is a `.screen` overlay
+// and .bottom-nav lives inside #homeScreen, so "下方" pointed at a control
+// that is not on screen. Rewritten with zero positional words (下方/上方/
+// 底部/下面); the actionable move is now a real button rendered alongside
+// this text (see renderDictLookupPanel's "not-english" branch below), not a
+// verbal direction to somewhere the parent has to go guess.
+const DICT_NOT_ENGLISH_MESSAGE = "📖 词典只能查英语单词或短语。想知道这句中文用英语怎么说，可以直接用「🔤 翻译」。";
+
 function renderDictLookupPanel(panel, view) {
   if (!panel) return;
   panel.innerHTML = "";
@@ -3363,12 +3453,33 @@ function renderDictLookupPanel(panel, view) {
     panel.appendChild(buildDictResultCard(view.data, panel));
     return;
   }
+  if (view.state === "idle") {
+    const hint = document.createElement("div");
+    hint.className = "search-empty";
+    hint.textContent = DICT_IDLE_HINT;
+    panel.appendChild(hint);
+    return;
+  }
   const el = document.createElement("div");
   el.className = "dict-lookup-status" + (String(view.state).startsWith("error-") ? " dict-lookup-error" : "");
   if (view.state === "loading") el.textContent = "⏳ 正在查询…";
   else if (view.state === "offline") el.textContent = DICT_OFFLINE_MESSAGE;
+  else if (view.state === "not-english") el.textContent = DICT_NOT_ENGLISH_MESSAGE;
   else el.textContent = DICT_ERROR_MESSAGES[view.state] || "出错了，请稍后再试。";
   panel.appendChild(el);
+  // "not-english" is actionable, not just explained (fix round ll-ea8a587e
+  // follow-up): render the real control that routes to the translate path,
+  // reusing .search-ai-btn — the exact button the home search box already
+  // shows for Chinese input (established control language, not a new one).
+  // Carries the parent's own typed query through goTranslateWithQuery so
+  // nothing has to be retyped on the next screen.
+  if (view.state === "not-english") {
+    const aiBtn = document.createElement("button");
+    aiBtn.className = "search-ai-btn";
+    aiBtn.textContent = `🤖 让 AI 帮你说「${view.query}」 →`;
+    aiBtn.onclick = () => goTranslateWithQuery(view.query);
+    panel.appendChild(aiBtn);
+  }
 }
 
 // Generation-counter session guard — same shape as stopAllAudio()/
@@ -3386,10 +3497,15 @@ function isCurrentDictSession(session) { return session === dictLookupSession; }
 // response at all (dropped connection) doesn't hang the panel forever.
 const DICT_LOOKUP_TIMEOUT_MS = 8000;
 
-function performDictLookup(query) {
+// panelId parameterizes the render target (increment D): the home CTA call
+// site keeps calling performDictLookup(q) and gets the original default
+// ("dictLookupPanel"); the #dictScreen call site passes "dictScreenPanel"
+// explicitly. Everything else about the function — local-first order,
+// offline handling, the session guard — is shared and untouched.
+function performDictLookup(query, panelId = "dictLookupPanel") {
   dictLookupSession++;
   const session = dictLookupSession;
-  const panel = document.getElementById("dictLookupPanel");
+  const panel = document.getElementById(panelId);
 
   // LOCAL CURATED FIRST — hard requirement (increment B spec B2): a local
   // hit must never reach the network. This branch returns before any fetch
@@ -3492,6 +3608,101 @@ function onSearchInput() {
     aiBtn.onclick = () => goTranslateWithQuery(q);
     panel.appendChild(aiBtn);
   }
+}
+
+// ── #dictScreen (Unit B increment D) ────────────────────────────────────
+// Live per-keystroke feedback on the dedicated dictionary screen. Mirrors
+// onSearchInput()'s "clear stale state on every input event" discipline,
+// but — unlike onSearchInput — never fires a lookup per keystroke; the
+// actual (possibly networked) lookup only ever happens on an explicit tap
+// (the 📖 查词 button or a starter chip), matching the home search box's
+// CTA-on-tap pattern. This function's only two responsibilities are: show
+// the idle hint when the box is empty, and — the root-cause fix for
+// real-user feedback #2 — explain itself immediately (no silent no-op) the
+// moment the input looks like Chinese/non-English, without ever touching
+// the network to do so.
+function onDictScreenInput() {
+  const panel = document.getElementById("dictScreenPanel");
+  const input = document.getElementById("dictInput");
+  if (!panel || !input) return;
+  // A change on THIS screen can only ever race a stale response destined
+  // for THIS screen's own panel (performDictLookup always binds a fixed
+  // panelId at call time — see its own comment), but bumping the shared
+  // counter here is cheap and keeps the invalidate-on-edit discipline
+  // identical to onSearchInput's.
+  dictLookupSession++;
+  const q = input.value.trim();
+  if (!q) { renderDictLookupPanel(panel, { state: "idle" }); return; }
+  if (!looksLikeEnglishLookup(q)) { renderDictLookupPanel(panel, { state: "not-english", query: q }); return; }
+  // Valid-looking English, not yet submitted: clear any stale status/result
+  // from a previous query rather than leaving it visible mid-edit. The
+  // lookup itself waits for doDictScreenLookup().
+  panel.classList.remove("show");
+  panel.innerHTML = "";
+}
+
+// The 📖 查词 button (and starter-chip taps, via fillDictInputAndLookup
+// below) call this. Re-validates rather than trusting onDictScreenInput's
+// last render, so a chip tap (which sets the input value programmatically,
+// firing no input event) behaves identically to typing + tapping the
+// button.
+function doDictScreenLookup() {
+  const panel = document.getElementById("dictScreenPanel");
+  const input = document.getElementById("dictInput");
+  if (!panel || !input) return;
+  const q = input.value.trim();
+  if (!q) { renderDictLookupPanel(panel, { state: "idle" }); return; }
+  if (!looksLikeEnglishLookup(q)) { renderDictLookupPanel(panel, { state: "not-english", query: q }); return; }
+  performDictLookup(q, "dictScreenPanel");
+}
+
+// Starter chips: mechanical, first 6 window.dictionaryWords entries in file
+// order — no editorial word pick (that is maya-curriculum-designer's
+// surface, not devon-frontend-engineer's). Tolerates a missing/empty word
+// list the same way buildDictionaryIndex() already does: renders zero chips,
+// never throws.
+const DICT_STARTER_CHIP_COUNT = 6;
+function renderDictStarterChips() {
+  const box = document.getElementById("dictStarterChips");
+  if (!box) return;
+  box.innerHTML = "";
+  const words = (typeof window !== "undefined" && Array.isArray(window.dictionaryWords)) ? window.dictionaryWords : [];
+  words.slice(0, DICT_STARTER_CHIP_COUNT).forEach(entry => {
+    if (!entry || typeof entry.lemma !== "string" || !entry.lemma) return;
+    const chip = document.createElement("div");
+    // .saved-chip (not .age-opt — that family carries flex:1/min-width:120px
+    // sized for the 2-up age picker; six of those wrap across three rows at
+    // 320px and bury the lookup button below the fold). .saved-chip is a
+    // pill sized to its content, already tap-target-hardened (fix round
+    // ll-ea8a587e follow-up, spec error caught by scout-product-lead).
+    chip.className = "saved-chip";
+    chip.setAttribute("role", "button");
+    chip.setAttribute("tabindex", "0");
+    chip.textContent = entry.lemma;
+    chip.onclick = () => fillDictInputAndLookup(entry.lemma);
+    box.appendChild(chip);
+  });
+}
+function fillDictInputAndLookup(word) {
+  const input = document.getElementById("dictInput");
+  if (input) input.value = word;
+  doDictScreenLookup();
+}
+
+// Called once per visit to #dictScreen (showTab('dict'), outside this
+// marker fragment). Bumps the shared session guard and clears the HOME
+// panel's visible state too — so a home-CTA lookup left in flight when the
+// parent switches to this screen can never pop up later over the fresh
+// idle view (Change 3 requirement) — then shows the idle hint and refreshes
+// the starter chips. Kept as its own function (not inlined into showTab)
+// so it is directly testable like every other function in this module.
+function resetDictScreenForEntry() {
+  dictLookupSession++;
+  const homePanel = document.getElementById("dictLookupPanel");
+  if (homePanel) { homePanel.classList.remove("show"); homePanel.innerHTML = ""; }
+  const panel = document.getElementById("dictScreenPanel");
+  if (panel) renderDictLookupPanel(panel, { state: "idle" });
+  renderDictStarterChips();
 }
 /* ll:dictionary-lookup:end */
 

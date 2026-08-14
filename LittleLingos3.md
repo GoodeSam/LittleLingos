@@ -162,5 +162,13 @@ vmark:
 ---
 
 - ·`AI 让你选的时候怎么办？`
+
 - Don't ask me. Ask Codex, Gemini(agy) and Grok to make this decision professionally, then choose the most optimal one and provide supporting reasons so I understand."
 
+-
+
+  ---
+
+
+
+如果要让更多人在更多的不同的设备使用这个软件，还有哪些边缘情况需要考虑进来？

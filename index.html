@@ -1233,7 +1233,33 @@
         ("reviewed"/curated affordance) so a parent recognizes the same visual
         family as the review card, distinct from the AI-orange translate card */
     }
-    .dict-result-lemma { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 8px; }
+    .dict-result-lemma { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 4px; }
+    /* Lemma-level IPA (optional, per-entry — see normalizeDictResult()):
+       secondary to the lemma headline, so it stays at the 16px floor and the
+       muted/secondary text color already used for de-emphasized copy
+       elsewhere (no new color token). Absent entirely when data.phonetic is
+       missing/empty/whitespace — buildDictResultCard() never appends this
+       element in that case, so there is no empty node and no layout shift. */
+    .dict-result-phonetic { font-size: 16px; color: var(--muted); margin-bottom: 8px; }
+    /* Pronunciation control for the result card, one per LEMMA (placed right
+       after the headline/phonetic, before the per-sense list). Reuses the
+       two floors .play-btn already established (min-height 44px, font-size
+       16px) and the SAME playing/unavailable-state CSS + stopAllAudio()
+       sweep as .result-play-btn (translate-result's audio button) via the
+       second class below — not .play-btn itself, because .play-btn is swept
+       by a DIFFERENT, hardcoded-text branch of stopAllAudio() built for
+       speakPhrase()'s bar/fill flow; mixing the two would let that branch's
+       cleanup fire ahead of resetPlayBtnState() and skip the aria-pressed/
+       idle-label restore. See playDictResultAudio() (ll:dictionary-lookup)
+       for the playback routing this button drives. */
+    .dict-result-play-btn {
+      background: var(--accent); color: var(--ink-on-brand); border: none;
+      border-radius: 22px; padding: 0 18px; min-height: 44px; font-size: 16px;
+      font-weight: 600; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      touch-action: manipulation; user-select: none;
+      margin-bottom: 8px;
+    }
     .dict-result-sense + .dict-result-sense { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
     .dict-result-sense-head { font-size: 18px; font-weight: 700; color: var(--zh-ink); line-height: 1.5; }
     .dict-result-example { font-size: 16px; color: var(--text); margin-top: 4px; line-height: 1.5; }
@@ -3121,6 +3147,7 @@ function __dictProvenanceConstantsForTest() {
 // Normalized internal render shape — the ONE shape buildDictResultCard()
 // ever renders, regardless of source:
 //   { lemma: string, provenance: "curated-cleared"|"curated-uncleared"|"api",
+//     phonetic: string (possibly empty),
 //     senses: [{ pos: string, zh: string, example: {en,zh}|null, tip: string|null, key: string }] }
 // Curated entries (dictionary-words.js) carry sense.zh + sense.example +
 // sense.tip. API entries (/api/dictionary) carry only sense.definition, with
@@ -3138,11 +3165,25 @@ function normalizeDictSense(s, senseKey) {
     key: senseKey,
   };
 }
+// A lemma is "curated" iff it did not come from the /api/dictionary path —
+// covers both curated-cleared and curated-uncleared. Shared by
+// normalizeDictResult() (gates phonetic passthrough) and
+// playDictResultAudio() (gates mp3 vs. speechSynthesis routing) so the two
+// can never independently drift on what "curated" means.
+function isDictCuratedProvenance(provenance) {
+  return provenance === "curated-cleared" || provenance === "curated-uncleared";
+}
 function normalizeDictResult(raw, provenance) {
   const senseKeys = computeSenseKeys(raw.senses);
   return {
     lemma: raw.lemma,
     provenance,
+    // Lemma-level IPA (founder ruling, this round): withheld on the API path
+    // even if a future Gemini response ever includes one — read only for
+    // curated provenance, never trust-but-verify an unreviewed AI value.
+    // Absent/non-string source -> "" so buildDictResultCard()'s .trim()
+    // check renders nothing rather than a stray falsy value.
+    phonetic: (isDictCuratedProvenance(provenance) && typeof raw.phonetic === "string") ? raw.phonetic : "",
     senses: (raw.senses || []).map((s, i) => normalizeDictSense(s, senseKeys[i])),
   };
 }
@@ -3329,6 +3370,57 @@ function resetDueOnRepeatLookup(data) {
   }
 }
 
+// ── Dictionary result-card pronunciation ────────────────────────────────
+// `slug` = lemma lowercased, every run of [^a-z0-9]+ collapsed to a single
+// "-". Every current curated lemma is one lowercase word so slug === lemma
+// today, but the rule (not that shortcut) is implemented so a future
+// multi-word lemma ("look after") or an apostrophe ("don't") maps
+// deterministically instead of silently 404ing. theo's generator
+// (audio/dict/<slug>_normal.mp3) uses the identical rule — see the
+// cross-check test in test/dictionary-lookup.test.mjs.
+function dictAudioSlug(lemma) {
+  return String(lemma).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
+// Pronunciation is a property of the LEMMA, not of a sense — one play
+// button per result card, wired from buildDictResultCard() below. Mirrors
+// playReviewAudio()'s exact mp3 -> speakText fallback pattern (ll:dictionary-
+// shared audio helpers are defined outside this marker block: stopAllAudio,
+// playbackSession, setPlayBtnPlaying, resetPlayBtnState, speakText).
+//   - Curated (dictionary-words.js) lemma: try the pregenerated Azure mp3;
+//     an `error` event OR a rejected play() falls back to speechSynthesis.
+//   - API/Gemini lemma: go straight to speechSynthesis. An arbitrary
+//     looked-up word has no guaranteed mp3 — constructing an Audio() URL for
+//     it is exactly the guaranteed-404 class of bug isAudioBacked()'s
+//     positive-allowlist comment (ll:dictionary-shared) exists to prevent;
+//     this function must never do that on the API branch.
+function playDictResultAudio(data, btn) {
+  stopAllAudio();
+  // Captured AFTER the bump in stopAllAudio(), same idiom as playReviewAudio/
+  // speakPhrase: every handler below belongs to this session and no-ops once
+  // a newer playback (or an explicit stop) supersedes it.
+  const session = playbackSession;
+  const isCurrent = () => session === playbackSession;
+  if (btn) setPlayBtnPlaying(btn);
+  if (isDictCuratedProvenance(data.provenance)) {
+    const mp3 = new Audio(`./audio/dict/${dictAudioSlug(data.lemma)}_normal.mp3`);
+    currentAudio = mp3;
+    mp3.addEventListener("ended", () => {
+      if (!isCurrent()) return;
+      if (currentAudio === mp3) currentAudio = null;
+      resetPlayBtnState(btn);
+    }, { once: true });
+    mp3.addEventListener("error", () => {
+      if (!isCurrent()) return;
+      if (currentAudio === mp3) currentAudio = null;
+      speakText(data.lemma, undefined, btn, session);
+    }, { once: true });
+    mp3.play().catch(() => { if (isCurrent()) speakText(data.lemma, undefined, btn, session); });
+  } else {
+    speakText(data.lemma, undefined, btn, session);
+  }
+}
+
 function buildDictResultCard(data, panel) {
   const card = document.createElement("div");
   card.className = "dict-result-card";
@@ -3337,6 +3429,25 @@ function buildDictResultCard(data, panel) {
   lemma.className = "dict-result-lemma";
   lemma.textContent = data.lemma;
   card.appendChild(lemma);
+
+  // Optional lemma-level IPA (absent for most entries this round — maya's
+  // data lands after this change): render nothing at all when missing/empty/
+  // whitespace, never an empty element (no layout shift, no stray slashes).
+  const phonetic = (data.phonetic || "").trim();
+  if (phonetic) {
+    const phoneticEl = document.createElement("div");
+    phoneticEl.className = "dict-result-phonetic";
+    phoneticEl.textContent = phonetic;
+    card.appendChild(phoneticEl);
+  }
+
+  const playBtn = document.createElement("button");
+  playBtn.className = "dict-result-play-btn result-play-btn";
+  playBtn.dataset.playingLabel = "⏸ 播放中";
+  playBtn.setAttribute("aria-label", "朗读发音");
+  playBtn.textContent = "▶ 朗读";
+  playBtn.onclick = () => playDictResultAudio(data, playBtn);
+  card.appendChild(playBtn);
 
   const multiSense = data.senses.length > 1;
   data.senses.forEach(sense => {

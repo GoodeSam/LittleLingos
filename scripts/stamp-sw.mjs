@@ -41,10 +41,18 @@ const contained = (p) => { const r = resolve(p); return r === REPO || r.startsWi
 // regenerated mp3 with the same name and coincidentally identical byte count
 // (the failure mode of the old size-proxy fold) still changes the stamp.
 // Hashing the full ~120MB corpus costs about a second — cheap insurance
-// against an installed client serving a stale recording forever.
+// against an installed client serving a stale recording forever. Recursive:
+// audio/ now holds subdirectories (e.g. audio/dict/) whose mp3s must
+// participate in the stamp exactly like top-level ones, or a regenerated
+// file in a subdirectory silently fails to bust the cache (found by
+// felix-function-critic 2026-08-13, latent — did not affect any stamp to
+// date because index.html always changed alongside audio/dict/ additions).
 function foldAudioDir(hash) {
   if (!existsSync(AUDIO_DIR)) die("missing audio/ directory required for hash: " + AUDIO_DIR);
-  const names = readdirSync(AUDIO_DIR).filter((f) => f.endsWith(".mp3")).sort();
+  const names = readdirSync(AUDIO_DIR, { recursive: true })
+    .filter((f) => f.endsWith(".mp3"))
+    .map((f) => f.split(sep).join("/"))
+    .sort();
   if (names.length === 0) die("audio/ directory is empty: " + AUDIO_DIR);
   for (const name of names) {
     hash.update(name + ":");

@@ -32,7 +32,7 @@
 //     stopAllAudio()/playbackSession).
 //   - buildDictionaryIndex dedup reachable end-to-end through
 //     performDictLookup (an inflected form resolves to its lemma's entry).
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
@@ -56,6 +56,11 @@ function fakeElement() {
     textContent: "",
     onclick: null,
     children: [],
+    // dataset stub (playDictResultAudio's play button sets
+    // dataset.playingLabel, mirroring the review-btn-play/result-play-btn
+    // idiom elsewhere in index.html): a plain object is enough since nothing
+    // here needs the real DOMStringMap kebab-case translation.
+    dataset: {},
     classList: {
       _set: new Set(),
       add(c) { this._set.add(c); },
@@ -133,6 +138,12 @@ function makeEnv({
   const fetchCalls = [];
   const safeSetItemCalls = [];
   const updateNavBadgeCalls = [];
+  const speakTextCalls = [];
+  const setPlayBtnPlayingCalls = [];
+  const resetPlayBtnStateCalls = [];
+  const flashAudioUnavailableCalls = [];
+  const stopAllAudioCalls = [];
+  const FakeAudio = makeFakeAudioCtor();
   const fetchStub = fetchImpl
     ? (...args) => { fetchCalls.push(args); return fetchImpl(...args); }
     : (...args) => { fetchCalls.push(args); return Promise.reject(new Error("fetch stub not configured for this test")); };
@@ -171,6 +182,27 @@ function makeEnv({
     savedPhrases,
     safeSetItem: (k, v) => { safeSetItemCalls.push([k, v]); },
     updateNavBadge: () => { updateNavBadgeCalls.push(true); },
+    // ── Audio-adjacent stubs (playDictResultAudio, ll:dictionary-lookup) ──
+    // These all live OUTSIDE the marker fragment in the real index.html
+    // (top-level `let playbackSession`/`currentAudio`, and setPlayBtnPlaying/
+    // resetPlayBtnState/flashAudioUnavailable/stopAllAudio/speakText defined
+    // above the ll:dictionary-shared block). stopAllAudio here is a minimal
+    // but behaviorally faithful stand-in: it bumps playbackSession (the same
+    // generation-counter idiom the real one uses) so the session-guard tests
+    // can exercise a real stale-callback race, and it stubs a fresh Audio()
+    // ctor is unaffected — mirroring what production does with currentAudio.
+    Audio: FakeAudio,
+    playbackSession: 0,
+    currentAudio: null,
+    stopAllAudio() {
+      stopAllAudioCalls.push(true);
+      ctx.playbackSession++;
+      ctx.currentAudio = null;
+    },
+    setPlayBtnPlaying(btn) { setPlayBtnPlayingCalls.push(btn); if (btn) btn.__playing = true; },
+    resetPlayBtnState(btn) { resetPlayBtnStateCalls.push(btn); if (btn) btn.__playing = false; },
+    flashAudioUnavailable(btn) { flashAudioUnavailableCalls.push(btn); },
+    speakText(text, rate, btn, session) { speakTextCalls.push({ text, rate, btn, session }); },
     console,
   };
   vm.createContext(ctx);
@@ -186,7 +218,44 @@ function makeEnv({
   assert.equal(typeof ctx.doDictScreenLookup, "function", "module must define doDictScreenLookup()");
   assert.equal(typeof ctx.renderDictStarterChips, "function", "module must define renderDictStarterChips()");
   assert.equal(typeof ctx.resetDictScreenForEntry, "function", "module must define resetDictScreenForEntry()");
-  return { ctx, els, searchPhrasesCalls, goTranslateCalls, fetchCalls, safeSetItemCalls, updateNavBadgeCalls, savedPhrases };
+  // Audio + IPA increment: playDictResultAudio() and dictAudioSlug() module surface.
+  assert.equal(typeof ctx.playDictResultAudio, "function", "module must define playDictResultAudio()");
+  assert.equal(typeof ctx.dictAudioSlug, "function", "module must define dictAudioSlug()");
+  return {
+    ctx, els, searchPhrasesCalls, goTranslateCalls, fetchCalls, safeSetItemCalls, updateNavBadgeCalls, savedPhrases,
+    speakTextCalls, setPlayBtnPlayingCalls, resetPlayBtnStateCalls, flashAudioUnavailableCalls, stopAllAudioCalls, FakeAudio,
+  };
+}
+
+// ── Fake Audio + audio-adjacent helper stubs ────────────────────────────
+// playDictResultAudio (ll:dictionary-lookup) depends on several helpers that
+// live OUTSIDE the marker block (stopAllAudio, playbackSession,
+// setPlayBtnPlaying, resetPlayBtnState, speakText, currentAudio, Audio) —
+// same idiom as searchPhrases/goTranslateWithQuery above. FakeAudio supports
+// just enough of HTMLAudioElement to exercise both real-browser failure
+// channels: an `error` event AND a rejected play() promise.
+function makeFakeAudioCtor() {
+  const instances = [];
+  function FakeAudio(url) {
+    const listeners = {};
+    const inst = {
+      url,
+      paused: false,
+      addEventListener(evt, fn) { listeners[evt] = fn; },
+      // Reads FakeAudio.nextPlayRejects at CALL time (not construction time)
+      // so a test can arrange "the next play() rejects" before tapping the
+      // button that constructs this instance — the real trigger for
+      // playDictResultAudio's `.play().catch(...)` fallback branch.
+      play() { return FakeAudio.nextPlayRejects ? Promise.reject(new Error("no src")) : Promise.resolve(); },
+      pause() { inst.paused = true; },
+      fire(evt) { if (listeners[evt]) listeners[evt](); },
+    };
+    instances.push(inst);
+    return inst;
+  }
+  FakeAudio.instances = instances;
+  FakeAudio.nextPlayRejects = false;
+  return FakeAudio;
 }
 
 function panelHasClass(panel, cls) {
@@ -1198,6 +1267,193 @@ test("tapping a starter chip fills #dictInput and runs the lookup end-to-end", (
   els.dictStarterChips.children[0].onclick();
   assert.equal(els.dictInput.value, "eat");
   assert.ok(panelChild(els.dictScreenPanel, "dict-result-card"), "chip tap must run the lookup, not just fill the input");
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Pronunciation audio + IPA display on the result card (scout brief,
+// 2026-08-13). buildDictResultCard() gets one play control per lemma
+// (playDictResultAudio) and an optional `.dict-result-phonetic` element.
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Play control: curated path -> pregenerated mp3 ──────────────────────
+test("curated result renders a play control; tapping it requests ./audio/dict/<slug>_normal.mp3", async () => {
+  const { ctx, els, FakeAudio } = makeEnv({ inputValue: "eat" }); // FIXTURE_WORDS "eat" is curated
+  ctx.performDictLookup("eat");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  const playBtn = findByClassToken(card, "dict-result-play-btn");
+  assert.ok(playBtn, "curated result card must render a play control");
+  playBtn.onclick();
+  assert.equal(FakeAudio.instances.length, 1, "tapping must construct exactly one Audio()");
+  assert.equal(FakeAudio.instances[0].url, "./audio/dict/eat_normal.mp3");
+});
+
+// ── Play control: API path -> speechSynthesis, NEVER an Audio() URL ─────
+// The regression that matters most (per the brief): an arbitrary looked-up
+// word has no guaranteed mp3, so constructing an Audio() URL for it is a
+// guaranteed-404 the moment a parent taps play on an uncurated word.
+test("API-path result's play control goes to speechSynthesis and NEVER constructs an Audio() URL", async () => {
+  const fetchImpl = async () => ({
+    ok: true, status: 200,
+    json: async () => ({ lemma: "watch", senses: [{ pos: "v.", definition: "看" }] }),
+  });
+  // "watch" is deliberately kept OUT of FIXTURE_WORDS (see its own comment
+  // above) so this is a genuine curated-miss -> API-hit, not an accident.
+  const { ctx, els, FakeAudio, speakTextCalls } = makeEnv({ inputValue: "watch", fetchImpl });
+  ctx.performDictLookup("watch");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  const playBtn = findByClassToken(card, "dict-result-play-btn");
+  assert.ok(playBtn, "API-path result card must still render a play control");
+  playBtn.onclick();
+  assert.equal(FakeAudio.instances.length, 0, "an API-path lemma must NEVER construct an Audio() URL");
+  assert.equal(speakTextCalls.length, 1, "the API path must go straight to speakText()");
+  assert.equal(speakTextCalls[0].text, "watch");
+});
+
+// ── mp3 failure -> speakText fallback (both real-browser failure channels) ──
+test("mp3 `error` event falls back to speakText(lemma)", async () => {
+  const { ctx, els, FakeAudio, speakTextCalls } = makeEnv({ inputValue: "eat" });
+  ctx.performDictLookup("eat");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  const playBtn = findByClassToken(card, "dict-result-play-btn");
+  playBtn.onclick();
+  assert.equal(FakeAudio.instances.length, 1);
+  FakeAudio.instances[0].fire("error");
+  assert.equal(speakTextCalls.length, 1);
+  assert.equal(speakTextCalls[0].text, "eat");
+});
+
+test("a rejected play() promise also falls back to speakText(lemma)", async () => {
+  const { ctx, els, FakeAudio, speakTextCalls } = makeEnv({ inputValue: "eat" });
+  FakeAudio.nextPlayRejects = true;
+  ctx.performDictLookup("eat");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  const playBtn = findByClassToken(card, "dict-result-play-btn");
+  playBtn.onclick();
+  await flush();
+  assert.equal(speakTextCalls.length, 1);
+  assert.equal(speakTextCalls[0].text, "eat");
+});
+
+// ── Session guard: a stale callback from a superseded card must not touch
+// a newer playback's button (same generation-counter idiom as speakPhrase/
+// playReviewAudio's playbackSession guard) ──────────────────────────────
+test("session guard: a stale error from a superseded dict result card does not reset a newer button", async () => {
+  const { ctx, els, FakeAudio, resetPlayBtnStateCalls, speakTextCalls } = makeEnv({ inputValue: "eat" });
+  ctx.performDictLookup("eat");
+  await flush();
+  const cardA = panelChild(els.dictLookupPanel, "dict-result-card");
+  const btnA = findByClassToken(cardA, "dict-result-play-btn");
+  btnA.onclick();
+  assert.equal(FakeAudio.instances.length, 1, "first tap must construct exactly one Audio()");
+
+  // A newer lookup + tap supersedes the first, bumping playbackSession.
+  ctx.performDictLookup("jump");
+  await flush();
+  const cardB = panelChild(els.dictLookupPanel, "dict-result-card");
+  const btnB = findByClassToken(cardB, "dict-result-play-btn");
+  btnB.onclick();
+  assert.equal(FakeAudio.instances.length, 2, "second tap must construct its own, newer Audio()");
+  assert.equal(btnB.__playing, true);
+
+  // The FIRST (now-stale) Audio() instance's error fires late.
+  FakeAudio.instances[0].fire("error");
+
+  assert.ok(!resetPlayBtnStateCalls.includes(btnA), "a stale error must not reset the OLD button either — it should just no-op");
+  assert.equal(speakTextCalls.length, 0, "a stale error must not start a fallback speakText() call");
+  assert.equal(btnB.__playing, true, "the NEWER button's playing state must remain untouched by the stale callback");
+});
+
+// ── IPA (`phonetic`) display ─────────────────────────────────────────────
+test("phonetic: renders .dict-result-phonetic when data.phonetic is a non-empty string", async () => {
+  const words = [{
+    lemma: "eat", forms: ["eat"], phonetic: "/iːt/",
+    senses: [{ key: "v", pos: "v.", zh: "吃", tip: "在餐椅前说。" }],
+  }];
+  const { ctx, els } = makeEnv({ inputValue: "eat", words });
+  ctx.performDictLookup("eat");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  const phon = card.children.find((c) => c.className === "dict-result-phonetic");
+  assert.ok(phon, "phonetic must render when present");
+  assert.equal(phon.textContent, "/iːt/");
+});
+
+test("phonetic: an absent field renders no .dict-result-phonetic element", async () => {
+  const { ctx, els } = makeEnv({ inputValue: "eat" }); // FIXTURE_WORDS' "eat" has no `phonetic` key
+  ctx.performDictLookup("eat");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  assert.equal(card.children.find((c) => c.className === "dict-result-phonetic"), undefined);
+});
+
+test("phonetic: empty-string and whitespace-only values also render nothing, no crash", async () => {
+  const words = [{
+    lemma: "eat", forms: ["eat"], phonetic: "   ",
+    senses: [{ key: "v", pos: "v.", zh: "吃", tip: "在餐椅前说。" }],
+  }];
+  const { ctx, els } = makeEnv({ inputValue: "eat", words });
+  ctx.performDictLookup("eat");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  assert.ok(card, "a whitespace-only phonetic must not crash the render");
+  assert.equal(card.children.find((c) => c.className === "dict-result-phonetic"), undefined);
+});
+
+test("phonetic: withheld on the API path this round even if the response includes one", async () => {
+  const fetchImpl = async () => ({
+    ok: true, status: 200,
+    json: async () => ({ lemma: "zap", phonetic: "/zæp/", senses: [{ pos: "v.", definition: "?" }] }),
+  });
+  const { ctx, els } = makeEnv({ inputValue: "zap", fetchImpl });
+  ctx.performDictLookup("zap");
+  await flush();
+  const card = panelChild(els.dictLookupPanel, "dict-result-card");
+  assert.equal(
+    card.children.find((c) => c.className === "dict-result-phonetic"), undefined,
+    "AI-generated IPA is withheld this round by founder ruling, even if the API response carries one"
+  );
+});
+
+// ── dictAudioSlug(): the rule, not the "single lowercase word" shortcut ──
+test("dictAudioSlug: lowercases and collapses runs of non-alphanumerics to a single hyphen", () => {
+  const { ctx } = makeEnv({ inputValue: "x" });
+  assert.equal(ctx.dictAudioSlug("water"), "water");
+  assert.equal(ctx.dictAudioSlug("Water"), "water", "must lowercase");
+  assert.equal(ctx.dictAudioSlug("look after"), "look-after", "multi-word lemma");
+  assert.equal(ctx.dictAudioSlug("don't"), "don-t", "apostrophe collapses to a single hyphen");
+  assert.equal(ctx.dictAudioSlug("well-known"), "well-known", "an already-single hyphen is left as-is");
+  assert.equal(ctx.dictAudioSlug("Look  After!"), "look-after-", "a run of multiple separators collapses to ONE hyphen");
+});
+
+// ── Cross-check: every real curated lemma has a matching mp3 on disk ────
+// Catches theo/devon slug drift directly — never keys off dictionary-words.js
+// wording, only off its `lemma:` values (shape-stable per that file's own
+// header contract) and the real audio/dict/ directory listing.
+test("cross-check: every dictionary-words.js lemma resolves to an existing audio/dict/<slug>_normal.mp3", () => {
+  const src = readFileSync(join(ROOT, "dictionary-words.js"), "utf8");
+  const lemmas = [...src.matchAll(/lemma:\s*"([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(lemmas.length > 0, "the lemma-extraction regex must actually find entries, or this check silently passes vacuously");
+  const files = new Set(readdirSync(join(ROOT, "audio", "dict")));
+  const { ctx } = makeEnv({ inputValue: "x" });
+  const missing = lemmas.filter((l) => !files.has(`${ctx.dictAudioSlug(l)}_normal.mp3`));
+  assert.deepEqual(missing, [], `every curated lemma must have a matching mp3 (slug drift): ${missing.join(", ")}`);
+});
+
+// ── Shape (not completeness) test for the new `phonetic` field ──────────
+test("shape: every dictionary-words.js entry that HAS `phonetic` carries it as a non-empty string", () => {
+  const src = readFileSync(join(ROOT, "dictionary-words.js"), "utf8");
+  const values = [...src.matchAll(/phonetic:\s*"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
+  // Deliberately NOT asserting values.length > 0 — maya's IPA data lands
+  // after this change, and some lemmas will legitimately never have IPA
+  // (the brief's explicit "gaps we refuse to fill with guesses"). This test
+  // only constrains the SHAPE of whatever values do exist.
+  values.forEach((v) => {
+    assert.ok(v.trim().length > 0, "a `phonetic` value must never be an empty/whitespace string — omit the key entirely instead");
+  });
 });
 
 // ── Runner ───────────────────────────────────────────────

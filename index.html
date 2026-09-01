@@ -716,6 +716,35 @@
 
     /* Saved screen */
     .saved-screen-list { padding: 12px 16px calc(100px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
+
+    /* ── Backup / restore ──────────────────────────────
+       Sits below .saved-screen-list, which already carries the nav-bar
+       bottom padding; this block re-applies it so the last button clears
+       the nav bar on its own. Pulled up by the same amount the list pads
+       down, so the two don't stack into a screen of empty space. */
+    .backup-section {
+      margin-top: -88px;
+      padding: 16px 16px calc(100px + env(safe-area-inset-bottom));
+      border-top: 1px solid var(--border);
+    }
+    .backup-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    .backup-note  { font-size: 13px; line-height: 1.6; color: var(--muted); margin: 0 0 12px; }
+    .backup-actions { display: flex; gap: 10px; }
+    .backup-btn {
+      flex: 1; min-height: 44px; padding: 12px;
+      border: 1px solid var(--border); border-radius: 12px;
+      background: var(--card); color: var(--text);
+      font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer;
+      touch-action: manipulation;
+      user-select: none; /* long-press must not select the label */
+    }
+    .backup-btn:active { background: var(--warm); }
+    .backup-status {
+      margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+      font-size: 14px; line-height: 1.5;
+      background: var(--warm); color: var(--text);
+    }
+    .backup-status.is-error { background: #FFE8E4; color: #A03325; }
     .saved-item {
       background: var(--card);
       border-radius: 12px;
@@ -1606,6 +1635,24 @@
   </div>
   <div class="review-area" id="reviewArea"></div>
   <div class="saved-screen-list" id="savedScreenList"></div>
+
+  <!-- Backup / restore. Lives at the bottom of the saved screen because that
+       is where a parent can see what they'd be losing. -->
+  <div class="backup-section">
+    <div class="backup-title">备份与恢复</div>
+    <p class="backup-note">
+      收藏和复习进度只存在这台设备上。删除主屏幕图标或换手机都会丢失，
+      建议隔一段时间导出一次。
+    </p>
+    <div class="backup-actions">
+      <button class="backup-btn" type="button" onclick="exportUserData()">↓ 导出备份</button>
+      <button class="backup-btn" type="button" onclick="document.getElementById('importFile').click()">↑ 恢复备份</button>
+    </div>
+    <!-- Reset in the change handler so picking the same file twice re-fires. -->
+    <input type="file" id="importFile" accept="application/json,.json" hidden
+           onchange="importUserData(this)">
+    <div class="backup-status" id="backupStatus" hidden></div>
+  </div>
 </div>
 
 <!-- ════════════════════════════════════════════════════
@@ -4228,6 +4275,170 @@ function setupVoiceInputs() {
 /* ll:voice-input:end */
 
 setupVoiceInputs();
+
+// ── Backup / restore ───────────────────────────────────
+/* ll:data-export:start */
+// Pure logic for taking a backup and putting one back. Touches neither the
+// DOM nor localStorage so test/data-export.test.mjs can run it in a bare vm
+// context; the surrounding UI functions do the I/O.
+//
+// Why this exists: on iOS a home-screen PWA and Safari at the same URL get
+// SEPARATE storage. A parent's saved phrases and review progress live in
+// exactly one place — that PWA's sandbox — with no second copy anywhere.
+// Delete the icon and months of work are gone, with no way back.
+//
+// Why restoring MERGES instead of overwriting: the backup file is history,
+// the device is the present. Letting an older file overwrite this device
+// would silently discard review progress made since the backup — and there
+// is no undo, because the thing it overwrote was the only copy.
+const EXPORT_SCHEMA = 1;
+const EXPORT_APP = "LittleLingos";
+
+// A record is restorable only if we can key it. Everything else about a saved
+// item is optional or reconstructible; the id is not — without it the item
+// can't be de-duplicated on merge, so it would multiply on every restore.
+function isRestorableRecord(r) {
+  return !!r && typeof r === "object" && !Array.isArray(r)
+      && typeof r.id === "string" && r.id.length > 0;
+}
+
+function buildExportPayload({ saved, age }) {
+  return {
+    schema: EXPORT_SCHEMA,
+    app: EXPORT_APP,
+    // ISO 8601 so a parent holding three backups can tell which is newest
+    // without opening them.
+    exportedAt: new Date().toISOString(),
+    age: typeof age === "string" ? age : null,
+    // rv (review progress) rides along inside each record — dropping it would
+    // restore the phrases but silently reset months of spaced repetition.
+    saved: Array.isArray(saved) ? saved.filter(isRestorableRecord) : [],
+  };
+}
+
+// Returns {ok:true, payload} or {ok:false, error}. The error codes are what
+// the UI turns into a specific message — "this file isn't from this app" is
+// actionable, "import failed" is not.
+function parseImportPayload(text) {
+  let data;
+  try { data = JSON.parse(text); }
+  catch { return { ok: false, error: "not-json" }; }
+
+  // A bare array or number parses fine but is not an export file.
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { ok: false, error: "not-json" };
+  }
+  if (data.app !== EXPORT_APP) return { ok: false, error: "wrong-app" };
+  // Refuse a schema we don't know rather than guessing at the shape: a wrong
+  // guess writes malformed records into the only copy of the parent's data.
+  if (data.schema !== EXPORT_SCHEMA) return { ok: false, error: "unknown-schema" };
+  if (!Array.isArray(data.saved)) return { ok: false, error: "no-saved" };
+
+  return {
+    ok: true,
+    payload: {
+      age: typeof data.age === "string" ? data.age : null,
+      // Individual junk records are dropped, not fatal — one bad row must
+      // never cost the parent the other 200 good ones.
+      saved: data.saved.filter(isRestorableRecord),
+    },
+  };
+}
+
+// Merge, never overwrite. An id already on this device wins over the backup's
+// copy of it. Returns a NEW array — callers pass their live savedPhrases in
+// and must not have it mutated under them mid-merge.
+function mergeSaved(existing, incoming) {
+  const base = (Array.isArray(existing) ? existing : []).filter(isRestorableRecord);
+  const have = new Set(base.map(r => r.id));
+  const merged = base.slice();
+  let added = 0, skipped = 0;
+  for (const r of (Array.isArray(incoming) ? incoming : [])) {
+    if (!isRestorableRecord(r)) continue;
+    if (have.has(r.id)) { skipped++; continue; }
+    have.add(r.id);
+    merged.push(r);
+    added++;
+  }
+  return { merged, added, skipped };
+}
+/* ll:data-export:end */
+
+// ── Backup / restore UI (I/O; the logic above stays pure) ──
+function showBackupStatus(msg, isError) {
+  const el = document.getElementById("backupStatus");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle("is-error", !!isError);
+  el.hidden = false;
+}
+
+function exportUserData() {
+  const payload = buildExportPayload({ saved: savedPhrases, age: currentAge });
+  const stamp = payload.exportedAt.slice(0, 10);
+  const name = `littlelingos-backup-${stamp}.json`;
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoke on the next tick, not synchronously: some browsers have not
+  // finished reading the blob when click() returns, and revoking early
+  // produces a zero-byte file — a backup that looks taken but restores
+  // nothing, which is worse than a visible failure.
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+  showBackupStatus(
+    `已导出 ${payload.saved.length} 条收藏 → ${name}\n` +
+    `如果没看到下载，长按上面的按钮选择「下载链接文件」，或用 Safari 打开本站再试。`
+  );
+}
+
+function importUserData(input) {
+  const file = input.files && input.files[0];
+  // Reset first so choosing the same file again re-fires change.
+  input.value = "";
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onerror = () => showBackupStatus("读不到这个文件，请再试一次", true);
+  reader.onload = () => {
+    const parsed = parseImportPayload(String(reader.result));
+    if (!parsed.ok) {
+      // Specific message per failure — "导入失败" tells a parent nothing
+      // about what to do next.
+      const why = {
+        "not-json": "这不是备份文件（可能选错了图片或其他文件）",
+        "wrong-app": "这是别的应用导出的文件",
+        "unknown-schema": "这个备份来自更新的版本，当前版本读不了",
+        "no-saved": "文件不完整，可能下载到一半中断了",
+      }[parsed.error] || "文件无法读取";
+      showBackupStatus(why, true);
+      return;
+    }
+
+    const { merged, added, skipped } = mergeSaved(savedPhrases, parsed.payload.saved);
+    savedPhrases = merged;
+    safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+    if (parsed.payload.age) {
+      currentAge = parsed.payload.age;
+      safeSetItem("ll_age", currentAge);
+    }
+    updateNavBadge();
+    renderReviewArea();
+    renderSavedScreen();
+    showBackupStatus(
+      skipped
+        ? `已恢复 ${added} 条，跳过 ${skipped} 条（这台设备上已经有了，保留了本机的复习进度）`
+        : `已恢复 ${added} 条收藏`
+    );
+  };
+  reader.readAsText(file);
+}
 
 // ── Install prompt ─────────────────────────────────────
 // installEnv was computed once, above, from detectInstallEnvironment() —

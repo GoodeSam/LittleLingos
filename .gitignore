@@ -10,3 +10,6 @@ memory/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# VMark local state (per-machine; matches .vmark/ at any depth)
+.vmark/

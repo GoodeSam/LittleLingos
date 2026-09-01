@@ -44,6 +44,7 @@ const step = (label, fn) => {
 step("L0 · product data gate (validate-scenarios.js)", () => run("node", ["validate-scenarios.js"]));
 step("L0 · sw cache stamp is current (scripts/stamp-sw.mjs --check)", () => run("node", ["scripts/stamp-sw.mjs", "--check"]));
 step("L0 · voice-input module behavior (test/voice-input.test.mjs)", () => run("node", ["test/voice-input.test.mjs"]));
+step("L0 · install-env module behavior (test/install-env.test.mjs)", () => run("node", ["test/install-env.test.mjs"]));
 step("L0 · service-worker behavior (test/sw.test.mjs)", () => run("node", ["test/sw.test.mjs"]));
 step("L0 · dictionary API behavior (test/dictionary-api.test.mjs)", () => run("node", ["test/dictionary-api.test.mjs"]));
 step("L0 · dictionary/review client correctness (test/dictionary-review.test.mjs)", () => run("node", ["test/dictionary-review.test.mjs"]));

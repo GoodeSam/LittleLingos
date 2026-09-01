@@ -1394,32 +1394,67 @@
 </head>
 <body>
 
-<!-- Install banner (Android) -->
+<!-- Install banner (Android / iOS Safari / WeChat — copy swapped by JS per
+     detectInstallEnvironment(); see the ll:install-env module below) -->
 <div class="install-banner" id="installBanner">
   <div class="ib-text">
-    <strong>安装到主屏幕</strong>
-    像 App 一样使用，随时打开
+    <strong id="installHeadline">安装到主屏幕</strong>
+    <span id="installSub">像 App 一样使用，随时打开</span>
   </div>
   <button class="install-btn" id="installBtn">安装</button>
   <button class="install-close" aria-label="关闭" onclick="dismissInstall()">×</button>
 </div>
 
-<!-- iOS install sheet -->
+<!-- iOS / WeChat install sheet: two mutually-exclusive bodies, exactly one
+     un-hidden at a time by openIosSheet(). Each body is wrapped in a plain
+     div with NO display rule of its own — [hidden]{display:none} (UA sheet,
+     0 specificity) only wins if nothing in this file's author stylesheet
+     targets the wrapper itself. Do NOT put `hidden` directly on a .ios-step;
+     .ios-step{display:flex} (author rule) beats [hidden]{display:none} at
+     equal specificity, so the element would stay visible
+     (2026-08-14 WeChat-detection round). -->
 <div class="ios-sheet" id="iosSheet" onclick="closeIosSheet()">
   <div class="ios-sheet-inner" onclick="event.stopPropagation()">
-    <h3>📲 安装到主屏幕</h3>
-    <p>把 LittleLingos 安装为 App，下次直接从桌面打开，全屏使用。</p>
-    <div class="ios-step">
-      <div class="step-num">1</div>
-      <div class="step-text">点击底部的 <strong>分享按钮</strong> 「□↑」</div>
+    <!-- Safari body: real Safari share-sheet steps. Shown for iOS outside WeChat. -->
+    <div id="iosSheetSafariBody">
+      <h3>📲 安装到主屏幕</h3>
+      <p>把 LittleLingos 安装为 App，下次直接从桌面打开，全屏使用。</p>
+      <div class="ios-step">
+        <div class="step-num">1</div>
+        <div class="step-text">点击底部的 <strong>分享按钮</strong> 「□↑」</div>
+      </div>
+      <div class="ios-step">
+        <div class="step-num">2</div>
+        <div class="step-text">向下滚动，选择 <strong>「添加到主屏幕」</strong></div>
+      </div>
+      <div class="ios-step">
+        <div class="step-num">3</div>
+        <div class="step-text">点击右上角 <strong>「添加」</strong>，完成！</div>
+      </div>
     </div>
-    <div class="ios-step">
-      <div class="step-num">2</div>
-      <div class="step-text">向下滚动，选择 <strong>「添加到主屏幕」</strong></div>
-    </div>
-    <div class="ios-step">
-      <div class="step-num">3</div>
-      <div class="step-text">点击右上角 <strong>「添加」</strong>，完成！</div>
+    <!-- WeChat body: WeChat's in-app browser (iOS WKWebView or Android
+         X5/XWEB) has none of the Safari share-sheet chrome above, so those
+         steps would be actively wrong here — this parent needs "leave
+         WeChat" instructions instead. Copy cleared verbatim by
+         nina-native-editor; do not reword (rules/04-bilingual-style.md).
+         Step 2 deliberately names BOTH real menu labels — Android WeChat
+         shows 「在浏览器打开」, iOS WeChat shows 「在Safari中打开」 — one
+         body serves both platforms; the parent pattern-matches their own menu. -->
+    <div id="iosSheetWeChatBody" hidden>
+      <h3>🌐 用浏览器打开</h3>
+      <p>微信内置浏览器不能把 LittleLingos 添加到主屏幕，也无法保存音频。换成手机浏览器，几秒钟就好。</p>
+      <div class="ios-step">
+        <div class="step-num">1</div>
+        <div class="step-text">点击右上角的「···」</div>
+      </div>
+      <div class="ios-step">
+        <div class="step-num">2</div>
+        <div class="step-text">点击「在浏览器打开」或「在Safari中打开」</div>
+      </div>
+      <div class="ios-step">
+        <div class="step-num">3</div>
+        <div class="step-text">在浏览器里就能添加到主屏幕，离线也能听！</div>
+      </div>
     </div>
     <button class="ios-close-btn" onclick="closeIosSheet()">明白了</button>
   </div>
@@ -3860,6 +3895,70 @@ function findPhrase(id) {
   return null;
 }
 
+// ── Install environment detection (WeChat honesty fix) ─
+// Before this fix, `navigator.userAgent` was read in exactly one place in
+// the whole client (the iOS share-sheet check below) and there was zero
+// WeChat detection anywhere. WeChat's iOS in-app browser is a third-party
+// WKWebView that does not get real Service Worker support the way Safari
+// does, and WeChat Android's X5/XWEB kernel is inconsistent and commonly
+// never fires `beforeinstallprompt` — so a WeChat-on-iOS parent was shown
+// Safari-only share-sheet steps that do nothing in their browser, and a
+// WeChat-on-Android parent got no install path and no explanation at all
+// (2026-08-14 WeChat-detection round). The fix routes BOTH platforms to one
+// honest message: open this in your real browser.
+//
+// Split into two pure, total functions so test/install-env.test.mjs can
+// vm-extract and exercise them directly — same idiom as the ll:voice-input
+// module above. No navigator/window/DOM reads inside either function; call
+// sites pass in navigator.userAgent and the actual SW state.
+/* ll:install-env:start */
+function detectInstallEnvironment(ua) {
+  // Total: any non-string (undefined, null, a number, an object, garbage)
+  // collapses to "", which matches nothing below and resolves to the safe
+  // 'unknown' path instead of throwing inside .test().
+  const safeUa = typeof ua === "string" ? ua : "";
+  const isIOS = /iphone|ipad|ipod/i.test(safeUa);
+  const isAndroid = /android/i.test(safeUa);
+  // Case-insensitive: some X5 builds vary MicroMessenger's casing.
+  const isWeChat = /micromessenger/i.test(safeUa);
+  let installPath;
+  if (isWeChat) installPath = "wechat"; // iOS or Android — same honest-fallback path
+  else if (isIOS) installPath = "ios-safari";
+  else if (isAndroid) installPath = "android-prompt";
+  else installPath = "unknown"; // default for garbage/desktop/unrecognized UAs
+  return { isIOS, isAndroid, isWeChat, installPath };
+}
+
+// Derives whether the app can honestly claim "offline ready" from the
+// ACTUAL registration outcome, replacing the assumption that register()
+// succeeding just because it was called (the bug this fixes:
+// `.register('./sw.js').catch(() => {})` swallowed every failure silently).
+// `registrationState` is one of 'pending' | 'success' | 'failed'; anything
+// else defaults to 'pending' (the conservative "don't claim readiness,
+// don't alarm the parent yet" state — a real answer is still in flight).
+// Controller presence is the ground truth for "can this device actually
+// serve cached assets right now" — independent of whether THIS particular
+// register() call resolved or rejected, so a transient failure on an
+// already-controlled page never false-alarms a parent who is already
+// offline-capable.
+function deriveOfflineReadiness(state) {
+  const s = state && typeof state === "object" ? state : {};
+  const supported = s.supported === true;
+  const registrationState = ["pending", "success", "failed"].includes(s.registrationState)
+    ? s.registrationState : "pending";
+  const hasController = s.hasController === true;
+
+  if (!supported) {
+    return { offlineReady: false, status: "unsupported", showFailureToast: false };
+  }
+  const offlineReady = hasController;
+  const showFailureToast = registrationState === "failed" && !hasController;
+  return { offlineReady, status: registrationState, showFailureToast };
+}
+/* ll:install-env:end */
+
+const installEnv = detectInstallEnvironment(navigator.userAgent);
+
 // ── Service Worker ─────────────────────────────────────
 if ('serviceWorker' in navigator) {
   // Auto-reload when a new SW takes control — ensures deploys reach users instantly
@@ -3871,7 +3970,24 @@ if ('serviceWorker' in navigator) {
   });
 
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
+    navigator.serviceWorker.register('./sw.js').catch(() => {
+      // Real failure now produces a real signal instead of being swallowed.
+      // showFailureToast is false when a controller is already present (a
+      // transient re-registration failure on an already offline-capable
+      // page), so this never false-alarms.
+      const readiness = deriveOfflineReadiness({
+        supported: true,
+        registrationState: 'failed',
+        hasController: !!navigator.serviceWorker.controller,
+      });
+      // WeChat parents already get the fuller, more actionable banner+sheet
+      // explanation (below) for this exact root cause — firing this toast
+      // too would give them two competing messages for one cause (deliberate
+      // product decision, not a bug).
+      if (readiness.showFailureToast && installEnv.installPath !== 'wechat') {
+        showOfflineToast('⚠️ 离线功能暂不可用 — 联网时可正常使用');
+      }
+    });
   });
 }
 
@@ -4114,13 +4230,33 @@ function setupVoiceInputs() {
 setupVoiceInputs();
 
 // ── Install prompt ─────────────────────────────────────
+// installEnv was computed once, above, from detectInstallEnvironment() —
+// same value reused here so the SW-failure toast suppression and the
+// banner/sheet routing below can never disagree about which environment
+// this parent is in.
 let deferredInstallPrompt = null;
-const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const isIOS = installEnv.isIOS;
 const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
                      window.navigator.standalone === true;
 
 if (!isStandalone) {
-  if (isIOS) {
+  if (installEnv.installPath === 'wechat') {
+    // WeChat's in-app webview (iOS WKWebView or Android X5/XWEB) commonly
+    // can't add-to-home-screen and often never fires beforeinstallprompt —
+    // route BOTH platforms to the same honest "open in your real browser"
+    // banner + sheet instead of the Safari-only / Android-only paths below.
+    // Deliberately does NOT also register beforeinstallprompt or the
+    // install-prompt click handler (no double-binding the banner button).
+    setTimeout(() => {
+      if (!localStorage.getItem('ll_wechat_install_dismissed')) {
+        document.getElementById('installHeadline').textContent = '微信里无法安装到主屏幕';
+        document.getElementById('installSub').textContent = '换个浏览器打开，几秒就能装';
+        document.getElementById('installBtn').textContent = '看方法';
+        document.getElementById('installBtn').onclick = openIosSheet;
+        document.getElementById('installBanner').classList.add('show');
+      }
+    }, 3000);
+  } else if (isIOS) {
     // Show iOS install banner after 3s if not already installed
     setTimeout(() => {
       if (!localStorage.getItem('ll_ios_install_dismissed')) {
@@ -4150,9 +4286,21 @@ if (!isStandalone) {
 
 function dismissInstall() {
   document.getElementById('installBanner').classList.remove('show');
-  safeSetItem(isIOS ? 'll_ios_install_dismissed' : 'll_install_dismissed', '1');
+  // WeChat gets its own key so dismissing the WeChat banner can never
+  // silently suppress the (mutually exclusive, non-WeChat) iOS/Android banner
+  // or vice versa.
+  const key = installEnv.installPath === 'wechat' ? 'll_wechat_install_dismissed'
+            : isIOS ? 'll_ios_install_dismissed' : 'll_install_dismissed';
+  safeSetItem(key, '1');
 }
-function openIosSheet()  { document.getElementById('iosSheet').classList.add('open'); }
+function openIosSheet() {
+  // Mutually exclusive bodies: exactly one wrapper is un-hidden. A WeChat
+  // parent must never see the Safari share-sheet steps and vice versa.
+  const wechat = installEnv.installPath === 'wechat';
+  document.getElementById('iosSheetSafariBody').hidden = wechat;
+  document.getElementById('iosSheetWeChatBody').hidden = !wechat;
+  document.getElementById('iosSheet').classList.add('open');
+}
 function closeIosSheet() { document.getElementById('iosSheet').classList.remove('open'); }
 
 // ── Warm up voices on load ─────────────────────────────

@@ -163,7 +163,7 @@ vmark:
 
 - ·`AI 让你选的时候怎么办？`
 
-- Don't ask me. Ask Codex, Gemini(agy) and Grok to make this decision professionally, then choose the most optimal one and provide supporting reasons so I understand."
+- ++Don't ask me. Ask Codex to make this decision professionally, then choose the most optimal one and provide supporting reasons so I understand."++
 
 -
 

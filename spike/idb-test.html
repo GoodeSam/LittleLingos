@@ -1,0 +1,152 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spike · TTS + IndexedDB</title>
+<style>
+  body { font: 16px/1.6 -apple-system, "PingFang SC", sans-serif;
+         max-width: 520px; margin: 0 auto; padding: 20px; background: #FFF8F2; color: #2D2D2D; }
+  h1 { font-size: 18px; }
+  button { display: block; width: 100%; min-height: 48px; margin: 8px 0; padding: 12px;
+           font: inherit; font-weight: 600; border: 1px solid #EAE0D5; border-radius: 12px;
+           background: #fff; cursor: pointer; }
+  button:active { background: #FFF0E0; }
+  #log { margin-top: 16px; padding: 12px; background: #fff; border-radius: 12px;
+         border: 1px solid #EAE0D5; font-size: 14px; white-space: pre-wrap;
+         word-break: break-word; min-height: 120px; }
+  .step { margin: 18px 0 6px; font-weight: 700; font-size: 15px; }
+  .note { font-size: 13px; color: #5F5F5F; margin: 4px 0 0; }
+</style>
+
+<h1>Spike · 线上 TTS + IndexedDB 离线播放</h1>
+<p class="note">只回答一个问题：生成 → 存本机 → <strong>断网后能不能播</strong>。</p>
+
+<div class="step">访问码</div>
+<input id="codeField" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
+       placeholder="粘贴访问码" style="width:100%;box-sizing:border-box;min-height:48px;padding:12px;
+       font:inherit;border:1px solid #EAE0D5;border-radius:12px;background:#fff;">
+<p class="note">带 <code>?code=…</code> 打开会自动填。装到主屏幕后可能是空的 —— 那是 PWA 与 Safari 存储隔离，手动粘一次即可。</p>
+
+<div class="step">① 生成并存入 IndexedDB（需要联网）</div>
+<button onclick="generate()">生成 “Do not step on the snail shell.”</button>
+
+<div class="step">② 播放（这一步不联网）</div>
+<button onclick="playFromDb()">从 IndexedDB 播放</button>
+<p class="note">把手机切到飞行模式再点这个 —— 这是本次 spike 的判据。</p>
+
+<div class="step">③ 诊断</div>
+<button onclick="inspect()">看看库里存了什么</button>
+<button onclick="clearDb()">清空</button>
+
+<div id="log">等待操作…</div>
+
+<script>
+const DB = "ll-spike", STORE = "audio", KEY = "snail";
+const el = document.getElementById("log");
+let lines = [];
+function log(s) { lines.unshift(new Date().toTimeString().slice(0,8) + "  " + s);
+                  el.textContent = lines.slice(0, 12).join("\n"); }
+
+// Minimal IndexedDB wrapper. Promise-based because the raw API is
+// event-driven and unreadable inline.
+function openDb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function idbPut(k, v) {
+  return openDb().then(db => new Promise((res, rej) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(v, k);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  }));
+}
+function idbGet(k) {
+  return openDb().then(db => new Promise((res, rej) => {
+    const r = db.transaction(STORE, "readonly").objectStore(STORE).get(k);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  }));
+}
+
+// Access code. Read live on each call rather than captured once at load:
+// the code can arrive three ways and the page must work whichever it is.
+//
+// The URL is checked FIRST and the visible field is filled from it, because
+// installing to the home screen produces a separate storage area from Safari
+// (tech-constraints C9) — a code saved while in Safari is simply not there
+// inside the PWA. That is exactly the constraint this project documented and
+// then walked into on the first try.
+function getAccess() {
+  const fromField = document.getElementById("codeField").value.trim();
+  if (fromField) return fromField;
+  return localStorage.getItem("ll_access") || "";
+}
+
+(function seedCode() {
+  const fromUrl = new URLSearchParams(location.search).get("code");
+  const stored = (() => { try { return localStorage.getItem("ll_access"); } catch { return null; } })();
+  const code = fromUrl || stored || "";
+  if (code) document.getElementById("codeField").value = code;
+  if (fromUrl) {
+    try { localStorage.setItem("ll_access", fromUrl); } catch {}
+    history.replaceState(null, "", location.pathname);
+  }
+  log(code ? "访问码已就位（" + code.length + " 位）" : "⚠️ 没有访问码 — 手动粘贴进上面的框");
+})();
+
+async function generate() {
+  const ACCESS = getAccess();
+  if (!ACCESS) { log("✗ 上面的框里没有访问码 — 粘贴进去再点"); return; }
+  log("调用 /api/tts …");
+  try {
+    const t0 = Date.now();
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-LL-Access": ACCESS },
+      body: JSON.stringify({ text: "Do not step on the snail shell." }),
+    });
+    if (!res.ok) { log("✗ HTTP " + res.status + " — " + (await res.text()).slice(0,120)); return; }
+    const blob = await res.blob();
+    log(`✓ 拿到 ${blob.size} 字节 (${blob.type})，用时 ${Date.now()-t0}ms`);
+    // Store the Blob itself, not a data URL: a base64 string is ~33% larger
+    // and has to be re-decoded on every play.
+    await idbPut(KEY, blob);
+    log("✓ 已存入 IndexedDB");
+  } catch (e) { log("✗ " + e.message); }
+}
+
+async function playFromDb() {
+  try {
+    const blob = await idbGet(KEY);
+    if (!blob) { log("✗ 库里没有 — 先点①"); return; }
+    log(`读到 ${blob.size} 字节，播放中…`);
+    const url = URL.createObjectURL(blob);
+    const a = new Audio(url);
+    a.onended = () => { log("✓ 播完 — 若此刻断网，说明离线可用"); URL.revokeObjectURL(url); };
+    a.onerror = () => log("✗ 播放失败: " + (a.error && a.error.code));
+    await a.play();
+  } catch (e) { log("✗ " + e.message); }
+}
+
+async function inspect() {
+  try {
+    const blob = await idbGet(KEY);
+    log(blob ? `库里有: ${blob.size} 字节, type=${blob.type || "(空)"}` : "库是空的");
+    if (navigator.storage && navigator.storage.estimate) {
+      const q = await navigator.storage.estimate();
+      log(`配额: 已用 ${(q.usage/1024).toFixed(0)}KB / 可用 ${(q.quota/1048576).toFixed(0)}MB`);
+    } else log("navigator.storage.estimate 不可用");
+  } catch (e) { log("✗ " + e.message); }
+}
+
+async function clearDb() {
+  try { await idbPut(KEY, undefined); log("已清空"); }
+  catch (e) { log("✗ " + e.message); }
+}
+
+log("就绪。navigator.onLine = " + navigator.onLine);
+</script>

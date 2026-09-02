@@ -716,6 +716,35 @@
 
     /* Saved screen */
     .saved-screen-list { padding: 12px 16px calc(100px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
+
+    /* ── Backup / restore ──────────────────────────────
+       Sits below .saved-screen-list, which already carries the nav-bar
+       bottom padding; this block re-applies it so the last button clears
+       the nav bar on its own. Pulled up by the same amount the list pads
+       down, so the two don't stack into a screen of empty space. */
+    .backup-section {
+      margin-top: -88px;
+      padding: 16px 16px calc(100px + env(safe-area-inset-bottom));
+      border-top: 1px solid var(--border);
+    }
+    .backup-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    .backup-note  { font-size: 13px; line-height: 1.6; color: var(--muted); margin: 0 0 12px; }
+    .backup-actions { display: flex; gap: 10px; }
+    .backup-btn {
+      flex: 1; min-height: 44px; padding: 12px;
+      border: 1px solid var(--border); border-radius: 12px;
+      background: var(--card); color: var(--text);
+      font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer;
+      touch-action: manipulation;
+      user-select: none; /* long-press must not select the label */
+    }
+    .backup-btn:active { background: var(--warm); }
+    .backup-status {
+      margin-top: 12px; padding: 10px 12px; border-radius: 10px;
+      font-size: 14px; line-height: 1.5;
+      background: var(--warm); color: var(--text);
+    }
+    .backup-status.is-error { background: #FFE8E4; color: #A03325; }
     .saved-item {
       background: var(--card);
       border-radius: 12px;
@@ -1606,6 +1635,26 @@
   </div>
   <div class="review-area" id="reviewArea"></div>
   <div class="saved-screen-list" id="savedScreenList"></div>
+
+  <!-- Backup / restore. Lives at the bottom of the saved screen because that
+       is where a parent can see what they'd be losing. -->
+  <div class="backup-section">
+    <div class="backup-title">备份与恢复</div>
+    <p class="backup-note">
+      收藏和复习进度只存在这台设备上。删除主屏幕图标或换手机都会丢失，
+      建议隔一段时间导出一次。<br>
+      导出会同时生成两个文件：<strong>.json</strong> 用来恢复，
+      <strong>.csv</strong> 可以用表格软件打开查看。
+    </p>
+    <div class="backup-actions">
+      <button class="backup-btn" type="button" onclick="exportUserData()">↓ 导出备份</button>
+      <button class="backup-btn" type="button" onclick="document.getElementById('importFile').click()">↑ 恢复备份</button>
+    </div>
+    <!-- Reset in the change handler so picking the same file twice re-fires. -->
+    <input type="file" id="importFile" accept="application/json,.json,text/csv,.csv" hidden
+           onchange="importUserData(this)">
+    <div class="backup-status" id="backupStatus" hidden></div>
+  </div>
 </div>
 
 <!-- ════════════════════════════════════════════════════
@@ -4228,6 +4277,353 @@ function setupVoiceInputs() {
 /* ll:voice-input:end */
 
 setupVoiceInputs();
+
+// ── Backup / restore ───────────────────────────────────
+/* ll:data-export:start */
+// Pure logic for taking a backup and putting one back. Touches neither the
+// DOM nor localStorage so test/data-export.test.mjs can run it in a bare vm
+// context; the surrounding UI functions do the I/O.
+//
+// Why this exists: on iOS a home-screen PWA and Safari at the same URL get
+// SEPARATE storage. A parent's saved phrases and review progress live in
+// exactly one place — that PWA's sandbox — with no second copy anywhere.
+// Delete the icon and months of work are gone, with no way back.
+//
+// Why restoring MERGES instead of overwriting: the backup file is history,
+// the device is the present. Letting an older file overwrite this device
+// would silently discard review progress made since the backup — and there
+// is no undo, because the thing it overwrote was the only copy.
+const EXPORT_SCHEMA = 1;
+const EXPORT_APP = "LittleLingos";
+
+// A record is restorable only if we can key it. Everything else about a saved
+// item is optional or reconstructible; the id is not — without it the item
+// can't be de-duplicated on merge, so it would multiply on every restore.
+function isRestorableRecord(r) {
+  return !!r && typeof r === "object" && !Array.isArray(r)
+      && typeof r.id === "string" && r.id.length > 0;
+}
+
+function buildExportPayload({ saved, age }) {
+  return {
+    schema: EXPORT_SCHEMA,
+    app: EXPORT_APP,
+    // ISO 8601 so a parent holding three backups can tell which is newest
+    // without opening them.
+    exportedAt: new Date().toISOString(),
+    age: typeof age === "string" ? age : null,
+    // rv (review progress) rides along inside each record — dropping it would
+    // restore the phrases but silently reset months of spaced repetition.
+    saved: Array.isArray(saved) ? saved.filter(isRestorableRecord) : [],
+  };
+}
+
+// Returns {ok:true, payload} or {ok:false, error}. The error codes are what
+// the UI turns into a specific message — "this file isn't from this app" is
+// actionable, "import failed" is not.
+function parseImportPayload(text) {
+  let data;
+  try { data = JSON.parse(text); }
+  catch { return { ok: false, error: "not-json" }; }
+
+  // A bare array or number parses fine but is not an export file.
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { ok: false, error: "not-json" };
+  }
+  if (data.app !== EXPORT_APP) return { ok: false, error: "wrong-app" };
+  // Refuse a schema we don't know rather than guessing at the shape: a wrong
+  // guess writes malformed records into the only copy of the parent's data.
+  if (data.schema !== EXPORT_SCHEMA) return { ok: false, error: "unknown-schema" };
+  if (!Array.isArray(data.saved)) return { ok: false, error: "no-saved" };
+
+  return {
+    ok: true,
+    payload: {
+      age: typeof data.age === "string" ? data.age : null,
+      // Individual junk records are dropped, not fatal — one bad row must
+      // never cost the parent the other 200 good ones.
+      saved: data.saved.filter(isRestorableRecord),
+    },
+  };
+}
+
+// Merge, never overwrite. An id already on this device wins over the backup's
+// copy of it. Returns a NEW array — callers pass their live savedPhrases in
+// and must not have it mutated under them mid-merge.
+function mergeSaved(existing, incoming) {
+  const base = (Array.isArray(existing) ? existing : []).filter(isRestorableRecord);
+  const have = new Set(base.map(r => r.id));
+  const merged = base.slice();
+  let added = 0, skipped = 0;
+  for (const r of (Array.isArray(incoming) ? incoming : [])) {
+    if (!isRestorableRecord(r)) continue;
+    if (have.has(r.id)) { skipped++; continue; }
+    have.add(r.id);
+    merged.push(r);
+    added++;
+  }
+  return { merged, added, skipped };
+}
+
+// ── CSV backup ─────────────────────────────────────────
+// A second format alongside the JSON one, for a parent who wants to actually
+// look at what they saved. JSON is the durable copy; CSV is the readable one.
+//
+// CSV is the more fragile of the two, and deliberately so: opening it in
+// Excel and pressing save can silently rewrite a 13-digit timestamp as
+// 1.7256E+12. parseCsvBackup() drops any record it can't read back as a
+// number rather than guessing at a date — a wrong due date is worse than a
+// missing record, because the parent would never notice it.
+//
+// Columns are fixed. The three saved shapes carry different fields (scenario
+// phrases have tier/why/next/fallback, translations have source, dictionary
+// words have senseLabel and no age band at all), so a record's missing fields
+// export as empty and come back absent — never as the string "undefined".
+// Every line carries its kind in the first column, so the reader never has to
+// infer one from the shape of the row. That buys two things a plain table
+// can't have at once: the app-wide age band gets a row of its own (kind
+// "meta") without pretending to be a phrase with a missing id, and an empty
+// library still round-trips its settings.
+const CSV_COLUMNS = [
+  "rowType", "id", "en", "zh", "scenario", "age", "tier",
+  "tip", "why", "next", "fallback", "senseLabel", "source",
+  "savedAt", "rv_s", "rv_due", "currentAge",
+];
+const CSV_NUMERIC = new Set(["savedAt", "rv_s", "rv_due"]);
+
+// A quoted CSV cell cannot tell "field absent" from "field present but
+// empty" — both read back as "". Rather than guessing per column, each kind
+// declares which fields belong to it: a field IN the list is restored even
+// when empty (an AI translation's `tip: ""` is a real stored value, since
+// saveTranslation writes `tip: r.tip || ""`), and a field not in the list is
+// ignored no matter what the cell holds. Absence is decided by the record's
+// kind, not inferred from emptiness.
+const CSV_FIELDS_BY_TYPE = {
+  phrase:     ["id", "en", "zh", "scenario", "age", "tier", "tip", "why", "next", "fallback"],
+  translation:["id", "en", "zh", "scenario", "age", "tip", "source"],
+  dictionary: ["id", "en", "zh", "scenario", "tip", "senseLabel"],
+};
+
+// Which kind a saved record is. Mirrors the three save paths: saveTranslation
+// stamps scenario "__translate__", buildDictSaveEntry stamps "__dict__", and
+// everything else came from scenarios.js.
+function csvRowType(r) {
+  if (r.scenario === "__translate__" || (typeof r.id === "string" && r.id.startsWith("t_"))) return "translation";
+  if (r.scenario === "__dict__") return "dictionary";
+  return "phrase";
+}
+
+// Quote every field unconditionally: a bare field is only safe if it contains
+// no comma, quote, CR or LF, and phrase text contains all four. Doubling the
+// inner quote is the CSV spec's own escape.
+function csvCell(v) {
+  return '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+}
+
+function csvLine(cells) {
+  return CSV_COLUMNS.map(col => csvCell(cells[col])).join(",");
+}
+
+function buildCsvBackup({ saved, age }) {
+  const rows = [
+    CSV_COLUMNS.map(csvCell).join(","),
+    // The settings row. It is a legitimate kind of row, not a phrase with
+    // fields missing, so a clean file reports zero damage even when the
+    // library is empty.
+    csvLine({ rowType: "meta", currentAge: typeof age === "string" ? age : "" }),
+  ];
+  for (const r of (Array.isArray(saved) ? saved : []).filter(isRestorableRecord)) {
+    const type = csvRowType(r);
+    const cells = { rowType: type };
+    for (const col of CSV_FIELDS_BY_TYPE[type]) cells[col] = r[col];
+    if (r.rv && typeof r.rv.s === "number")   cells.rv_s   = r.rv.s;
+    if (r.rv && typeof r.rv.due === "number") cells.rv_due = r.rv.due;
+    if (typeof r.savedAt === "number")        cells.savedAt = r.savedAt;
+    rows.push(csvLine(cells));
+  }
+  // BOM first: without it Excel decodes UTF-8 as the local codepage and every
+  // Chinese field arrives as mojibake.
+  return "﻿" + rows.join("\r\n") + "\r\n";
+}
+
+// Split CSV text into rows of fields. Hand-rolled because a field may itself
+// contain a comma, a quote, or a newline — split(",") corrupts all three.
+function csvRows(text) {
+  const out = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c !== '"') { field += c; continue; }
+      if (text[i + 1] === '"') { field += '"'; i++; continue; }  // "" -> literal "
+      inQuotes = false;
+      continue;
+    }
+    if (c === '"') { inQuotes = true; continue; }
+    if (c === ",") { row.push(field); field = ""; continue; }
+    if (c === "\r" && text[i + 1] === "\n") { i++; row.push(field); out.push(row); row = []; field = ""; continue; }
+    if (c === "\n" || c === "\r") { row.push(field); out.push(row); row = []; field = ""; continue; }
+    field += c;
+  }
+  if (field !== "" || row.length) { row.push(field); out.push(row); }
+  return out;
+}
+
+function parseCsvBackup(text) {
+  const rows = csvRows(String(text || "").replace(/^﻿/, ""));
+  if (!rows.length) return { ok: false, error: "empty" };
+
+  const header = rows[0];
+  // Identify the file by its columns. Anything without them — another app's
+  // export, or a JSON file fed to the wrong reader — is refused outright
+  // rather than half-imported as one very long row.
+  for (const required of ["rowType", "id", "en", "savedAt", "rv_due"]) {
+    if (!header.includes(required)) return { ok: false, error: "wrong-columns" };
+  }
+  const idx = {};
+  header.forEach((h, i) => { idx[h] = i; });
+
+  const saved = [];
+  let dropped = 0, age = null;
+
+  for (const row of rows.slice(1)) {
+    // A short row means the file was truncated or a spreadsheet rewrote it;
+    // reading it would silently shift every value one column left.
+    if (row.length !== header.length) { dropped++; continue; }
+
+    const get = col => (idx[col] === undefined ? "" : row[idx[col]]);
+    const type = get("rowType");
+
+    if (type === "meta") { age = get("currentAge") || age; continue; }
+    if (!CSV_FIELDS_BY_TYPE[type]) { dropped++; continue; }
+
+    const id = get("id");
+    if (!id) { dropped++; continue; }
+
+    // Excel turns a 13-digit timestamp into 1.7256E+12 on save. Number()
+    // would happily accept that and hand back a plausible-looking wrong date,
+    // so require the text to be plain digits.
+    const nums = {}; let bad = false;
+    for (const col of CSV_NUMERIC) {
+      const raw = get(col);
+      if (!/^\d+$/.test(raw)) { bad = true; break; }
+      nums[col] = Number(raw);
+    }
+    if (bad) { dropped++; continue; }
+
+    // The row's kind decides which fields it has. A field in the list is
+    // restored even when empty; one that isn't is ignored regardless.
+    const rec = {};
+    for (const col of CSV_FIELDS_BY_TYPE[type]) rec[col] = get(col);
+    rec.savedAt = nums.savedAt;
+    rec.rv = { s: nums.rv_s, due: nums.rv_due };
+    saved.push(rec);
+  }
+
+  return { ok: true, payload: { age, saved, dropped } };
+}
+/* ll:data-export:end */
+
+// ── Backup / restore UI (I/O; the logic above stays pure) ──
+function showBackupStatus(msg, isError) {
+  const el = document.getElementById("backupStatus");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle("is-error", !!isError);
+  el.hidden = false;
+}
+
+function downloadBlob(text, name, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoke late, not synchronously: some browsers have not finished reading
+  // the blob when click() returns, and revoking early yields a zero-byte
+  // file — a backup that looks taken but restores nothing, which is worse
+  // than a visible failure.
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function exportUserData() {
+  const payload = buildExportPayload({ saved: savedPhrases, age: currentAge });
+  const stamp = payload.exportedAt.slice(0, 10);
+
+  // Two formats, one tap. JSON is the durable copy — nothing can rewrite it
+  // by accident. CSV opens in a spreadsheet, which is also how it gets
+  // damaged; the reader drops any record a spreadsheet mangled rather than
+  // restoring a wrong date.
+  downloadBlob(JSON.stringify(payload, null, 2),
+               `littlelingos-backup-${stamp}.json`, "application/json");
+  // Second click in the same gesture: some browsers block back-to-back
+  // downloads, so let the first settle before starting the second.
+  setTimeout(() => {
+    downloadBlob(buildCsvBackup({ saved: savedPhrases, age: currentAge }),
+                 `littlelingos-backup-${stamp}.csv`, "text/csv;charset=utf-8");
+  }, 400);
+
+  showBackupStatus(
+    `已导出 ${payload.saved.length} 条收藏，共两个文件：\n` +
+    `· .json —— 用来恢复，别用表格软件打开\n` +
+    `· .csv —— 用表格软件可以查看\n` +
+    `如果只看到一个文件或没有下载，长按上面的按钮选择「下载链接文件」，或用 Safari 打开本站再试。`
+  );
+}
+
+function importUserData(input) {
+  const file = input.files && input.files[0];
+  // Reset first so choosing the same file again re-fires change.
+  input.value = "";
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onerror = () => showBackupStatus("读不到这个文件，请再试一次", true);
+  reader.onload = () => {
+    const text = String(reader.result);
+    // Accept either export. Which one a parent picks is not something they
+    // should have to think about — both came from the same tap.
+    const isCsv = /\.csv$/i.test(file.name) || text.replace(/^﻿/, "").startsWith('"rowType"');
+    const parsed = isCsv ? parseCsvBackup(text) : parseImportPayload(text);
+    if (!parsed.ok) {
+      // Specific message per failure — "导入失败" tells a parent nothing
+      // about what to do next.
+      const why = {
+        "not-json": "这不是备份文件（可能选错了图片或其他文件）",
+        "wrong-app": "这是别的应用导出的文件",
+        "unknown-schema": "这个备份来自更新的版本，当前版本读不了",
+        "no-saved": "文件不完整，可能下载到一半中断了",
+        "wrong-columns": "这不是 LittleLingos 导出的表格",
+        "empty": "这个文件是空的",
+      }[parsed.error] || "文件无法读取";
+      showBackupStatus(why, true);
+      return;
+    }
+
+    const { merged, added, skipped } = mergeSaved(savedPhrases, parsed.payload.saved);
+    savedPhrases = merged;
+    safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+    if (parsed.payload.age) {
+      currentAge = parsed.payload.age;
+      safeSetItem("ll_age", currentAge);
+    }
+    updateNavBadge();
+    renderReviewArea();
+    renderSavedScreen();
+
+    let msg = `已恢复 ${added} 条收藏`;
+    if (skipped) msg += `，跳过 ${skipped} 条（这台设备上已经有了，保留了本机的复习进度）`;
+    // A CSV that a spreadsheet rewrote loses records silently unless this is
+    // said out loud — the parent needs to know their backup is damaged while
+    // they still have the original.
+    const dropped = parsed.payload.dropped || 0;
+    if (dropped) msg += `\n⚠️ 有 ${dropped} 条读不出来，已跳过。表格文件被编辑保存过可能导致这个，建议改用 .json 那份恢复。`;
+    showBackupStatus(msg, dropped > 0);
+  };
+  reader.readAsText(file);
+}
 
 // ── Install prompt ─────────────────────────────────────
 // installEnv was computed once, above, from detectInstallEnvironment() —

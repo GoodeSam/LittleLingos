@@ -5,6 +5,8 @@
 // Env vars (set in Netlify UI → Site settings → Environment variables):
 //   GEMINI_API_KEY  — required
 //   GEMINI_MODEL    — optional, defaults to "gemini-2.5-flash"
+//   LL_ACCESS_CODE  — required; without it this endpoint refuses everyone
+import { isAuthorized, refuse } from "./_shared/access.mjs";
 
 const VALID_AGES = new Set(["1-2", "2-3", "3-6"]);
 const MAX_INPUT_LEN = 200;
@@ -210,6 +212,10 @@ export default async (req) => {
   if (req.method !== "POST") {
     return Response.json({ error: "POST only" }, { status: 405 });
   }
+
+  // Before the key is read and long before anything is called: a refusal that
+  // has already reached Gemini costs the same as an accepted request.
+  if (!isAuthorized(req)) return refuse();
 
   const geminiKey = process.env.GEMINI_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;

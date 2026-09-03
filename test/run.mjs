@@ -47,6 +47,7 @@ step("L0 · voice-input module behavior (test/voice-input.test.mjs)", () => run(
 step("L0 · install-env module behavior (test/install-env.test.mjs)", () => run("node", ["test/install-env.test.mjs"]));
 step("L0 · backup export/import round trip (test/data-export.test.mjs)", () => run("node", ["test/data-export.test.mjs"]));
 step("L0 · CSV backup format (test/data-export-csv.test.mjs)", () => run("node", ["test/data-export-csv.test.mjs"]));
+step("L0 · access code on the client (test/access-code-client.test.mjs)", () => run("node", ["test/access-code-client.test.mjs"]));
 step("L0 · access control on paid endpoints (test/access-control.test.mjs)", () => run("node", ["test/access-control.test.mjs"]));
 step("L0 · service-worker behavior (test/sw.test.mjs)", () => run("node", ["test/sw.test.mjs"]));
 step("L0 · dictionary API behavior (test/dictionary-api.test.mjs)", () => run("node", ["test/dictionary-api.test.mjs"]));

@@ -18,6 +18,10 @@
 //   GEMINI_API_KEY  — required
 //   GEMINI_MODEL    — optional, defaults to "gemini-2.5-flash"
 
+// LL_ACCESS_CODE is required alongside GEMINI_API_KEY; without it this
+// endpoint refuses everyone. See netlify/functions/_shared/access.mjs.
+import { isAuthorized, refuse } from "./_shared/access.mjs";
+
 // Generous enough for a phrasal verb ("look after", "give up") but well
 // short of anything that isn't a single word/short phrase lookup.
 const MAX_INPUT_LEN = 40;
@@ -119,6 +123,10 @@ const handler = async (req) => {
   if (req.method !== "POST") {
     return Response.json({ error: "POST only" }, { status: 405 });
   }
+
+  // Before the key is read and before the cache is consulted: a refusal that
+  // has already reached Gemini costs the same as an accepted request.
+  if (!isAuthorized(req)) return refuse();
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {

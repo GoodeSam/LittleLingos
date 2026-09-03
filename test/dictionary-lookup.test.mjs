@@ -45,6 +45,12 @@ const swSrc = readFileSync(join(ROOT, "sw.js"), "utf8");
 const START = "/* ll:dictionary-lookup:start */";
 const END = "/* ll:dictionary-lookup:end */";
 
+// The lookup module depends on the access-code module (accessHeaders()).
+// Both are run into the same vm realm — see makeEnv().
+const ACCESS_START = "/* ll:access-code:start */";
+const ACCESS_END = "/* ll:access-code:end */";
+const ACCESS_CODE = "test-access-code-1234";
+
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
@@ -203,9 +209,32 @@ function makeEnv({
     resetPlayBtnState(btn) { resetPlayBtnStateCalls.push(btn); if (btn) btn.__playing = false; },
     flashAudioUnavailable(btn) { flashAudioUnavailableCalls.push(btn); },
     speakText(text, rate, btn, session) { speakTextCalls.push({ text, rate, btn, session }); },
+    // Browser storage is outside this project's control, so it is stubbed —
+    // but the access-code module running on top of it is the REAL one (see
+    // below). Seeded with a code so the two paid fetch() calls carry the
+    // X-LL-Access header exactly as they do in production.
+    localStorage: (() => {
+      const map = new Map([["ll_access", ACCESS_CODE]]);
+      return {
+        getItem: k => (map.has(k) ? map.get(k) : null),
+        setItem: (k, v) => map.set(k, String(v)),
+        removeItem: k => map.delete(k),
+      };
+    })(),
     console,
   };
   vm.createContext(ctx);
+  // The lookup module calls accessHeaders(), which lives in a DIFFERENT
+  // marker block. Rather than hand-writing a stub — which would silently
+  // drift from the real thing the day accessHeaders() changes shape — the
+  // real ll:access-code source is run into this same realm first. That makes
+  // these 105 assertions also guard the contract between the two blocks.
+  const as = html.indexOf(ACCESS_START), ae = html.indexOf(ACCESS_END);
+  assert.ok(as !== -1 && ae !== -1, `index.html must contain ${ACCESS_START} … ${ACCESS_END} markers`);
+  vm.runInContext(html.slice(as, ae + ACCESS_END.length), ctx);
+  assert.equal(typeof ctx.accessHeaders, "function",
+    "the access-code block must define accessHeaders() — the lookup module calls it on every network lookup");
+
   const s = html.indexOf(START), e = html.indexOf(END);
   assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
   vm.runInContext(html.slice(s, e + END.length), ctx);

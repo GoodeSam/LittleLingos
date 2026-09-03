@@ -1638,6 +1638,25 @@
 
   <!-- Backup / restore. Lives at the bottom of the saved screen because that
        is where a parent can see what they'd be losing. -->
+  <!-- Access code. Sits above backup because a parent sent here by an error
+       message needs to find it without scrolling past anything. -->
+  <div class="backup-section">
+    <div class="backup-title">邀请码</div>
+    <p class="backup-note">
+      翻译和查新单词需要邀请码。预设短语、已收藏内容的复习、精选词都不需要，
+      没有邀请码也照常使用。
+    </p>
+    <div class="backup-actions">
+      <input type="text" id="accessCodeInput" autocapitalize="off" autocorrect="off"
+             spellcheck="false" placeholder="粘贴邀请码"
+             style="flex:1;min-width:0;min-height:44px;padding:12px;font:inherit;
+                    border:1px solid var(--border);border-radius:12px;background:var(--card);">
+      <button class="backup-btn" type="button" style="flex:0 0 auto;"
+              onclick="saveAccessCode()">保存</button>
+    </div>
+    <div class="backup-status" id="accessCodeStatus" hidden></div>
+  </div>
+
   <div class="backup-section">
     <div class="backup-title">备份与恢复</div>
     <p class="backup-note">
@@ -2021,6 +2040,7 @@ function showTab(tab) {
     document.getElementById("savedScreen").classList.add("open");
     renderSavedScreen();
     renderReviewArea();
+    syncAccessCodeInput();
   } else if (tab === "translate") {
     document.getElementById("translateScreen").classList.add("open");
     // Main band is the single source of truth (rules/06 handoff below):
@@ -2974,11 +2994,22 @@ async function doTranslate() {
     const timer = setTimeout(() => controller.abort(), 12000);
     const res = await fetch("/api/translate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: accessHeaders(),
       body: JSON.stringify({ zh, age: translateAge }),
       signal: controller.signal,
     });
     clearTimeout(timer);
+    // A missing or wrong code is not an outage. Falling through to the catch
+    // below would hand the parent a local pattern-match result labelled
+    // "offline", and they would never learn why the good suggestions stopped.
+    // Shown in the disclaimer line rather than a toast: this asks them to go
+    // somewhere and do something, and a toast is gone in 3.5 seconds.
+    const accessMsg = accessErrorMessage(res.status);
+    if (accessMsg) {
+      document.getElementById("aiDisclaimer").textContent = "🔑 " + accessMsg;
+      document.getElementById("translateResult").classList.add("show");
+      return;
+    }
     if (!res.ok) throw new Error("bad status " + res.status);
     const result = await res.json();
     if (!result.en || !result.tip) throw new Error("incomplete result");
@@ -3660,6 +3691,10 @@ function renderDictLookupPanel(panel, view) {
   if (view.state === "loading") el.textContent = "⏳ 正在查询…";
   else if (view.state === "offline") el.textContent = DICT_OFFLINE_MESSAGE;
   else if (view.state === "not-english") el.textContent = DICT_NOT_ENGLISH_MESSAGE;
+  // An explicit message wins over the table: the access-code text differs by
+  // whether a code was ever entered, so it cannot be a fixed string keyed on
+  // the state alone.
+  else if (view.message) el.textContent = "🔑 " + view.message;
   else el.textContent = DICT_ERROR_MESSAGES[view.state] || "出错了，请稍后再试。";
   panel.appendChild(el);
   // "not-english" is actionable, not just explained (fix round ll-ea8a587e
@@ -3729,12 +3764,17 @@ function performDictLookup(query, panelId = "dictLookupPanel") {
 
   fetch("/api/dictionary", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: accessHeaders(),
     body: JSON.stringify({ word: String(query).trim() }),
     signal: controller ? controller.signal : undefined,
   }).then(res => {
     clearTimeout(timer);
     if (!isCurrentDictSession(session)) return;
+    // Only uncurated words reach this call at all, so a parent without a code
+    // still gets every curated word — the message has to say which of the two
+    // is missing, not that lookup is broken.
+    const accessMsg = accessErrorMessage(res.status);
+    if (accessMsg) return renderDictLookupPanel(panel, { state: "error-access", message: accessMsg });
     if (res.status === 400) return renderDictLookupPanel(panel, { state: "error-invalid" });
     if (res.status === 500) return renderDictLookupPanel(panel, { state: "error-nokey" });
     if (res.status === 502) return renderDictLookupPanel(panel, { state: "error-upstream" });
@@ -4277,6 +4317,97 @@ function setupVoiceInputs() {
 /* ll:voice-input:end */
 
 setupVoiceInputs();
+
+// ── Access code ────────────────────────────────────────
+/* ll:access-code:start */
+// The client half of the access gate. Two endpoints cost money per call
+// (translate, and dictionary lookups of uncurated words), so the server
+// refuses anything without a code — see netlify/functions/_shared/access.mjs
+// and ADR 0003.
+//
+// The code is typed by the parent and lives only in their browser. It cannot
+// be baked in: this is a public static site and anything in the bundle is
+// readable by anyone, which would make it not a code at all.
+const ACCESS_KEY = "ll_access";
+
+// Held in memory as well as in storage, and the memory copy wins.
+//
+// Storage can refuse a write — private browsing, a full quota, a locked-down
+// webview — and on iOS the installed PWA and Safari keep separate stores, so
+// a code entered in one is simply absent in the other (tech-constraints C9).
+// None of that should stop a parent translating right now. Losing the code on
+// reload is a fair cost; being unable to use the feature at all is not, and
+// it would look like the app is broken rather than unconfigured.
+let accessCodeMemo = null;
+
+function getAccessCode() {
+  if (accessCodeMemo !== null) return accessCodeMemo;
+  try { return localStorage.getItem(ACCESS_KEY) || ""; }
+  catch { return ""; }          // no storage at all, or reads throw
+}
+
+// Returns whether the code will survive a reload, so the UI can tell a parent
+// they will have to type it again rather than letting them find out later.
+function setAccessCode(code) {
+  // Trim: a pasted code very often carries a trailing space or newline, and
+  // the server compares exactly.
+  accessCodeMemo = String(code == null ? "" : code).trim();
+  try {
+    if (accessCodeMemo) localStorage.setItem(ACCESS_KEY, accessCodeMemo);
+    else localStorage.removeItem(ACCESS_KEY);
+    return true;
+  } catch { return false; }
+}
+
+// Callers hand this straight to fetch, so it carries the content type too —
+// returning only the access header would drop it and 400 every request.
+function accessHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  const code = getAccessCode();
+  // Absent rather than empty: a blank header reads as "tried with an empty
+  // code" instead of "never entered one", and those want different messages.
+  if (code) headers["X-LL-Access"] = code;
+  return headers;
+}
+
+// Returns null for anything that is not an access problem. A 500 is a server
+// configuration fault and a 502 is upstream; telling a parent to check their
+// code would send them off to fix the wrong thing.
+function accessErrorMessage(status) {
+  if (status !== 403) return null;
+  return getAccessCode()
+    ? "邀请码不对 — 请到「收藏 · 复习」页底部重新填写"
+    : "这个功能需要邀请码 — 请到「收藏 · 复习」页底部填写";
+}
+/* ll:access-code:end */
+
+// ── Access code UI (I/O; the logic above stays pure) ────
+function saveAccessCode() {
+  const input = document.getElementById("accessCodeInput");
+  const el = document.getElementById("accessCodeStatus");
+  const persisted = setAccessCode(input.value);
+  const code = getAccessCode();
+  input.value = code;
+
+  let msg;
+  if (!code) msg = "已清除邀请码。翻译和查新单词将不可用。";
+  else if (persisted) msg = "✓ 已保存。翻译和查新单词现在可以用了。";
+  // Storage refused the write. Say so plainly rather than letting a parent
+  // discover it after the next reload — the feature works right now either way.
+  else msg = "✓ 本次可用，但这台设备存不下来 —— 下次打开需要重新填写。";
+
+  el.textContent = msg;
+  el.classList.toggle("is-error", !code);
+  el.hidden = false;
+}
+
+// Prefill on entry so a parent can see whether one is already saved — and so
+// the installed PWA showing an empty box is itself the answer to "why does it
+// work in Safari but not here" (the two have separate storage).
+function syncAccessCodeInput() {
+  const input = document.getElementById("accessCodeInput");
+  if (input) input.value = getAccessCode();
+}
 
 // ── Backup / restore ───────────────────────────────────
 /* ll:data-export:start */

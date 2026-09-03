@@ -18,23 +18,45 @@ const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
 // ── env helpers: stub the key, always restore ──────────────────────────
+// LL_ACCESS_CODE is set alongside GEMINI_API_KEY because the endpoint now
+// sits behind the shared access gate; without it every test here would get
+// 403 (fail closed) for a reason unrelated to what it is checking.
+const ACCESS_CODE = "test-access-code-1234";
 const ENV_KEY = "GEMINI_API_KEY";
 function withKey(value, fn) {
   const prev = process.env[ENV_KEY];
+  const prevCode = process.env.LL_ACCESS_CODE;
   if (value === undefined) delete process.env[ENV_KEY];
   else process.env[ENV_KEY] = value;
+  process.env.LL_ACCESS_CODE = ACCESS_CODE;
   return Promise.resolve()
     .then(fn)
     .finally(() => {
       if (prev === undefined) delete process.env[ENV_KEY];
       else process.env[ENV_KEY] = prev;
+      if (prevCode === undefined) delete process.env.LL_ACCESS_CODE;
+      else process.env.LL_ACCESS_CODE = prevCode;
     });
 }
 
-// ── fetch stub helpers ──────────────────────────────────────────────────
-function makeReq(body, { method = "POST" } = {}) {
+// ── request stubs ───────────────────────────────────────────────────────
+// The handler reads req.headers as well as req.method and req.json(), so a
+// stand-in without headers throws before reaching anything these tests are
+// about. A real Headers is used so the gate's case-insensitive lookup behaves
+// the way it does in production.
+//
+// Every stub carries a valid code by default. These tests are about lookup
+// behavior, not about the gate — the gate's own behavior is covered in
+// test/access-control.test.mjs, and the one thing asserted here is that this
+// endpoint is in fact behind it.
+function makeHeaders(code = ACCESS_CODE) {
+  return new Headers(code === null ? {} : { "X-LL-Access": code });
+}
+
+function makeReq(body, { method = "POST", code } = {}) {
   return {
     method,
+    headers: makeHeaders(code),
     json: async () => {
       if (typeof body === "string") throw new Error("bad json"); // simulate parse failure path
       return body;
@@ -46,6 +68,7 @@ function makeReq(body, { method = "POST" } = {}) {
 function makeMalformedJsonReq() {
   return {
     method: "POST",
+    headers: makeHeaders(),
     json: async () => { throw new SyntaxError("Unexpected token"); },
   };
 }
@@ -64,6 +87,16 @@ function geminiOkFetchStub(payload, { calls } = {}) {
 }
 
 // ── cases ────────────────────────────────────────────────────────────────
+
+// Every other test here passes a valid code, which would hide the gate being
+// removed entirely. This one asserts the endpoint is behind it at all — the
+// gate's own edge cases live in test/access-control.test.mjs.
+test("this endpoint is behind the access gate — no code means 403", async () => {
+  await withKey("k", async () => {
+    const res = await handler(makeReq({ word: "run" }, { code: null }));
+    assert.equal(res.status, 403);
+  });
+});
 
 test("non-POST method -> 405", async () => {
   await withKey("k", async () => {

@@ -202,6 +202,30 @@ test("the free paths do not require a code", () => {
     `accessHeaders() appears ${calls.length} times — it belongs only at the paid call sites`);
 });
 
+// ══ 6. 换个入口要重填，界面得说清这不是故障 ═══════════════════════════
+
+test("the invite-code section explains that the home-screen app and the browser keep separate codes", () => {
+  // 家长在 Safari 里填好了码，第二天从主屏幕图标进去，发现又要填一次。
+  // 如果界面什么都不说，他唯一合理的结论是"这软件把我的码弄丢了"——
+  // 而这正是 tech-constraints C9 记录的平台事实（iOS 上 PWA 与 Safari
+  // 存储隔离），2026-09-03 在生产版本上第三次被真机确认。
+  //
+  // 这一条锁的是文案本身，不是代码行为。没有它，将来任何一次"精简文案"
+  // 都可能顺手把这句删掉，而没有任何东西会发现。
+  const from = html.indexOf('<div class="backup-title">邀请码</div>');
+  assert.ok(from !== -1, "invite-code section not found");
+  const to = html.indexOf('id="accessCodeStatus"', from);
+  assert.ok(to !== -1 && to > from, "invite-code section end not found");
+  const section = html.slice(from, to);
+
+  assert.match(section, /主屏幕/,
+    "must name the home-screen app — a parent needs to know WHICH two places differ");
+  assert.match(section, /浏览器|Safari/,
+    "must name the browser as the other place, or 'two places' is meaningless");
+  assert.match(section, /不是.{0,6}(错|坏|问题|故障)/,
+    "must say this is normal — without it a parent concludes the app lost their code");
+});
+
 // ── Runner ───────────────────────────────────────────────
 console.log("access-code client tests");
 let passed = 0, failed = 0;

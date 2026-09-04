@@ -1421,6 +1421,13 @@
       background: var(--card); color: inherit; cursor: pointer;
     }
     .scenario-card-add .s-name { opacity: .8; }
+    /* Spans the whole grid row so the two groups read as groups rather than
+       as a stray tile. */
+    .scenario-group-label {
+      grid-column: 1 / -1;
+      font-size: 15px; font-weight: 600; opacity: .6;
+      margin: 4px 0 2px;
+    }
 
     /* One-tap loop playback. Full width and 48px tall: this is the control a
        parent reaches for while holding a child, not a precision target. */
@@ -1977,6 +1984,69 @@ function filterTier(tier) {
 function renderScenarioGrid() {
   const grid = document.getElementById("scenarioGrid");
   grid.innerHTML = "";
+
+  // The parent's own scenarios come FIRST. 「去医院」 is one they made because
+  // they needed it; the prepared set is a starting kit. Putting the kit first
+  // means scrolling past a dozen tiles somebody else chose to reach the one
+  // they made themselves.
+  const mine = loadCustomScenarios();
+
+  const heading = text => {
+    const h = document.createElement("div");
+    h.className = "scenario-group-label";
+    h.textContent = text;
+    grid.appendChild(h);
+  };
+
+  // Only when there is something under it. A heading with nothing beneath it
+  // reads as "your scenarios are gone", not as "you have not made any".
+  if (mine.length) heading("我的场景");
+
+  for (const sc of mine) {
+    const tag = customScenarioTag(sc.id);
+    const n = phrasesInScenario(tag).length;
+    const card = document.createElement("div");
+    card.className = "scenario-card";
+    card.setAttribute("role", "button");
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("data-id", tag);
+    card.onclick = () => openScenario(tag);
+    const tile = document.createElement("div"); tile.className = "s-icon-tile";
+    tile.style.setProperty("--tint-color", "#8b9dc3");
+    const icon = document.createElement("div"); icon.className = "s-icon"; icon.textContent = sc.icon;
+    tile.appendChild(icon);
+    const body = document.createElement("div"); body.className = "s-body";
+    const name = document.createElement("div"); name.className = "s-name"; name.textContent = sc.name;
+    const cnt = document.createElement("div"); cnt.className = "s-count";
+    cnt.textContent = n ? n + " 句" : "还没有句子";
+    body.append(name, cnt);
+    card.append(tile, body);
+    grid.appendChild(card);
+  }
+
+  // Part of the parent's own group, so it sits with them rather than at the
+  // bottom of everything.
+  const add = document.createElement("div");
+  add.className = "scenario-card scenario-card-add";
+  add.setAttribute("role", "button");
+  add.setAttribute("tabindex", "0");
+  add.onclick = () => newCustomScenario();
+  const addTile = document.createElement("div"); addTile.className = "s-icon-tile";
+  addTile.style.setProperty("--tint-color", "#9aa5b1");
+  const addIcon = document.createElement("div"); addIcon.className = "s-icon"; addIcon.textContent = "➕";
+  addTile.appendChild(addIcon);
+  const addBody = document.createElement("div"); addBody.className = "s-body";
+  const addName = document.createElement("div"); addName.className = "s-name"; addName.textContent = "新建场景";
+  const addCnt = document.createElement("div"); addCnt.className = "s-count";
+  addCnt.textContent = "自己的日常";
+  addBody.append(addName, addCnt);
+  add.append(addTile, addBody);
+  grid.appendChild(add);
+
+  // Labelled only once the parent has scenarios of their own — with nothing
+  // above it, "现成的场景" is answering a question nobody asked.
+  if (mine.length) heading("现成的场景");
+
   scenarioOrder.forEach(id => {
     const s = scenarios[id];
     const agePhrases = s.phrases[currentAge] || [];
@@ -2010,46 +2080,6 @@ function renderScenarioGrid() {
     grid.appendChild(card);
   });
 
-  // The parent's own scenarios, after the prepared ones. The prepared set
-  // covers bedtime and meals; it does not cover their Tuesday.
-  for (const sc of loadCustomScenarios()) {
-    const tag = customScenarioTag(sc.id);
-    const n = phrasesInScenario(tag).length;
-    const card = document.createElement("div");
-    card.className = "scenario-card";
-    card.setAttribute("role", "button");
-    card.setAttribute("tabindex", "0");
-    card.setAttribute("data-id", tag);
-    card.onclick = () => openScenario(tag);
-    const tile = document.createElement("div"); tile.className = "s-icon-tile";
-    tile.style.setProperty("--tint-color", "#8b9dc3");
-    const icon = document.createElement("div"); icon.className = "s-icon"; icon.textContent = sc.icon;
-    tile.appendChild(icon);
-    const body = document.createElement("div"); body.className = "s-body";
-    const name = document.createElement("div"); name.className = "s-name"; name.textContent = sc.name;
-    const cnt = document.createElement("div"); cnt.className = "s-count";
-    cnt.textContent = n ? n + " 句" : "还没有句子";
-    body.append(name, cnt);
-    card.append(tile, body);
-    grid.appendChild(card);
-  }
-
-  const add = document.createElement("div");
-  add.className = "scenario-card scenario-card-add";
-  add.setAttribute("role", "button");
-  add.setAttribute("tabindex", "0");
-  add.onclick = () => newCustomScenario();
-  const addTile = document.createElement("div"); addTile.className = "s-icon-tile";
-  addTile.style.setProperty("--tint-color", "#9aa5b1");
-  const addIcon = document.createElement("div"); addIcon.className = "s-icon"; addIcon.textContent = "➕";
-  addTile.appendChild(addIcon);
-  const addBody = document.createElement("div"); addBody.className = "s-body";
-  const addName = document.createElement("div"); addName.className = "s-name"; addName.textContent = "新建场景";
-  const addCnt = document.createElement("div"); addCnt.className = "s-count";
-  addCnt.textContent = "自己的日常";
-  addBody.append(addName, addCnt);
-  add.append(addTile, addBody);
-  grid.appendChild(add);
 }
 
 // The parent types the Chinese they would have said anyway; the English and

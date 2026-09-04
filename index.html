@@ -2052,6 +2052,29 @@ function renderScenarioGrid() {
   grid.appendChild(add);
 }
 
+// The parent types the Chinese they would have said anyway; the English and
+// the voice come back. Takes a few seconds, so the button says what is
+// happening — a control that goes quiet reads as broken.
+async function newScenarioPhrase(tag, btn) {
+  const zh = prompt("这句话中文怎么说？（比如：别怕，妈妈在这儿）");
+  if (zh === null) return;
+  if (!String(zh).trim()) { alert("写点什么再加吧。"); return; }
+  const label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "正在生成…"; }
+  try {
+    const r = await addPhraseToScenario(zh, tag);
+    if (r.ok) { renderSavedScreen(); renderScenarioGrid(); return; }
+    alert({
+      access: "🔑 " + (r.message || "这个功能需要邀请码"),
+      duplicate: "这句话已经在收藏里了。",
+      offline: "现在连不上网，等有网了再加吧 —— 这一句需要联网翻译。",
+      empty: "写点什么再加吧。",
+    }[r.error] || "这次没生成出来，再试一次吧。");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+
 // Rename and delete. Without these a typo means deleting the scenario and
 // rebuilding it, which moves every phrase inside it.
 function manageCustomScenario(tag) {
@@ -2779,6 +2802,13 @@ function renderSavedScreen() {
     del.onclick = () => manageCustomScenario(savedFilterScenario);
     bar.append(back, title, del);
     list.appendChild(bar);
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'loop-btn';
+    addBtn.textContent = '➕ 加一句（写中文就行）';
+    addBtn.onclick = () => newScenarioPhrase(savedFilterScenario, addBtn);
+    list.appendChild(addBtn);
   }
 
   if (!savedPhrases.length) {
@@ -3387,38 +3417,29 @@ async function doTranslate() {
   btn.textContent = "正在生成…";
 
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
-    const res = await fetch("/api/translate", {
-      method: "POST",
-      headers: accessHeaders(),
-      body: JSON.stringify({ zh, age: translateAge }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    // A missing or wrong code is not an outage. Falling through to the catch
-    // below would hand the parent a local pattern-match result labelled
+    const t = await translateChinese(zh, translateAge);
+    if (t.ok) {
+      showTranslateResult(t.result, "⚠ AI 即时生成，未经人工审核 — 使用前请先读一读，确认适合宝宝。");
+      return;
+    }
+    // A missing or wrong code is not an outage. Falling through to the local
+    // fallback would hand the parent a pattern-match result labelled
     // "offline", and they would never learn why the good suggestions stopped.
     // Shown in the disclaimer line rather than a toast: this asks them to go
     // somewhere and do something, and a toast is gone in 3.5 seconds.
-    const accessMsg = accessErrorMessage(res.status);
-    if (accessMsg) {
-      document.getElementById("aiDisclaimer").textContent = "🔑 " + accessMsg;
+    if (t.error === "access") {
+      document.getElementById("aiDisclaimer").textContent = "🔑 " + t.message;
       document.getElementById("translateResult").classList.add("show");
       return;
     }
-    if (!res.ok) throw new Error("bad status " + res.status);
-    const result = await res.json();
-    if (!result.en || !result.tip) throw new Error("incomplete result");
-    showTranslateResult(result, "⚠ AI 即时生成，未经人工审核 — 使用前请先读一读，确认适合宝宝。");
-  } catch (e) {
-    // Offline / quota exhausted / function error → local pattern matching
+    // Offline / quota exhausted / function error / incomplete result
     showTranslateResult(localTranslate(zh), "📴 离线建议（本地匹配，非 AI 生成）— 联网后可获得更贴合的表达。");
   } finally {
     btn.disabled = false;
     btn.textContent = btnLabel;
   }
 }
+
 
 // Optional `session`: a caller that already captured a playback session
 // (playReviewAudio's MP3-error fallback) passes it through so a stale
@@ -4873,6 +4894,68 @@ function assignTranslationIds(result) {
   });
 }
 
+// The translate call with no screen attached, so the translate tab and
+// "add a sentence to my scenario" share one implementation. A second copy is
+// where the timeout, the completeness check and the invite-code handling
+// would quietly drift apart.
+//
+// Returns {ok:true, result} or {ok:false, error, message}. The error kinds are
+// distinct because they send a parent to different places: a missing code is
+// something they can fix, an outage is something to wait out, and telling them
+// the wrong one sends them to restart a router that was never the problem.
+const TRANSLATE_TIMEOUT_MS = 12000;
+
+async function translateChinese(zh, age) {
+  const clean = String(zh == null ? "" : zh).trim();
+  if (!clean) return { ok: false, error: "empty" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TRANSLATE_TIMEOUT_MS);
+  try {
+    const res = await fetch("/api/translate", {
+      method: "POST",
+      headers: accessHeaders(),
+      body: JSON.stringify({ zh: clean, age }),
+      signal: controller.signal,
+    });
+    const message = accessErrorMessage(res.status);
+    if (message) return { ok: false, error: "access", message };
+    if (!res.ok) return { ok: false, error: "upstream" };
+    const result = await res.json();
+    // A result missing its English or its tip is not a usable suggestion —
+    // treated as an outage so the caller falls back rather than showing a
+    // half-empty card.
+    if (!result || !result.en || !result.tip) return { ok: false, error: "incomplete" };
+    return { ok: true, result };
+  } catch {
+    return { ok: false, error: "offline" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// A scenario a parent cannot put anything into is a folder. They supply the
+// one thing they already have — the Chinese they would have said anyway.
+//
+// Nothing is written unless the translation came back. Half a phrase in their
+// own scenario is worse than none: it looks like something they added.
+async function addPhraseToScenario(zh, scenarioTag) {
+  const clean = String(zh == null ? "" : zh).trim();
+  const t = await translateChinese(clean, typeof translateAge !== "undefined" ? translateAge : undefined);
+  if (!t.ok) return t;
+  const entry = {
+    en: t.result.en,
+    // Their own words, kept. The model's rewrite of the Chinese would leave
+    // them unable to recognise their own sentence at review time.
+    zh: clean,
+    tip: t.result.tip || "",
+    source: t.result.source || "local",
+    scenario: scenarioTag,
+  };
+  assignTranslationIds(entry);
+  if (!saveTranslatedPhrase(entry)) return { ok: false, error: "duplicate" };
+  return { ok: true, entry };
+}
+
 // ☆ hollow means not saved, ★ filled means saved. One convention everywhere:
 // four places offer to save a phrase and they used three between them, two of
 // them backwards — the dictionary drew ⭐, a filled coloured star, for NOT
@@ -4898,7 +4981,9 @@ function saveTranslatedPhrase(entry) {
     en: entry.en,
     zh: entry.zh || "",
     tip: entry.tip || "",
-    scenario: "__translate__",
+    // A phrase added inside a self-made scenario belongs to it; everything
+    // else lands in the general translated bucket exactly as before.
+    scenario: entry.scenario || "__translate__",
     age: typeof translateAge !== "undefined" ? translateAge : undefined,
     source: entry.source || "local",
     savedAt: Date.now(),

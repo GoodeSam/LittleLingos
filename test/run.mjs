@@ -50,6 +50,7 @@ step("L0 · CSV backup format (test/data-export-csv.test.mjs)", () => run("node"
 step("L0 · custom scenarios (test/custom-scenarios.test.mjs)", () => run("node", ["test/custom-scenarios.test.mjs"]));
 step("L0 · scenarios ride along in the backup (test/backup-scenarios.test.mjs)", () => run("node", ["test/backup-scenarios.test.mjs"]));
 step("L0 · reaching a self-made scenario (test/scenario-ui.test.mjs)", () => run("node", ["test/scenario-ui.test.mjs"]));
+step("L0 · the saved-state star (test/save-star.test.mjs)", () => run("node", ["test/save-star.test.mjs"]));
 step("L0 · access code on the client (test/access-code-client.test.mjs)", () => run("node", ["test/access-code-client.test.mjs"]));
 step("L0 · access control on paid endpoints (test/access-control.test.mjs)", () => run("node", ["test/access-control.test.mjs"]));
 step("L0 · TTS endpoint behavior (test/tts-api.test.mjs)", () => run("node", ["test/tts-api.test.mjs"]));

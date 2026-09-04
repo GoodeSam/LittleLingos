@@ -238,6 +238,16 @@ function makeEnv({
   // drift from the real thing the day accessHeaders() changes shape — the
   // real ll:access-code source is run into this same realm first. That makes
   // these 105 assertions also guard the contract between the two blocks.
+  // Same reason, same rule: ll:dictionary-lookup now also calls saveStar()
+  // and isAlreadySaved() from ll:translate-save. Both are pure, synchronous
+  // and part of the same behavioural contract — the case for running the real
+  // source rather than a double that would have to re-implement "is this
+  // phrase already kept", which is exactly the decision that must exist once.
+  const ss = html.indexOf("/* ll:translate-save:start */");
+  const se = html.indexOf("/* ll:translate-save:end */");
+  assert.ok(ss !== -1 && se !== -1, "ll:translate-save markers not found");
+  vm.runInContext(html.slice(ss, se), ctx);
+
   const as = html.indexOf(ACCESS_START), ae = html.indexOf(ACCESS_END);
   assert.ok(as !== -1 && ae !== -1, `index.html must contain ${ACCESS_START} … ${ACCESS_END} markers`);
   vm.runInContext(html.slice(as, ae + ACCESS_END.length), ctx);

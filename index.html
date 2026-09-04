@@ -1776,7 +1776,7 @@
       <div class="result-actions">
         <button class="result-play-btn" data-playing-label="⏸ 播放中" aria-label="朗读"
                 onclick="playResultAudio(this)">▶ 朗读</button>
-        <button onclick="saveTranslation()">♡ 收藏</button>
+        <button id="resultSaveBtn" onclick="saveTranslation()">☆ 收藏</button>
       </div>
       <div class="result-related" id="resultRelated"></div>
     </div>
@@ -3341,14 +3341,17 @@ function renderRelatedExpressions(related) {
     const saveBtn = document.createElement("button");
     saveBtn.type = "button";
     saveBtn.className = "result-related-btn";
-    saveBtn.textContent = "⭐ 收藏";
+    // Checked at render, not only after a tap: translating the same thing
+    // again would otherwise offer 收藏 on a sentence already kept.
+    const paintSave = () => {
+      const done = isAlreadySaved(r.en);
+      saveBtn.textContent = `${saveStar(done)} ${done ? "已收藏" : "收藏"}`;
+      saveBtn.disabled = done;
+    };
+    paintSave();
     saveBtn.onclick = () => {
-      if (saveTranslatedPhrase(r)) {
-        saveBtn.textContent = "✓ 已收藏";
-        saveBtn.disabled = true;
-      } else {
-        alert("已经收藏过了。");
-      }
+      if (!saveTranslatedPhrase(r)) alert("已经收藏过了。");
+      paintSave();
     };
 
     actions.append(playBtn, saveBtn);
@@ -3363,6 +3366,7 @@ function showTranslateResult(result, disclaimer) {
   // Not awaited: the words appear at once, and the voice catches up. A tap on
   // play before it lands falls back to speech synthesis that once.
   provisionTranslation(result);
+  paintSaveBtn();
   document.getElementById("resultEn").textContent = result.en;
   document.getElementById("resultZh").textContent = result.zh || "";
   document.getElementById("resultTip").textContent = "💡 " + result.tip;
@@ -3471,13 +3475,25 @@ function playResultAudio(btn) {
   speakText(text, undefined, btn, session);
 }
 
+// The main sentence's button used to be a fixed ♡ that never changed, so a
+// parent could tap 收藏 on the same sentence twice and learn nothing until an
+// alert told them. Repainted whenever a result appears and after a save.
+function paintSaveBtn() {
+  const btn = document.getElementById("resultSaveBtn");
+  if (!btn) return;
+  const saved = !!(lastTranslateResult && isAlreadySaved(lastTranslateResult.en));
+  btn.textContent = `${saveStar(saved)} ${saved ? "已收藏" : "收藏"}`;
+  btn.disabled = saved;
+}
+
 function saveTranslation() {
   if (!lastTranslateResult) return;
   const r = lastTranslateResult;
   // The Chinese box is the fallback only for the main sentence — an
   // alternative carries its own.
   if (!r.zh) r.zh = document.getElementById("zhInput").value.trim();
-  if (!saveTranslatedPhrase(r)) { alert("已经收藏过了。"); return; }
+  if (!saveTranslatedPhrase(r)) { alert("已经收藏过了。"); paintSaveBtn(); return; }
+  paintSaveBtn();
   alert("已收藏！去「收藏 · 复习」页可以反复练习。");
 }
 
@@ -4017,7 +4033,7 @@ function buildDictResultCard(data, panel) {
     } else {
       const saveBtn = document.createElement("button");
       saveBtn.className = "dict-save-btn";
-      saveBtn.textContent = "⭐ 加入复习";
+      saveBtn.textContent = `${saveStar(false)} 加入复习`;
       saveBtn.onclick = () => saveDictSense(data.lemma, sense, multiSense, panel, data);
       actions.appendChild(saveBtn);
     }
@@ -4857,11 +4873,25 @@ function assignTranslationIds(result) {
   });
 }
 
+// ☆ hollow means not saved, ★ filled means saved. One convention everywhere:
+// four places offer to save a phrase and they used three between them, two of
+// them backwards — the dictionary drew ⭐, a filled coloured star, for NOT
+// saved and ★ for saved, so the unsaved state looked the fuller of the two.
+function saveStar(isSaved) { return isSaved ? "★" : "☆"; }
+
+// The one place that decides whether a phrase is already kept. The duplicate
+// guard below and every star drawn on screen ask the same question, so a star
+// can never say one thing while the tap says another.
+function isAlreadySaved(en) {
+  if (typeof en !== "string" || !en) return false;
+  return savedPhrases.some(p => p && p.en === en);
+}
+
 // Returns false when nothing was saved — already there, or nothing to save —
 // so the caller can say which rather than leaving the tap unexplained.
 function saveTranslatedPhrase(entry) {
   if (!entry || !entry.en) return false;
-  if (savedPhrases.some(s => s.en === entry.en)) return false;
+  if (isAlreadySaved(entry.en)) return false;
   if (!entry.id) entry.id = "t_" + Date.now();
   savedPhrases.push({
     id: entry.id,

@@ -64,7 +64,7 @@ function fakeStore({ present = [] } = {}) {
 function loadModule({ store = fakeStore(), code = CODE, onLine = true, fetchImpl } = {}) {
   const s = html.indexOf(START), e = html.indexOf(END);
   assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
-  const fetchCalls = [];
+  const fetchCalls = [], primed = [];
   const ctx = {
     ...store, console, queueMicrotask, setTimeout, Blob,
     navigator: { onLine },
@@ -72,6 +72,10 @@ function loadModule({ store = fakeStore(), code = CODE, onLine = true, fetchImpl
     accessHeaders: () => (code ? { "Content-Type": "application/json", "X-LL-Access": code }
                                : { "Content-Type": "application/json" }),
     refreshAudioMarks: () => {},
+    // From ll:audio-playback. Storing a clip is not enough — until its address
+    // is prepared, the play path finds nothing and falls back to the browser
+    // voice, which is exactly the bug this file exists for.
+    primeAudioUrl: id => { primed.push(id); return Promise.resolve("blob:fake"); },
     fetch: async (...args) => {
       fetchCalls.push(args);
       if (fetchImpl) return fetchImpl(...args);
@@ -81,7 +85,7 @@ function loadModule({ store = fakeStore(), code = CODE, onLine = true, fetchImpl
   vm.createContext(ctx);
   vm.runInContext(html.slice(s, e + END.length), ctx);
   assert.equal(typeof ctx.provisionTranslation, "function", "module must define provisionTranslation()");
-  return { ctx, store, fetchCalls };
+  return { ctx, store, fetchCalls, primed };
 }
 
 // ══ 1. 翻译一出来就去生成 ═════════════════════════════════════════════
@@ -172,6 +176,34 @@ test("空结果传进来，不崩也不花钱", async () => {
   }
   assert.equal(fetchCalls.length, 0);
   assert.equal(await ctx.provisionTranslation({ en: "Hi there." }), true, "对照：正常结果必须去生成");
+});
+
+test("生成好之后，那段声音马上就能被播放路径取到", async () => {
+  // 这一条对应一个真实的漏网之鱼：片段存进了本机，但没人把它变成
+  // 可播的地址，于是翻译页照样退回浏览器朗读 —— 声音在那儿，没人拿。
+  const { ctx, primed } = loadModule();
+  const result = { en: "Time for bed.", zh: "睡觉" };
+  await ctx.provisionTranslation(result);
+  assert.deepEqual(primed, [result.id], "存完必须把它备成可播的地址，用的是同一个 id");
+});
+
+test("没生成出来的时候，不去备一个空地址", async () => {
+  const bad = loadModule({ fetchImpl: async () => new Response("x", { status: 502 }) });
+  await bad.ctx.provisionTranslation({ en: "Time for bed.", zh: "睡觉" });
+  assert.equal(bad.primed.length, 0);
+
+  const ok = loadModule();
+  await ok.ctx.provisionTranslation({ en: "Time for bed.", zh: "睡觉" });
+  assert.equal(ok.primed.length, 1, "对照：成功时必须备");
+});
+
+test("去一趟复习页再回来，翻译那段声音还在", async () => {
+  // 复习卡原来会把全部地址清空。清掉之后翻译页就取不到自己那段了，
+  // 而家长完全看不出为什么声音变了。
+  const at = html.indexOf("function renderReviewCard");
+  const body = html.slice(at, html.indexOf("\nfunction ", at + 10));
+  assert.ok(!/releaseAudioUrls\(/.test(body),
+    "复习卡不该清空全部地址 —— 那会把翻译页和列表的一起清掉");
 });
 
 // ══ 4. 三处真的接上了 ═════════════════════════════════════════════════

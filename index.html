@@ -2906,10 +2906,11 @@ function renderReviewCard() {
   // itself. Releasing first keeps only the current card's audio held open.
   // Not awaited: the card renders immediately either way, and a tap arriving
   // before this settles simply falls back to speech synthesis this once.
-  if (item && typeof primeAudioUrl === "function") {
-    releaseAudioUrls();
-    primeAudioUrl(item.id);
-  }
+  // Deliberately does NOT release the other addresses. It used to, to bound
+  // memory — but the saved list re-primes every row anyway, so the release
+  // bought nothing, while it silently dropped the translate screen's own clip
+  // and sent that screen back to the browser voice.
+  if (item && typeof primeAudioUrl === "function") primeAudioUrl(item.id);
   const label = resolveItemLabel(item);
 
   const card = document.createElement("div");
@@ -4729,7 +4730,14 @@ function provisionTranslation(result) {
   if (!result || !result.en) return Promise.resolve(false);
   // Keep an existing id: a re-render must not throw away the clip just made.
   if (!result.id) result.id = "t_" + Date.now();
-  return requestAudio(result);
+  return requestAudio(result).then(ok => {
+    // Storing the clip is not enough. Until its address is prepared, the play
+    // path finds nothing and falls back to the browser voice — the clip sits
+    // on the device, unheard, and the parent hears two different voices for
+    // the same sentence with no way to tell why.
+    if (ok && typeof primeAudioUrl === "function") primeAudioUrl(result.id);
+    return ok;
+  });
 }
 
 // A tap on the ⚠ mark. Clears the memory of the last failure so the attempt

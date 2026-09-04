@@ -2667,6 +2667,25 @@ function renderSavedScreen() {
     badge.appendChild(bIco);
     badge.appendChild(document.createTextNode(' ' + label.name));
 
+    // The audio mark. Rendered for every row so a parent can see at a glance
+    // which phrases actually have a voice on this phone — the one thing the
+    // rest of ADR 0003 gives them no way to find out.
+    const mark = document.createElement(audioMarkView(p).canRetry ? 'button' : 'span');
+    const view = audioMarkView(p);
+    mark.className = 'saved-item-audio';
+    mark.textContent = view.icon;
+    mark.title = view.label;
+    mark.setAttribute('aria-label', view.label);
+    if (view.canRetry) {
+      mark.type = 'button';
+      mark.onclick = () => {
+        // Show the change immediately rather than after the round trip: the
+        // spinner IS the feedback that the tap registered.
+        mark.textContent = '⏳';
+        Promise.resolve(view.onTap()).then(() => renderSavedScreen());
+      };
+    }
+
     const unsaveBtn = document.createElement('button');
     unsaveBtn.className = 'unsave-btn';
     unsaveBtn.textContent = '×';
@@ -2676,7 +2695,9 @@ function renderSavedScreen() {
     textDiv.appendChild(enWrap);
     textDiv.appendChild(zhDiv);
     if (tipDiv) textDiv.appendChild(tipDiv);
+    badge.appendChild(document.createTextNode(' '));
     textDiv.appendChild(badge);
+    textDiv.appendChild(mark);
     item.appendChild(textDiv);
     item.appendChild(unsaveBtn);
     list.appendChild(item);
@@ -4351,6 +4372,50 @@ function setupVoiceInputs() {
 setupVoiceInputs();
 
 // ── Access code ────────────────────────────────────────
+/* ll:audio-marks:start */
+// What a saved row says about its voice.
+//
+// Everything else in ADR 0003 is invisible. A parent taps 收藏, something
+// happens for three seconds, and then they hear either a real recorded voice
+// or the browser's own — and cannot tell which. Airplane mode does not settle
+// it either, because browser speech works offline too. So the row says it.
+//
+// Four states, four icons, deliberately distinguishable at a glance:
+//   🔊 ready   — the clip is on this phone; plays with no signal, costs nothing
+//   ⏳ pending — being generated right now; tapping would only pay twice
+//   ⚠  failed  — no clip; TAPPABLE, and the only state where the parent can act
+//   🔈 none    — not attempted yet, or restored from a backup (backups carry no
+//                audio, ADR 0003); also tappable, to fill it in
+//
+// Keeping ⏳ and ⚠ apart is the whole point of having four rather than two: a
+// parent staring at a spinner that will never resolve has no way to know they
+// were supposed to do something.
+function audioMarkView(item) {
+  if (!item || !item.id) return { icon: "🔈", label: "暂无声音", canRetry: false };
+
+  // Preset phrases ship with the app as ./audio/<id>_normal.mp3 and never go
+  // through per-item generation — asking the device store about them always
+  // answers "none", which would paint a whole screen of them as silent.
+  if (typeof isAudioBacked === "function" && isAudioBacked(item)) {
+    return { icon: "🔊", label: "已有声音", canRetry: false };
+  }
+
+  const state = typeof audioMarkFor === "function" ? audioMarkFor(item.id) : "none";
+  if (state === "ready")   return { icon: "🔊", label: "已有声音", canRetry: false };
+  if (state === "pending") return { icon: "⏳", label: "正在生成声音", canRetry: false };
+  if (state === "failed") {
+    return {
+      icon: "⚠", label: "没有声音 — 点一下重试", canRetry: true,
+      onTap: () => retryAudio(item),
+    };
+  }
+  return {
+    icon: "🔈", label: "暂无声音 — 点一下生成", canRetry: true,
+    onTap: () => retryAudio(item),
+  };
+}
+/* ll:audio-marks:end */
+
 /* ll:audio-playback:start */
 // Handing a stored clip to the player. Depends on ll:audio-store below.
 //

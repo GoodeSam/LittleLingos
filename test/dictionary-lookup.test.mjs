@@ -142,6 +142,7 @@ function makeEnv({
   const searchPhrasesCalls = [];
   const goTranslateCalls = [];
   const fetchCalls = [];
+  const audioRequests = [];
   const safeSetItemCalls = [];
   const updateNavBadgeCalls = [];
   const speakTextCalls = [];
@@ -209,6 +210,14 @@ function makeEnv({
     resetPlayBtnState(btn) { resetPlayBtnStateCalls.push(btn); if (btn) btn.__playing = false; },
     flashAudioUnavailable(btn) { flashAudioUnavailableCalls.push(btn); },
     speakText(text, rate, btn, session) { speakTextCalls.push({ text, rate, btn, session }); },
+    // requestAudio() lives in ll:audio-provision and is a paid, asynchronous
+    // side effect with its own storage, network, auth and concurrency state —
+    // and its own 18 tests. Running the real thing here would make this file's
+    // fetchCalls a mixed count of two different responsibilities: a failure
+    // could no longer say whether dictionary lookup broke or the background
+    // audio job did. A recording double keeps the boundary, and the assertion
+    // below keeps it honest about WHAT gets handed over.
+    requestAudio: item => { audioRequests.push(item); return Promise.resolve(true); },
     // Browser storage is outside this project's control, so it is stubbed —
     // but the access-code module running on top of it is the REAL one (see
     // below). Seeded with a code so the two paid fetch() calls carry the
@@ -252,6 +261,7 @@ function makeEnv({
   assert.equal(typeof ctx.dictAudioSlug, "function", "module must define dictAudioSlug()");
   return {
     ctx, els, searchPhrasesCalls, goTranslateCalls, fetchCalls, safeSetItemCalls, updateNavBadgeCalls, savedPhrases,
+    audioRequests,
     speakTextCalls, setPlayBtnPlayingCalls, resetPlayBtnStateCalls, flashAudioUnavailableCalls, stopAllAudioCalls, FakeAudio,
   };
 }
@@ -790,7 +800,7 @@ test("C1: a plain lookup (no ⭐ tap) does not touch savedPhrases or call safeSe
 });
 
 test("C1: the ⭐ tap DOES save — and only the tap does", async () => {
-  const { ctx, els, savedPhrases, safeSetItemCalls, updateNavBadgeCalls } = makeEnv({ inputValue: "eat" });
+  const { ctx, els, savedPhrases, safeSetItemCalls, updateNavBadgeCalls, audioRequests } = makeEnv({ inputValue: "eat" });
   ctx.performDictLookup("eat");
   await flush();
   const card = panelChild(els.dictLookupPanel, "dict-result-card");
@@ -801,6 +811,13 @@ test("C1: the ⭐ tap DOES save — and only the tap does", async () => {
   assert.equal(savedPhrases.length, 1, "the tap must create exactly one save");
   assert.ok(safeSetItemCalls.length >= 1, "the tap must persist to ll_saved");
   assert.ok(updateNavBadgeCalls.length >= 1, "the tap must refresh the due-review badge");
+  // The tap must also ask for a voice, and ask for it for THIS entry. Object
+  // identity rather than field-matching: hand over the wrong entry and the
+  // clip a parent paid for gets filed under a different word — silently, and
+  // discoverable only at review time days later.
+  assert.equal(audioRequests.length, 1, "saving a word must request its audio exactly once");
+  assert.equal(audioRequests[0], savedPhrases[0],
+    "the entry sent for voicing must be the one just saved, not a copy or a neighbour");
 });
 
 // ── C2: saved object shape — exact required fields + a working rv ──────

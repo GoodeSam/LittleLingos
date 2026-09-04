@@ -2683,6 +2683,15 @@ function renderSavedScreen() {
   });
 }
 
+// Called by ll:audio-provision when a clip lands or fails. Without it the ⏳
+// on a row would spin forever while the sound sat on the device already.
+// Guarded because the review area may not exist yet during first paint.
+function refreshAudioMarks() {
+  try {
+    if (document.getElementById("savedScreenList")) renderSavedScreen();
+  } catch {}
+}
+
 function removeSaved(id) {
   savedPhrases = savedPhrases.filter(s => s.id !== id);
   safeSetItem("ll_saved", JSON.stringify(savedPhrases));
@@ -2786,6 +2795,14 @@ function renderReviewCard() {
   const area = document.getElementById("reviewArea");
   area.innerHTML = "";
   const item = reviewQueue[0];
+  // Ready the stored clip now so the play button can start it inside the tap
+  // itself. Releasing first keeps only the current card's audio held open.
+  // Not awaited: the card renders immediately either way, and a tap arriving
+  // before this settles simply falls back to speech synthesis this once.
+  if (item && typeof primeAudioUrl === "function") {
+    releaseAudioUrls();
+    primeAudioUrl(item.id);
+  }
   const label = resolveItemLabel(item);
 
   const card = document.createElement("div");
@@ -2868,8 +2885,14 @@ function playReviewAudio(item, btn) {
   // else (AI translations, dictionary words, legacy t_ ids) goes straight
   // to speechSynthesis. See isAudioBacked() (ll:dictionary-shared) for why
   // this is a positive allowlist, not an id-prefix denylist.
-  if (isAudioBacked(item)) {
-    const mp3 = new Audio(`./audio/${item.id}_normal.mp3`);
+  // Preset phrases ship with the app as ./audio/<id>_normal.mp3; saved
+  // translations and dictionary words are voiced one at a time and kept on the
+  // device (ADR 0003). Both are real recordings — only their origin differs.
+  // The stored one is looked up SYNCHRONOUSLY here; see ll:audio-playback for
+  // why that matters on iOS.
+  const storedUrl = isAudioBacked(item) ? null : audioUrlFor(item.id);
+  if (isAudioBacked(item) || storedUrl) {
+    const mp3 = new Audio(storedUrl || `./audio/${item.id}_normal.mp3`);
     currentAudio = mp3;
     mp3.addEventListener("ended", () => {
       if (!isCurrent()) return;
@@ -3075,6 +3098,9 @@ function saveTranslation() {
   });
   safeSetItem("ll_saved", JSON.stringify(savedPhrases));
   updateNavBadge();
+  // Deliberately NOT awaited. The phrase is saved; the voice catches up in the
+  // background and the row picks up its mark when it lands (ADR 0003).
+  requestAudio(savedPhrases[savedPhrases.length - 1]);
   alert("已收藏！去「收藏 · 复习」页可以反复练习。");
 }
 
@@ -3431,6 +3457,8 @@ function saveDictSense(lemma, sense, multiSense, panel, data) {
   const id = dictSaveId(lemma, sense.key);
   if (savedPhrases.some(p => p.id === id)) return;
   savedPhrases.push(buildDictSaveEntry(lemma, sense, multiSense));
+  // Same as saveTranslation(): fire and forget, the save already landed.
+  requestAudio(savedPhrases[savedPhrases.length - 1]);
   safeSetItem("ll_saved", JSON.stringify(savedPhrases));
   updateNavBadge();
   renderDictLookupPanel(panel, { state: "result", data });
@@ -4323,6 +4351,178 @@ function setupVoiceInputs() {
 setupVoiceInputs();
 
 // ── Access code ────────────────────────────────────────
+/* ll:audio-playback:start */
+// Handing a stored clip to the player. Depends on ll:audio-store below.
+//
+// The reason this is a module and not two lines inside playReviewAudio():
+// reading from IndexedDB is asynchronous, and on iOS an audio element that
+// starts playing after an await may no longer count as "started by that tap" —
+// Safari can refuse it silently. Paying for these clips only to have them
+// refused is the one outcome worth designing around. So the Blob becomes a
+// playable address when the card RENDERS, and the tap stays synchronous,
+// exactly as it already is for the 1204 preset phrases.
+//
+// ⚠️ UNVERIFIED: that iOS rule is the premise of this design and it has not
+// been tested on a device. If someone later wants to simplify this into "read
+// it when tapped", that has to be checked on a real iPhone first — a green
+// test suite here says nothing about it.
+//
+// Each address holds its clip in memory until released. The review card shows
+// one phrase at a time and releases the previous one, so at most a couple are
+// alive; without releasing, an afternoon of reviewing would leave dozens of
+// copies of the same audio held open.
+const audioUrlCache = new Map();
+const audioUrlPending = new Map();
+
+// Synchronous by design — see above. Returns null when nothing is ready, and
+// the caller falls back to speech synthesis exactly as it does today.
+function audioUrlFor(id) {
+  if (!id) return null;
+  return audioUrlCache.get(id) || null;
+}
+
+// Called at render time, never at tap time.
+async function primeAudioUrl(id) {
+  if (!id) return null;
+  const cached = audioUrlCache.get(id);
+  if (cached) return cached;
+  // A card re-rendering while its first prime is still in flight must join it
+  // rather than start a second read and hold a second copy.
+  const inFlight = audioUrlPending.get(id);
+  if (inFlight) return inFlight;
+
+  const job = (async () => {
+    try {
+      const blob = await getAudio(id);
+      if (!blob) return null;
+      const url = URL.createObjectURL(blob);
+      audioUrlCache.set(id, url);
+      return url;
+    } catch {
+      // No store, no clip, a read that failed — all the same to the caller:
+      // this phrase has no recorded voice, and speech synthesis takes over.
+      return null;
+    } finally {
+      audioUrlPending.delete(id);
+    }
+  })();
+  audioUrlPending.set(id, job);
+  return job;
+}
+
+function releaseAudioUrls() {
+  for (const url of audioUrlCache.values()) {
+    try { URL.revokeObjectURL(url); } catch {}
+  }
+  audioUrlCache.clear();
+}
+/* ll:audio-playback:end */
+
+/* ll:audio-provision:start */
+// Between "a parent saved a phrase" and "that phrase has a voice on their
+// phone". Depends on ll:audio-store below for the device half. See ADR 0003.
+//
+// The save lands FIRST and instantly; the voice catches up here, in the
+// background. The phrase text is the irreplaceable part — audio is an
+// enhancement, and making a parent wait three seconds on every save (or worse,
+// losing the save because the network was down) would be paying for audio with
+// the one thing the app is actually for. The job is 「别让我发起」 (jtbd.md);
+// friction at save time works directly against it.
+//
+// Nothing in here ever throws at its caller. saveTranslation() and
+// saveDictSense() call in and carry on.
+const audioPending = new Set();
+const audioFailed = new Set();
+const audioReady = new Set();
+
+// What the list should draw next to a row. Four states rather than two,
+// because "still working on it" and "this one has no sound" send a parent to
+// different places: one is worth waiting for, the other is worth tapping.
+//   none · pending ⏳ · ready 🔊 · failed ⚠
+function audioMarkFor(id) {
+  if (audioPending.has(id)) return "pending";
+  if (audioReady.has(id)) return "ready";
+  if (audioFailed.has(id)) return "failed";
+  return "none";
+}
+
+// Generate one clip and keep it. Returns whether the phrase now HAS audio —
+// including the case where it already did, which is a success that costs
+// nothing. Never rejects.
+//
+// Every early return below is money not spent. This is billed per character
+// and fires on every save, so a request that was always going to fail (no
+// code, no signal) is pure waste, and a clip that already exists is the entire
+// reason the design stores them at all.
+// Split in two on purpose. Everything up to the claim is SYNCHRONOUS: two
+// taps on 收藏 land in the same tick, and if the claim happened after an
+// await both would sail past it and pay twice. It is also why the list can
+// draw ⏳ the instant this is called rather than a frame later.
+function requestAudio(item) {
+  if (!item || !item.id || !item.en) return Promise.resolve(false);
+  const id = item.id;
+  if (audioPending.has(id)) return Promise.resolve(false);
+  if (audioReady.has(id)) return Promise.resolve(true);
+  audioPending.add(id);
+  audioFailed.delete(id);
+  return provisionAudio(item, id);
+}
+
+async function provisionAudio(item, id) {
+  try {
+    // A restored backup, a re-saved phrase, a fresh page load — all of these
+    // ask about clips that are already on the device.
+    if (await hasAudio(id)) { audioReady.add(id); return true; }
+
+    // Known to fail: don't pay the timeout to find out.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
+    if (!getAccessCode()) return false;
+
+
+    // Only the English goes out. The Chinese is what the parent typed; it is
+    // useless for speech and every field sent needlessly is exposure earned
+    // for nothing.
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: accessHeaders(),
+      body: JSON.stringify({ text: item.en }),
+    });
+    if (!res.ok) return false;
+    // Generated and paid for, but not stored, is worse than not generated —
+    // it looks like it worked. putAudio() reporting false is the only way to
+    // tell the difference.
+    const stored = await putAudio(id, await res.blob());
+    if (!stored) return false;
+    audioReady.add(id);
+    return true;
+  } catch {
+    // Offline mid-request, DNS failure, a body that never arrived.
+    return false;
+  } finally {
+    audioPending.delete(id);
+    if (!audioReady.has(id)) audioFailed.add(id);
+    // The mark is stale the instant this settles — a spinner that never
+    // becomes a speaker is indistinguishable from one that failed.
+    //
+    // Wrapped because this runs in a finally: a throw here would replace the
+    // return value above, and requestAudio() is called WITHOUT await from both
+    // save paths — so that rejection would have nobody to catch it. The
+    // module's promise never to throw at its caller cannot depend on the
+    // renderer behaving.
+    if (typeof refreshAudioMarks === "function") {
+      try { refreshAudioMarks(); } catch {}
+    }
+  }
+}
+
+// A tap on the ⚠ mark. Clears the memory of the last failure so the attempt
+// is genuinely made again rather than short-circuited.
+function retryAudio(item) {
+  if (item && item.id) audioFailed.delete(item.id);
+  return requestAudio(item);
+}
+/* ll:audio-provision:end */
+
 /* ll:audio-store:start */
 // Where a generated clip lives once it has been paid for.
 //

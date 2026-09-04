@@ -69,8 +69,9 @@ const BEHAVIOR = {
   translate: {
     keys: { GEMINI_API_KEY: "k" },
     body: n => ({ zh: `今天很棒${alpha(n)}`, age: "1-2" }),
-    reply: { en: "Good job!", zh: "做得好！", tip: "蹲下来看着他说" },
-    expect: b => {
+    stub: () => geminiEnvelope({ en: "Good job!", zh: "做得好！", tip: "蹲下来看着他说" }),
+    expect: async res => {
+      const b = await res.json();
       assert.equal(b.en, "Good job!");
       assert.equal(b.tip, "蹲下来看着他说");
       assert.equal(b.source, "gemini", "a 200 from the OpenAI fallback would mean the Gemini path failed");
@@ -79,15 +80,30 @@ const BEHAVIOR = {
   dictionary: {
     keys: { GEMINI_API_KEY: "k" },
     body: n => ({ word: `bedtime${alpha(n)}` }),
-    reply: { lemma: "bedtime", senses: [{ pos: "n.", definition: "就寝时间" }] },
-    expect: b => {
+    stub: () => geminiEnvelope({ lemma: "bedtime", senses: [{ pos: "n.", definition: "就寝时间" }] }),
+    expect: async res => {
+      const b = await res.json();
       assert.equal(b.lemma, "bedtime");
       assert.equal(b.senses[0].definition, "就寝时间");
     },
   },
-  // tts lives on the spike branch and is not on main. When it lands, the
-  // "every discovered endpoint is exercised" test goes red until it is added
-  // here — which is the point of that test.
+  tts: {
+    keys: { AZURE_SPEECH_KEY: "k", AZURE_SPEECH_REGION: "eastus" },
+    // Unique per call for the same reason as the other two, though tts keeps
+    // no cache of its own: a shared body would stop proving each call is real.
+    body: n => ({ text: `Time for bed ${alpha(n)}` }),
+    // Azure hands back raw mp3 bytes, not JSON. That is a different transport
+    // for a success, not a different access-control story — which is why this
+    // endpoint takes every check below rather than sitting any of them out.
+    stub: () => new Response(new Uint8Array([0xff, 0xfb, 0x90, 0x64]), {
+      status: 200, headers: { "Content-Type": "audio/mpeg" },
+    }),
+    expect: async res => {
+      assert.match(res.headers.get("Content-Type") || "", /^audio\/mpeg/,
+        "a parent's phone stores this as audio — the wrong type is a file that never plays");
+      assert.ok((await res.arrayBuffer()).byteLength > 0, "an empty body is a silent clip");
+    },
+  },
 };
 
 let seq = 0;
@@ -115,21 +131,28 @@ function withEnv(vars, fn) {
 }
 
 // Every handler call runs inside this. `calls` is the evidence for the tests
-// that matter most: a request that returns 403 but has already called Gemini
-// has failed, because the money is spent either way.
+// that matter most: a request that returns 403 but has already called the paid
+// API has failed, because the money is spent either way.
 //
-// `reply` is the endpoint's own success JSON, wrapped in the Gemini envelope
-// the caller unwraps. Pass none for the refusal tests — nothing should reach
-// the stub there anyway, and an unusable reply makes an accidental call show
-// up as a failure rather than passing quietly.
-async function withStub(reply, fn) {
+// The stubbed response comes from the endpoint's own `stub` factory rather
+// than one hardcoded shape. Two endpoints unwrap a Gemini envelope; tts gets
+// raw mp3 bytes back from Azure. That difference is in the TRANSPORT of a
+// success, not in the access-control semantics — so it must not become a
+// reason for an endpoint to sit out any of the checks below.
+//
+// Pass no spec for the refusal tests: nothing should reach the stub there
+// anyway, and an unusable reply makes an accidental call show up as a failure
+// rather than passing quietly.
+const geminiEnvelope = reply => new Response(JSON.stringify({
+  candidates: [{ content: { parts: [{ text: JSON.stringify(reply ?? {}) }] } }],
+}), { status: 200, headers: { "Content-Type": "application/json" } });
+
+async function withStub(spec, fn) {
   const calls = [];
   const prev = globalThis.fetch;
   globalThis.fetch = async (...args) => {
     calls.push(args);
-    return new Response(JSON.stringify({
-      candidates: [{ content: { parts: [{ text: JSON.stringify(reply ?? {}) }] } }],
-    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    return spec?.stub ? spec.stub() : geminiEnvelope(null);
   };
   try { return await fn(calls); }
   finally { globalThis.fetch = prev; }
@@ -159,7 +182,7 @@ for (const ep of EXERCISED) {
   test(`${ep.name}: no code — refused, and the paid API is never called`, async () => {
     const handler = await load(ep);
     await withEnv({ LL_ACCESS_CODE: CODE, ...BEHAVIOR[ep.name].keys }, () =>
-      withStub(null, async calls => {
+      withStub(BEHAVIOR[ep.name], async calls => {
         const res = await handler(reqWith(ep.name, { "Content-Type": "application/json" }));
         assert.equal(res.status, 403);
         assert.equal(calls.length, 0, "a refused request must not reach the paid API");
@@ -169,7 +192,7 @@ for (const ep of EXERCISED) {
   test(`${ep.name}: wrong code — refused, and the paid API is never called`, async () => {
     const handler = await load(ep);
     await withEnv({ LL_ACCESS_CODE: CODE, ...BEHAVIOR[ep.name].keys }, () =>
-      withStub(null, async calls => {
+      withStub(BEHAVIOR[ep.name], async calls => {
         const res = await handler(reqWith(ep.name, {
           "Content-Type": "application/json", "X-LL-Access": "wrong-code-000000000",
         }));
@@ -210,7 +233,7 @@ for (const ep of EXERCISED) {
   test(`${ep.name}: a non-POST is still 405, and still costs nothing`, async () => {
     const handler = await load(ep);
     await withEnv({ LL_ACCESS_CODE: CODE, ...BEHAVIOR[ep.name].keys }, () =>
-      withStub(null, async calls => {
+      withStub(BEHAVIOR[ep.name], async calls => {
         const res = await handler(new Request("https://example.test/api/x", { method: "GET" }));
         assert.equal(res.status, 405);
         assert.equal(calls.length, 0);
@@ -225,7 +248,7 @@ for (const ep of EXERCISED) {
     const handler = await load(ep);
     const spec = BEHAVIOR[ep.name];
     await withEnv({ LL_ACCESS_CODE: CODE, ...spec.keys }, () =>
-      withStub(spec.reply, async calls => {
+      withStub(spec, async calls => {
         const res = await handler(reqWith(ep.name, {
           "Content-Type": "application/json", "X-LL-Access": CODE,
         }));
@@ -236,14 +259,14 @@ for (const ep of EXERCISED) {
         // And not merely 200: a fallback path or a wrongly-wrapped success
         // would also be 200, and this test would go green while the feature
         // was quietly broken.
-        spec.expect(await res.json());
+        await spec.expect(res);
       }));
   });
 
   test(`${ep.name}: the gate does not swallow the existing input validation`, async () => {
     const handler = await load(ep);
     await withEnv({ LL_ACCESS_CODE: CODE, ...BEHAVIOR[ep.name].keys }, () =>
-      withStub(null, async calls => {
+      withStub(BEHAVIOR[ep.name], async calls => {
         const res = await handler(reqWith(ep.name, {
           "Content-Type": "application/json", "X-LL-Access": CODE,
         }, { nonsense: true }));
@@ -258,7 +281,7 @@ for (const ep of EXERCISED) {
 test("translate: its age and length limits still apply behind the gate", async () => {
   const handler = await load(DISCOVERED.find(e => e.name === "translate"));
   await withEnv({ LL_ACCESS_CODE: CODE, GEMINI_API_KEY: "k" }, () =>
-    withStub(null, async calls => {
+    withStub(BEHAVIOR.translate, async calls => {
       const hdr = { "Content-Type": "application/json", "X-LL-Access": CODE };
       const badAge = await handler(reqWith("translate", hdr, { zh: "你好", age: "0-1" }));
       assert.equal(badAge.status, 400, "0-1 is not a translate age band");
@@ -274,7 +297,7 @@ for (const ep of EXERCISED) {
   test(`${ep.name}: with LL_ACCESS_CODE unset, EVERYONE is refused (fail closed)`, async () => {
     const handler = await load(ep);
     await withEnv({ LL_ACCESS_CODE: undefined, ...BEHAVIOR[ep.name].keys }, () =>
-      withStub(null, async calls => {
+      withStub(BEHAVIOR[ep.name], async calls => {
         const noCode = await handler(reqWith(ep.name, { "Content-Type": "application/json" }));
         assert.equal(noCode.status, 403);
         const anyCode = await handler(reqWith(ep.name, {

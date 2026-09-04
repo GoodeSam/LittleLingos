@@ -58,6 +58,7 @@ step("L0 · play from a saved row (test/saved-row-play.test.mjs)", () => run("no
 step("L0 · judge a phrase by id, from any row (test/answer-by-id.test.mjs)", () => run("node", ["test/answer-by-id.test.mjs"]));
 step("L0 · voicing a translation on arrival (test/translate-audio.test.mjs)", () => run("node", ["test/translate-audio.test.mjs"]));
 step("L0 · marks survive a restart (test/marks-after-reload.test.mjs)", () => run("node", ["test/marks-after-reload.test.mjs"]));
+step("L0 · one-tap looping playback (test/audio-loop.test.mjs)", () => run("node", ["test/audio-loop.test.mjs"]));
 step("L0 · no capability built and left unwired (test/no-orphan-modules.test.mjs)", () => run("node", ["test/no-orphan-modules.test.mjs"]));
 step("L0 · service-worker behavior (test/sw.test.mjs)", () => run("node", ["test/sw.test.mjs"]));
 step("L0 · dictionary API behavior (test/dictionary-api.test.mjs)", () => run("node", ["test/dictionary-api.test.mjs"]));

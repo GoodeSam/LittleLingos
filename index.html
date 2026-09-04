@@ -1399,6 +1399,16 @@
       padding: 12px; background: var(--card); border-radius: var(--r); box-shadow: var(--shadow-card);
     }
     /* Bumped 14px -> 16px: reading tip content, same family as .phrase-tip. */
+    /* One-tap loop playback. Full width and 48px tall: this is the control a
+       parent reaches for while holding a child, not a precision target. */
+    .loop-btn {
+      display: block; width: 100%; min-height: 48px; margin: 0 0 14px;
+      font: inherit; font-size: 17px;
+      border: 1px solid var(--border); border-radius: 12px;
+      background: var(--card); color: inherit; cursor: pointer;
+    }
+    .loop-btn:active { opacity: .6; }
+
     /* Judgement buttons on a saved row, revealed with the English. Same
        classes as the review card's so the two never drift apart visually. */
     .saved-item-judge { display: flex; gap: 8px; margin-top: 10px; }
@@ -2628,6 +2638,29 @@ function renderSavedScreen() {
     return;
   }
   const rows = sortedBySavedAtDesc(savedPhrases);
+
+  // One tap to hear the whole library, looping. Placed above the list because
+  // it is the thing a parent who came here to review actually wants, and the
+  // list is what they fall back to when they want one phrase in particular.
+  const loopBtn = document.createElement('button');
+  loopBtn.type = 'button';
+  loopBtn.className = 'loop-btn';
+  const paintLoopBtn = () => {
+    loopBtn.textContent = audioLoopPlaying() ? '⏸ 停止连续播放' : '🔁 连续播放全部';
+    loopBtn.setAttribute('aria-label', loopBtn.textContent);
+  };
+  paintLoopBtn();
+  loopBtn.onclick = () => {
+    const started = toggleAudioLoop(rows);
+    if (started === false && !audioLoopPlaying()) {
+      // Distinguish "stopped on purpose" from "nothing here can be played" —
+      // a button that does nothing and says nothing reads as broken.
+      const anyAudio = rows.some(r => audioUrlFor(r.id));
+      if (!anyAudio) showOfflineToast('还没有可播放的声音 — 收藏的句子生成好之后就能连续播');
+    }
+    paintLoopBtn();
+  };
+  list.appendChild(loopBtn);
   // Ready every visible row's clip now so a tap can start it synchronously —
   // the same iOS reason renderReviewCard() primes its one item. Not awaited:
   // the list paints immediately, and a tap arriving first falls back to speech
@@ -4499,6 +4532,94 @@ function setupVoiceInputs() {
 setupVoiceInputs();
 
 // ── Access code ────────────────────────────────────────
+/* ll:audio-loop:start */
+// One tap, and every saved phrase plays in turn, over and over.
+//
+// This is what the rest of ADR 0003 was for. jtbd.md names the real job as
+// 「别让我发起」 — a parent who knows they should review and will not begin.
+// Every other control still asks them to start something: open the app, find a
+// row, tap it, judge it. This one asks once and then keeps going.
+//
+// ONE Audio element for the whole session, src swapped between phrases. On iOS
+// only the element unlocked by the tap itself may keep playing; a fresh
+// `new Audio()` for the second clip is started by an `ended` handler rather
+// than a gesture, and Safari can refuse it silently — the loop would stop
+// after one phrase with nothing on screen to explain it. Same unverified iOS
+// rule that shapes ll:audio-playback.
+//
+// Only phrases that actually have a recorded clip take part. Dropping the
+// browser voice in between would break a listening session into two textures,
+// and C1 already ruled that voice out.
+const LOOP_GAP_MS = 1500;
+
+let loopEl = null;
+let loopQueue = [];
+let loopIndex = 0;
+let loopTimer = null;
+let loopOn = false;
+
+function audioLoopPlaying() { return loopOn; }
+
+// Must be called from a tap — see the iOS note above. Returns false when there
+// is nothing to play, so the caller can say why rather than leaving the parent
+// tapping a button that appears dead.
+function startAudioLoop(items) {
+  stopAudioLoop();
+  loopQueue = (items || []).filter(it => it && it.id && audioUrlFor(it.id));
+  if (!loopQueue.length) return false;
+
+  if (!loopEl) {
+    loopEl = new Audio();
+    // Bound once, on the element that lives for the session. Rebinding per
+    // phrase would leave old handlers firing into a finished session.
+    loopEl.addEventListener("ended", () => { if (loopOn) scheduleNextLoopClip(); });
+    // A clip whose address was evicted from the cache must not end the
+    // session — that reads as the loop stopping for no reason.
+    loopEl.addEventListener("error", () => { if (loopOn) scheduleNextLoopClip(); });
+  }
+  loopIndex = 0;
+  loopOn = true;
+  playCurrentLoopClip();
+  return true;
+}
+
+function playCurrentLoopClip() {
+  const item = loopQueue[loopIndex];
+  const url = item && audioUrlFor(item.id);
+  if (!url) { scheduleNextLoopClip(); return; }
+  loopEl.src = url;
+  const p = loopEl.play();
+  // A rejected play (autoplay refused, element torn down) must not strand the
+  // session on a phrase that never sounds.
+  if (p && typeof p.catch === "function") p.catch(() => { if (loopOn) scheduleNextLoopClip(); });
+}
+
+// The gap is the difference between a practice session and a wall of sound:
+// the parent repeats the sentence in it. Without it this is background noise.
+function scheduleNextLoopClip() {
+  if (loopTimer) clearTimeout(loopTimer);
+  loopTimer = setTimeout(() => {
+    loopTimer = null;
+    if (!loopOn) return;
+    loopIndex = (loopIndex + 1) % loopQueue.length;
+    playCurrentLoopClip();
+  }, LOOP_GAP_MS);
+}
+
+function stopAudioLoop() {
+  loopOn = false;
+  if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
+  // Cancelling only the schedule would leave the current phrase sounding after
+  // the parent pressed stop.
+  if (loopEl) { try { loopEl.pause(); } catch {} }
+}
+
+function toggleAudioLoop(items) {
+  if (loopOn) { stopAudioLoop(); return false; }
+  return startAudioLoop(items);
+}
+/* ll:audio-loop:end */
+
 /* ll:audio-marks:start */
 // What a saved row says about its voice.
 //

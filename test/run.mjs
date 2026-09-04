@@ -47,6 +47,9 @@ step("L0 · voice-input module behavior (test/voice-input.test.mjs)", () => run(
 step("L0 · install-env module behavior (test/install-env.test.mjs)", () => run("node", ["test/install-env.test.mjs"]));
 step("L0 · backup export/import round trip (test/data-export.test.mjs)", () => run("node", ["test/data-export.test.mjs"]));
 step("L0 · CSV backup format (test/data-export-csv.test.mjs)", () => run("node", ["test/data-export-csv.test.mjs"]));
+step("L0 · custom scenarios (test/custom-scenarios.test.mjs)", () => run("node", ["test/custom-scenarios.test.mjs"]));
+step("L0 · scenarios ride along in the backup (test/backup-scenarios.test.mjs)", () => run("node", ["test/backup-scenarios.test.mjs"]));
+step("L0 · reaching a self-made scenario (test/scenario-ui.test.mjs)", () => run("node", ["test/scenario-ui.test.mjs"]));
 step("L0 · access code on the client (test/access-code-client.test.mjs)", () => run("node", ["test/access-code-client.test.mjs"]));
 step("L0 · access control on paid endpoints (test/access-control.test.mjs)", () => run("node", ["test/access-control.test.mjs"]));
 step("L0 · TTS endpoint behavior (test/tts-api.test.mjs)", () => run("node", ["test/tts-api.test.mjs"]));
@@ -59,6 +62,7 @@ step("L0 · judge a phrase by id, from any row (test/answer-by-id.test.mjs)", ()
 step("L0 · voicing a translation on arrival (test/translate-audio.test.mjs)", () => run("node", ["test/translate-audio.test.mjs"]));
 step("L0 · marks survive a restart (test/marks-after-reload.test.mjs)", () => run("node", ["test/marks-after-reload.test.mjs"]));
 step("L0 · one-tap looping playback (test/audio-loop.test.mjs)", () => run("node", ["test/audio-loop.test.mjs"]));
+step("L0 · bottom tab labels (test/nav-labels.test.mjs)", () => run("node", ["test/nav-labels.test.mjs"]));
 step("L0 · no capability built and left unwired (test/no-orphan-modules.test.mjs)", () => run("node", ["test/no-orphan-modules.test.mjs"]));
 step("L0 · service-worker behavior (test/sw.test.mjs)", () => run("node", ["test/sw.test.mjs"]));
 step("L0 · dictionary API behavior (test/dictionary-api.test.mjs)", () => run("node", ["test/dictionary-api.test.mjs"]));

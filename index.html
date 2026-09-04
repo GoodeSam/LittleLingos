@@ -1410,6 +1410,18 @@
     .result-related-btn:active { opacity: .6; }
     .result-related-btn:disabled { opacity: .5; cursor: default; }
 
+    /* The bar that says which scenario the 收藏 list is narrowed to. */
+    .saved-filter-bar {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+    }
+    .saved-filter-name { flex: 1; font-size: 17px; font-weight: 600; }
+    .saved-filter-back, .saved-filter-del {
+      min-height: 44px; padding: 0 12px; font: inherit; font-size: 15px;
+      border: 1px solid var(--border); border-radius: 10px;
+      background: var(--card); color: inherit; cursor: pointer;
+    }
+    .scenario-card-add .s-name { opacity: .8; }
+
     /* One-tap loop playback. Full width and 48px tall: this is the control a
        parent reaches for while holding a child, not a precision target. */
     .loop-btn {
@@ -1618,8 +1630,14 @@
 
   <!-- Bottom nav -->
   <div class="bottom-nav">
+    <!-- Labelled 场景, not 首页: every screen is somewhere, so 「首页」 names the
+         position and says nothing about the contents. What lives here is the
+         set of prepared everyday situations — bedtime, meals, going out — and
+         a parent scanning four labels for "睡前该说什么" needs the label to
+         answer that. The internal tab id stays "home"; renaming it would turn
+         a copy change into a refactor with no benefit to anyone reading it. -->
     <div class="nav-item active" role="button" tabindex="0" data-tab="home" onclick="showTab('home')">
-      <span class="nav-icon">🏠</span>首页
+      <span class="nav-icon">🏠</span>场景
     </div>
     <!-- 4th permanent nav tab (real-user feedback #2): the home search box
          only asks for Chinese (placeholder above) and its dictionary CTA
@@ -1991,6 +2009,88 @@ function renderScenarioGrid() {
     card.append(tile, body);
     grid.appendChild(card);
   });
+
+  // The parent's own scenarios, after the prepared ones. The prepared set
+  // covers bedtime and meals; it does not cover their Tuesday.
+  for (const sc of loadCustomScenarios()) {
+    const tag = customScenarioTag(sc.id);
+    const n = phrasesInScenario(tag).length;
+    const card = document.createElement("div");
+    card.className = "scenario-card";
+    card.setAttribute("role", "button");
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("data-id", tag);
+    card.onclick = () => openScenario(tag);
+    const tile = document.createElement("div"); tile.className = "s-icon-tile";
+    tile.style.setProperty("--tint-color", "#8b9dc3");
+    const icon = document.createElement("div"); icon.className = "s-icon"; icon.textContent = sc.icon;
+    tile.appendChild(icon);
+    const body = document.createElement("div"); body.className = "s-body";
+    const name = document.createElement("div"); name.className = "s-name"; name.textContent = sc.name;
+    const cnt = document.createElement("div"); cnt.className = "s-count";
+    cnt.textContent = n ? n + " 句" : "还没有句子";
+    body.append(name, cnt);
+    card.append(tile, body);
+    grid.appendChild(card);
+  }
+
+  const add = document.createElement("div");
+  add.className = "scenario-card scenario-card-add";
+  add.setAttribute("role", "button");
+  add.setAttribute("tabindex", "0");
+  add.onclick = () => newCustomScenario();
+  const addTile = document.createElement("div"); addTile.className = "s-icon-tile";
+  addTile.style.setProperty("--tint-color", "#9aa5b1");
+  const addIcon = document.createElement("div"); addIcon.className = "s-icon"; addIcon.textContent = "➕";
+  addTile.appendChild(addIcon);
+  const addBody = document.createElement("div"); addBody.className = "s-body";
+  const addName = document.createElement("div"); addName.className = "s-name"; addName.textContent = "新建场景";
+  const addCnt = document.createElement("div"); addCnt.className = "s-count";
+  addCnt.textContent = "自己的日常";
+  addBody.append(addName, addCnt);
+  add.append(addTile, addBody);
+  grid.appendChild(add);
+}
+
+// Rename and delete. Without these a typo means deleting the scenario and
+// rebuilding it, which moves every phrase inside it.
+function manageCustomScenario(tag) {
+  const id = String(tag || "").replace(/^custom_/, "");
+  const sc = loadCustomScenarios().find(x => x.id === id);
+  if (!sc) return;
+  const choice = prompt(
+    `「${sc.name}」\n\n输入新名字可重命名；输入「删除」两个字可删除这个场景。\n` +
+    `删除只是取消归类 —— 里面的 ${phrasesInScenario(tag).length} 句话会留在「全部收藏」里。`,
+    sc.name);
+  if (choice === null) return;
+  if (String(choice).trim() === "删除") {
+    deleteCustomScenario(id);
+    savedFilterScenario = null;
+    renderSavedScreen();
+    renderScenarioGrid();
+    return;
+  }
+  if (!renameCustomScenario(id, choice)) {
+    alert(String(choice).trim() ? "已经有一个同名的场景了。" : "场景需要一个名字。");
+    return;
+  }
+  renderSavedScreen();
+  renderScenarioGrid();
+}
+
+// prompt() rather than an inline form: the app already speaks to the parent
+// through alert() at save time, and one text field does not earn a screen of
+// its own yet. Worth revisiting if scenario creation turns out to be frequent.
+function newCustomScenario() {
+  const name = prompt("这个场景叫什么？（比如：去医院、外婆家）");
+  if (name === null) return;
+  const sc = createCustomScenario(name);
+  if (!sc) {
+    alert(String(name).trim() ? "已经有一个同名的场景了。" : "场景需要一个名字。");
+    return;
+  }
+  renderScenarioGrid();
+  openScenario(customScenarioTag(sc.id));
 }
 
 // ── Today progress ─────────────────────────────────────
@@ -2111,6 +2211,14 @@ function showTab(tab) {
 function openTodayScenario() { openScenario(todayId); }
 
 function openScenario(id) {
+  // A self-made scenario has no entry in the preset `scenarios` object, so the
+  // lines below would read `.phrases` off undefined. It opens as the 收藏 list
+  // filtered to it instead — which is what it actually is.
+  if (typeof isCustomScenario === "function" && isCustomScenario(id)) {
+    savedFilterScenario = id;
+    showTab("saved");
+    return;
+  }
   currentScenario = id;
   currentTier = "all";
   const s = scenarios[id];
@@ -2571,6 +2679,11 @@ function classifyItem(item) {
   const id = item.id != null ? String(item.id) : "";
   if (id.startsWith("t_")) return "translate";
   if (item.scenario === "__dict__") return "dict";
+  // BEFORE the preset check. A self-made scenario's phrases are voiced one at
+  // a time and kept on the device; classified as "scenario" they would be sent
+  // to ./audio/<id>_normal.mp3 — a file that was never shipped — and fail over
+  // to the browser voice with nothing to show for it (tech-constraints C13).
+  if (typeof isCustomScenario === "function" && isCustomScenario(item.scenario)) return "translate";
   if (item.scenario && typeof scenarios !== "undefined" && scenarios[item.scenario]) return "scenario";
   return "translate";
 }
@@ -2635,9 +2748,39 @@ function renderSavedChips() {
   area.appendChild(row);
 }
 
+// Which scenario the 收藏 list is currently narrowed to, or null for all of
+// them. Lives outside renderSavedScreen so switching tabs does not reset it
+// mid-look, and so leaving via the header is one assignment.
+let savedFilterScenario = null;
+
 function renderSavedScreen() {
   const list = document.getElementById("savedScreenList");
   list.innerHTML = '';
+
+  // A parent inside a scenario must be able to see that they are, and get
+  // out — otherwise the rest of their phrases look like they have vanished.
+  if (savedFilterScenario) {
+    const sc = loadCustomScenarios().find(x => customScenarioTag(x.id) === savedFilterScenario);
+    const bar = document.createElement('div');
+    bar.className = 'saved-filter-bar';
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'saved-filter-back';
+    back.textContent = '← 全部收藏';
+    back.onclick = () => { savedFilterScenario = null; renderSavedScreen(); };
+    const title = document.createElement('span');
+    title.className = 'saved-filter-name';
+    title.textContent = sc ? `${sc.icon} ${sc.name}` : '这个场景已被删除';
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'saved-filter-del';
+    del.textContent = '⋯';
+    del.setAttribute('aria-label', '重命名或删除这个场景');
+    del.onclick = () => manageCustomScenario(savedFilterScenario);
+    bar.append(back, title, del);
+    list.appendChild(bar);
+  }
+
   if (!savedPhrases.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -2648,7 +2791,7 @@ function renderSavedScreen() {
     list.appendChild(empty);
     return;
   }
-  const rows = sortedBySavedAtDesc(savedPhrases);
+  const rows = sortedBySavedAtDesc(phrasesInScenario(savedFilterScenario));
 
   // One tap to hear the whole library, looping. Placed above the list because
   // it is the thing a parent who came here to review actually wants, and the
@@ -4585,6 +4728,112 @@ function setupVoiceInputs() {
 setupVoiceInputs();
 
 // ── Access code ────────────────────────────────────────
+/* ll:custom-scenarios:start */
+// Scenarios a parent makes themselves.
+//
+// The prepared ones cover bedtime, meals, going out. They do not cover this
+// parent's Tuesday — the paediatrician, the grandparents' place, swimming.
+// Those are the moments they actually need words for.
+//
+// THE PHRASES ARE ORDINARY SAVED ITEMS tagged with `custom_<id>`. That is the
+// whole design: they inherit review scheduling, audio generation, the marks,
+// row playback, loop playback and backup, none of which is built again here.
+//
+// The tag is deliberately NOT a key in the preset `scenarios` object. An item
+// found there is classified as audio-backed and sent to
+// ./audio/<id>_normal.mp3 — a file that does not exist for these — where it
+// would fail over to the browser voice with nothing to show for it
+// (tech-constraints C13).
+const SCENARIOS_KEY = "ll_scenarios";
+const CUSTOM_PREFIX = "custom_";
+const DEFAULT_SCENARIO_ICON = "📌";
+
+function customScenarioTag(id) { return CUSTOM_PREFIX + id; }
+function isCustomScenario(tag) {
+  return typeof tag === "string" && tag.startsWith(CUSTOM_PREFIX);
+}
+
+// Anything unreadable is treated as "no scenarios yet" rather than an error.
+// A parent whose storage got mangled should find an app that works and an
+// empty list, not one that will not open.
+function loadCustomScenarios() {
+  let raw = null;
+  try { raw = localStorage.getItem(SCENARIOS_KEY); } catch { return []; }
+  if (!raw) return [];
+  let list;
+  try { list = JSON.parse(raw); } catch { return []; }
+  if (!Array.isArray(list)) return [];
+  // A half-written entry would render as a scenario with no name — a tile a
+  // parent cannot identify and cannot fix.
+  return list.filter(x => x && typeof x.id === "string" && x.id
+                       && typeof x.name === "string" && x.name.trim());
+}
+
+function saveCustomScenarios(list) {
+  safeSetItem(SCENARIOS_KEY, JSON.stringify(list));
+}
+
+const normName = n => String(n == null ? "" : n).trim();
+
+function createCustomScenario(name, icon) {
+  const clean = normName(name);
+  if (!clean) return null;
+  const list = loadCustomScenarios();
+  // Two scenarios with one name leaves the parent unable to tell which of
+  // them a phrase should go into.
+  if (list.some(x => normName(x.name) === clean)) return null;
+  const sc = {
+    id: "s_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+    name: clean,
+    icon: normName(icon) || DEFAULT_SCENARIO_ICON,
+    createdAt: Date.now(),
+  };
+  list.push(sc);
+  saveCustomScenarios(list);
+  return sc;
+}
+
+function renameCustomScenario(id, name) {
+  const clean = normName(name);
+  if (!clean) return false;
+  const list = loadCustomScenarios();
+  const sc = list.find(x => x.id === id);
+  if (!sc) return false;
+  if (list.some(x => x.id !== id && normName(x.name) === clean)) return false;
+  // The id never changes: every phrase in this scenario points at it, and a
+  // new id would orphan all of them.
+  sc.name = clean;
+  saveCustomScenarios(list);
+  return true;
+}
+
+// Deleting a scenario is tidying, not destruction. Each phrase inside cost a
+// generation to voice and carries months of review progress, so they move to
+// the general translated bucket and stay reachable in 收藏.
+// The saved phrases belonging to one scenario, or all of them when no
+// scenario is given. A self-made scenario is not a new screen — it is the 收藏
+// list with one filter on it, so everything a parent can already do to a saved
+// phrase keeps working inside a scenario without being built twice.
+function phrasesInScenario(tag) {
+  if (!tag) return savedPhrases;
+  return savedPhrases.filter(p => p && p.scenario === tag);
+}
+
+function deleteCustomScenario(id) {
+  const list = loadCustomScenarios();
+  const at = list.findIndex(x => x.id === id);
+  if (at === -1) return false;
+  const tag = customScenarioTag(id);
+  for (const p of savedPhrases) {
+    if (p && p.scenario === tag) p.scenario = "__translate__";
+  }
+  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  list.splice(at, 1);
+  saveCustomScenarios(list);
+  return true;
+}
+/* ll:custom-scenarios:end */
+
 /* ll:translate-save:start */
 // Identity and saving for a translation and the alternatives it comes with.
 //
@@ -5260,7 +5509,12 @@ function isRestorableRecord(r) {
       && typeof r.id === "string" && r.id.length > 0;
 }
 
-function buildExportPayload({ saved, age }) {
+// `scenarios` is ADDITIVE and the schema number stays at 1 on purpose.
+// parseImportPayload() refuses a schema it does not recognise — guessing at an
+// unknown shape writes garbage into the only copy of a parent's data — so
+// bumping it would have rejected every backup file already on a parent's disk.
+// An older build reading a newer file simply ignores the extra field.
+function buildExportPayload({ saved, age, scenarios }) {
   return {
     schema: EXPORT_SCHEMA,
     app: EXPORT_APP,
@@ -5271,7 +5525,20 @@ function buildExportPayload({ saved, age }) {
     // rv (review progress) rides along inside each record — dropping it would
     // restore the phrases but silently reset months of spaced repetition.
     saved: Array.isArray(saved) ? saved.filter(isRestorableRecord) : [],
+    // Without these, a restored phrase tagged custom_<id> points at a scenario
+    // that does not exist: the sentence survives in the data and disappears
+    // from the screen, with nothing to tell the parent anything went wrong.
+    // Always an array, never absent — one shape for the importer to handle.
+    scenarios: Array.isArray(scenarios) ? scenarios.filter(isRestorableScenario) : [],
   };
+}
+
+// A scenario with no id cannot own phrases; one with no name is a tile the
+// parent cannot identify.
+function isRestorableScenario(x) {
+  return !!x && typeof x === "object"
+    && typeof x.id === "string" && x.id
+    && typeof x.name === "string" && x.name.trim();
 }
 
 // Returns {ok:true, payload} or {ok:false, error}. The error codes are what
@@ -5291,6 +5558,11 @@ function parseImportPayload(text) {
   // guess writes malformed records into the only copy of the parent's data.
   if (data.schema !== EXPORT_SCHEMA) return { ok: false, error: "unknown-schema" };
   if (!Array.isArray(data.saved)) return { ok: false, error: "no-saved" };
+  // Optional, and never fatal. A backup is the parent's only copy; refusing
+  // the whole file because one secondary field is malformed gambles their
+  // sentences on it. Missing or broken means "no custom scenarios".
+  data.scenarios = Array.isArray(data.scenarios)
+    ? data.scenarios.filter(isRestorableScenario) : [];
 
   return {
     ok: true,
@@ -5299,8 +5571,32 @@ function parseImportPayload(text) {
       // Individual junk records are dropped, not fatal — one bad row must
       // never cost the parent the other 200 good ones.
       saved: data.saved.filter(isRestorableRecord),
+      // Always present, already filtered above. Callers get one shape whether
+      // the file predates custom scenarios or not.
+      scenarios: data.scenarios,
     },
   };
+}
+
+// Same stance as mergeSaved(): importing ADDS what is missing, it does not
+// replace what this device already has. A name that already exists counts as
+// present even under a different id — the same scenario created separately on
+// two phones would otherwise restore as two identical-looking tiles.
+function mergeScenarios(existing, incoming) {
+  const merged = Array.isArray(existing) ? existing.slice() : [];
+  const seenId = new Set(merged.map(x => x && x.id));
+  const seenName = new Set(merged.map(x => x && String(x.name || "").trim()));
+  let added = 0, skipped = 0;
+  for (const sc of (Array.isArray(incoming) ? incoming : [])) {
+    if (!isRestorableScenario(sc)) { skipped++; continue; }
+    const name = String(sc.name).trim();
+    if (seenId.has(sc.id) || seenName.has(name)) { skipped++; continue; }
+    merged.push(sc);
+    seenId.add(sc.id);
+    seenName.add(name);
+    added++;
+  }
+  return { merged, added, skipped };
 }
 
 // Merge, never overwrite. An id already on this device wins over the backup's
@@ -5505,7 +5801,12 @@ function downloadBlob(text, name, mime) {
 }
 
 function exportUserData() {
-  const payload = buildExportPayload({ saved: savedPhrases, age: currentAge });
+  const payload = buildExportPayload({
+    saved: savedPhrases, age: currentAge,
+    // Without these, a restored phrase tagged custom_<id> points at nothing
+    // and disappears from the screen while surviving in the file.
+    scenarios: loadCustomScenarios(),
+  });
   const stamp = payload.exportedAt.slice(0, 10);
 
   // Two formats, one tap. JSON is the durable copy — nothing can rewrite it
@@ -5558,6 +5859,11 @@ function importUserData(input) {
       return;
     }
 
+    // Scenarios first: a phrase restored before its scenario exists is a
+    // phrase with nowhere to appear, even if only for the next few lines.
+    const sc = mergeScenarios(loadCustomScenarios(), parsed.payload.scenarios);
+    if (sc.added) saveCustomScenarios(sc.merged);
+
     const { merged, added, skipped } = mergeSaved(savedPhrases, parsed.payload.saved);
     savedPhrases = merged;
     safeSetItem("ll_saved", JSON.stringify(savedPhrases));
@@ -5570,6 +5876,7 @@ function importUserData(input) {
     renderSavedScreen();
 
     let msg = `已恢复 ${added} 条收藏`;
+    if (sc.added) msg += `、${sc.added} 个自建场景`;
     if (skipped) msg += `，跳过 ${skipped} 条（这台设备上已经有了，保留了本机的复习进度）`;
     // A CSV that a spreadsheet rewrote loses records silently unless this is
     // said out loud — the parent needs to know their backup is damaged while

@@ -1399,6 +1399,18 @@
       padding: 12px; background: var(--card); border-radius: var(--r); box-shadow: var(--shadow-card);
     }
     /* Bumped 14px -> 16px: reading tip content, same family as .phrase-tip. */
+    /* The audio mark doubles as the play control on rows that have a clip.
+       44px is the minimum comfortable tap target on a phone; anything smaller
+       and a parent holding a child misses it. */
+    .saved-item-audio {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 44px; min-height: 44px; margin-left: 4px;
+      font-size: 20px; line-height: 1; vertical-align: middle;
+      background: none; border: none; padding: 0; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    button.saved-item-audio:active { opacity: .5; }
+    span.saved-item-audio { cursor: default; }
     .saved-item-tip { font-size: 16px; color: var(--tip-ink); margin-top: 4px; line-height: 1.5; }
 
     /* ── Nav badge (due review count) ────────────────── */
@@ -2610,7 +2622,15 @@ function renderSavedScreen() {
     list.appendChild(empty);
     return;
   }
-  sortedBySavedAtDesc(savedPhrases).forEach(p => {
+  const rows = sortedBySavedAtDesc(savedPhrases);
+  // Ready every visible row's clip now so a tap can start it synchronously —
+  // the same iOS reason renderReviewCard() primes its one item. Not awaited:
+  // the list paints immediately, and a tap arriving first falls back to speech
+  // synthesis that once.
+  if (typeof primeAudioUrl === "function") {
+    for (const row of rows) primeAudioUrl(row.id);
+  }
+  rows.forEach(p => {
     const item = document.createElement('div');
     item.className = 'saved-item';
 
@@ -2670,19 +2690,25 @@ function renderSavedScreen() {
     // The audio mark. Rendered for every row so a parent can see at a glance
     // which phrases actually have a voice on this phone — the one thing the
     // rest of ADR 0003 gives them no way to find out.
-    const mark = document.createElement(audioMarkView(p).canRetry ? 'button' : 'span');
     const view = audioMarkView(p);
+    const mark = document.createElement(view.onTap ? 'button' : 'span');
     mark.className = 'saved-item-audio';
     mark.textContent = view.icon;
     mark.title = view.label;
     mark.setAttribute('aria-label', view.label);
-    if (view.canRetry) {
+    if (view.onTap) {
       mark.type = 'button';
       mark.onclick = () => {
-        // Show the change immediately rather than after the round trip: the
-        // spinner IS the feedback that the tap registered.
-        mark.textContent = '⏳';
-        Promise.resolve(view.onTap()).then(() => renderSavedScreen());
+        if (view.canRetry) {
+          // Generating: show the change immediately rather than after the
+          // round trip — the spinner IS the feedback that the tap registered.
+          mark.textContent = '⏳';
+          Promise.resolve(view.onTap()).then(() => renderSavedScreen());
+        } else {
+          // Playing: stays synchronous, and does NOT re-render — redrawing the
+          // list mid-playback would throw away the element that is speaking.
+          view.onTap();
+        }
       };
     }
 
@@ -4396,12 +4422,24 @@ function audioMarkView(item) {
   // Preset phrases ship with the app as ./audio/<id>_normal.mp3 and never go
   // through per-item generation — asking the device store about them always
   // answers "none", which would paint a whole screen of them as silent.
+  // 🔊 doubles as the play control. Reported from real use: only the review
+  // card at the top could be played, so every row below it held a clip that
+  // had been paid for and could never be heard. A speaker icon already invites
+  // a tap; adding a separate play button next to it would ask the parent to
+  // work out the difference between the two.
+  const playable = item => ({
+    // Says both what it is and what tapping does — a screen reader user gets
+    // no icon, so the label carries the whole message.
+    icon: "🔊", label: "已有声音 — 点一下听这一句", canRetry: false,
+    onTap: () => playReviewAudio(item),
+  });
+
   if (typeof isAudioBacked === "function" && isAudioBacked(item)) {
-    return { icon: "🔊", label: "已有声音", canRetry: false };
+    return playable(item);
   }
 
   const state = typeof audioMarkFor === "function" ? audioMarkFor(item.id) : "none";
-  if (state === "ready")   return { icon: "🔊", label: "已有声音", canRetry: false };
+  if (state === "ready")   return playable(item);
   if (state === "pending") return { icon: "⏳", label: "正在生成声音", canRetry: false };
   if (state === "failed") {
     return {

@@ -54,6 +54,7 @@ step("L0 · on-device audio store (test/audio-store.test.mjs)", () => run("node"
 step("L0 · audio provisioning on save (test/audio-provision.test.mjs)", () => run("node", ["test/audio-provision.test.mjs"]));
 step("L0 · stored-clip playback (test/audio-playback.test.mjs)", () => run("node", ["test/audio-playback.test.mjs"]));
 step("L0 · audio mark on a saved row (test/audio-marks.test.mjs)", () => run("node", ["test/audio-marks.test.mjs"]));
+step("L0 · play from a saved row (test/saved-row-play.test.mjs)", () => run("node", ["test/saved-row-play.test.mjs"]));
 step("L0 · service-worker behavior (test/sw.test.mjs)", () => run("node", ["test/sw.test.mjs"]));
 step("L0 · dictionary API behavior (test/dictionary-api.test.mjs)", () => run("node", ["test/dictionary-api.test.mjs"]));
 step("L0 · dictionary/review client correctness (test/dictionary-review.test.mjs)", () => run("node", ["test/dictionary-review.test.mjs"]));

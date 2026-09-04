@@ -44,7 +44,7 @@ const PRESET = { id: "bedtime_01", en: "Time for bed.", scenario: "bedtime" };
 function loadModule({ marks = {}, presetIds = ["bedtime_01"] } = {}) {
   const s = html.indexOf(START), e = html.indexOf(END);
   assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
-  const retried = [];
+  const retried = [], played = [];
   const ctx = {
     console,
     // From ll:audio-provision — its own 18 tests cover what it returns.
@@ -52,11 +52,17 @@ function loadModule({ marks = {}, presetIds = ["bedtime_01"] } = {}) {
     retryAudio: item => { retried.push(item); return Promise.resolve(true); },
     // From ll:dictionary-shared — preset phrases ship with their own mp3.
     isAudioBacked: item => presetIds.includes(item && item.id),
+    // 🔊 now doubles as the play control, so tapping a ready row calls this.
+    // A recording double, not the real thing: playReviewAudio() carries its own
+    // session guard and speech-synthesis fallback, already covered by
+    // test/audio-playback.test.mjs and test/dictionary-review.test.mjs, and
+    // running it here would drag in Audio, stopAllAudio and speakText.
+    playReviewAudio: item => { played.push(item); },
   };
   vm.createContext(ctx);
   vm.runInContext(html.slice(s, e + END.length), ctx);
   assert.equal(typeof ctx.audioMarkView, "function", "module must define audioMarkView()");
-  return { ctx, retried };
+  return { ctx, retried, played };
 }
 
 // ══ 1. 看得出这句已经有声音了 ═════════════════════════════════════════
@@ -137,10 +143,14 @@ test("已经好了、或者正在生成的，点了都不会白花一次钱", as
   assert.equal(fail.retried.length, 1, "对照：失败的那个点了必须真的重试");
 
   for (const state of ["ready", "pending"]) {
-    const { ctx, retried } = loadModule({ marks: { [TRANSLATED.id]: state } });
+    const { ctx, retried, played } = loadModule({ marks: { [TRANSLATED.id]: state } });
     const v = ctx.audioMarkView(TRANSLATED);
     if (v.onTap) await v.onTap();
     assert.equal(retried.length, 0, `${state} 的时候再生成一次是纯粹的浪费`);
+    // 已经有声音的，点了该做的是放出来 —— 只验「没重试」的话，
+    // 一个点了什么都不做的实现同样成立。
+    assert.equal(played.length, state === "ready" ? 1 : 0,
+      state === "ready" ? "有声音的点了必须真的播" : "还在生成的点了不该播一段还不存在的声音");
   }
 });
 

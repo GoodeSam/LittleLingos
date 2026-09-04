@@ -2635,6 +2635,17 @@ function renderSavedScreen() {
   if (typeof primeAudioUrl === "function") {
     for (const row of rows) primeAudioUrl(row.id);
   }
+  // Marks come from memory, which a restart empties. Re-render once the
+  // answers are back, or the first paint after launch shows every row as
+  // silent. Not awaited: the list draws immediately either way.
+  if (typeof syncAudioMarks === "function") {
+    const ids = rows.map(r => r.id);
+    const before = ids.filter(id => audioMarkFor(id) === "none").length;
+    syncAudioMarks(ids).then(() => {
+      const after = ids.filter(id => audioMarkFor(id) === "none").length;
+      if (after !== before) renderSavedScreen();
+    });
+  }
   rows.forEach(p => {
     const item = document.createElement('div');
     item.className = 'saved-item';
@@ -4567,6 +4578,11 @@ function audioMarkView(item) {
 const audioUrlCache = new Map();
 const audioUrlPending = new Map();
 
+// Each live address pins its clip in memory (~52KB). The saved list primes
+// every row, so without a ceiling a large library would hold all of it open at
+// once. Eviction is oldest-first; the Map keeps insertion order.
+const AUDIO_URL_CAP = 120;
+
 // Synchronous by design — see above. Returns null when nothing is ready, and
 // the caller falls back to speech synthesis exactly as it does today.
 function audioUrlFor(id) {
@@ -4590,6 +4606,12 @@ async function primeAudioUrl(id) {
       if (!blob) return null;
       const url = URL.createObjectURL(blob);
       audioUrlCache.set(id, url);
+      while (audioUrlCache.size > AUDIO_URL_CAP) {
+        const oldest = audioUrlCache.keys().next().value;
+        if (oldest === id) break;               // never evict the one just made
+        try { URL.revokeObjectURL(audioUrlCache.get(oldest)); } catch {}
+        audioUrlCache.delete(oldest);
+      }
       return url;
     } catch {
       // No store, no clip, a read that failed — all the same to the caller:
@@ -4738,6 +4760,28 @@ function provisionTranslation(result) {
     if (ok && typeof primeAudioUrl === "function") primeAudioUrl(result.id);
     return ok;
   });
+}
+
+// Read the device back into memory. audioMarkFor() answers from these three
+// Sets, and they live only as long as the page does — so on a fresh launch
+// every saved phrase claimed to have no sound while its clip sat in storage.
+// Playback still worked, because the list primes addresses from storage
+// directly, which made it worse rather than better: a row saying it was silent
+// that spoke when tapped.
+//
+// Asks about the whole list in one go. Dozens of single lookups is what makes
+// a list stutter on an older phone.
+//
+// Deliberately does NOT overwrite what this session already knows. A render
+// can land while one clip is mid-generation, and turning that ⏳ into 🔈 —
+// or erasing a ⚠ the parent was about to tap — would be the sync inventing a
+// state neither storage nor this session believes in.
+async function syncAudioMarks(ids) {
+  const unknown = (ids || []).filter(
+    id => id && !audioReady.has(id) && !audioPending.has(id) && !audioFailed.has(id));
+  if (!unknown.length) return;
+  const have = await whichHaveAudio(unknown);
+  for (const id of have) audioReady.add(id);
 }
 
 // A tap on the ⚠ mark. Clears the memory of the last failure so the attempt

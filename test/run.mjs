@@ -57,6 +57,7 @@ step("L0 · audio mark on a saved row (test/audio-marks.test.mjs)", () => run("n
 step("L0 · play from a saved row (test/saved-row-play.test.mjs)", () => run("node", ["test/saved-row-play.test.mjs"]));
 step("L0 · judge a phrase by id, from any row (test/answer-by-id.test.mjs)", () => run("node", ["test/answer-by-id.test.mjs"]));
 step("L0 · voicing a translation on arrival (test/translate-audio.test.mjs)", () => run("node", ["test/translate-audio.test.mjs"]));
+step("L0 · marks survive a restart (test/marks-after-reload.test.mjs)", () => run("node", ["test/marks-after-reload.test.mjs"]));
 step("L0 · service-worker behavior (test/sw.test.mjs)", () => run("node", ["test/sw.test.mjs"]));
 step("L0 · dictionary API behavior (test/dictionary-api.test.mjs)", () => run("node", ["test/dictionary-api.test.mjs"]));
 step("L0 · dictionary/review client correctness (test/dictionary-review.test.mjs)", () => run("node", ["test/dictionary-review.test.mjs"]));

@@ -3104,6 +3104,9 @@ function renderRelatedExpressions(related) {
 
 function showTranslateResult(result, disclaimer) {
   lastTranslateResult = result;
+  // Not awaited: the words appear at once, and the voice catches up. A tap on
+  // play before it lands falls back to speech synthesis that once.
+  provisionTranslation(result);
   document.getElementById("resultEn").textContent = result.en;
   document.getElementById("resultZh").textContent = result.zh || "";
   document.getElementById("resultTip").textContent = "💡 " + result.tip;
@@ -3185,7 +3188,31 @@ function speakText(text, rate, btn, session = playbackSession) {
 
 function playResultAudio(btn) {
   stopAllAudio();
-  speakText(document.getElementById("resultEn").textContent, undefined, btn);
+  const session = playbackSession;
+  const isCurrent = () => session === playbackSession;
+  const text = document.getElementById("resultEn").textContent;
+  // Prefer the clip generated when this translation arrived — same voice the
+  // review screen uses. Looked up synchronously; see ll:audio-playback.
+  const id = lastTranslateResult && lastTranslateResult.id;
+  const url = id ? audioUrlFor(id) : null;
+  if (url) {
+    if (btn) setPlayBtnPlaying(btn);
+    const mp3 = new Audio(url);
+    currentAudio = mp3;
+    mp3.addEventListener("ended", () => {
+      if (!isCurrent()) return;
+      if (currentAudio === mp3) currentAudio = null;
+      resetPlayBtnState(btn);
+    }, { once: true });
+    mp3.addEventListener("error", () => {
+      if (!isCurrent()) return;
+      if (currentAudio === mp3) currentAudio = null;
+      speakText(text, undefined, btn, session);
+    }, { once: true });
+    mp3.play().catch(() => { if (isCurrent()) speakText(text, undefined, btn, session); });
+    return;
+  }
+  speakText(text, undefined, btn, session);
 }
 
 function saveTranslation() {
@@ -3193,7 +3220,9 @@ function saveTranslation() {
   const r = lastTranslateResult;
   if (savedPhrases.some(s => s.en === r.en)) { alert("已经收藏过了。"); return; }
   savedPhrases.push({
-    id: "t_" + Date.now(),
+    // The id the clip was already stored under (provisionTranslation). Minting
+    // a fresh one here would orphan that clip and pay for this sentence twice.
+    id: r.id || ("t_" + Date.now()),
     en: r.en,
     zh: r.zh || document.getElementById("zhInput").value.trim(),
     tip: r.tip || "",
@@ -4676,6 +4705,31 @@ async function provisionAudio(item, id) {
       try { refreshAudioMarks(); } catch {}
     }
   }
+}
+
+// Voice a translation the moment it arrives, before it is saved.
+//
+// Reported from real use: the translate screen and the review screen sounded
+// like different people. Both clips come from the same Azure voice with
+// identical prosody — the translate screen simply had no clip at all and fell
+// back to browser speech, because generation used to happen at save time. So
+// the parent heard the machine voice FIRST, on the very screen where they
+// decide whether the phrase is any good, and the real one only afterwards.
+//
+// The id is minted HERE rather than in saveTranslation(). That is the whole
+// trick: the clip is stored under the id the saved item will carry, so saving
+// costs nothing more. Minting a second id at save time would orphan the clip
+// and pay for the same sentence twice.
+//
+// The cost of this choice, stated plainly: every translation is now a
+// generation, including the ones glanced at and discarded. Translate ten, keep
+// one, and nine clips were paid for and never wanted. The alternative was
+// making the parent wait three seconds the first time they tap play.
+function provisionTranslation(result) {
+  if (!result || !result.en) return Promise.resolve(false);
+  // Keep an existing id: a re-render must not throw away the clip just made.
+  if (!result.id) result.id = "t_" + Date.now();
+  return requestAudio(result);
 }
 
 // A tap on the ⚠ mark. Clears the memory of the last failure so the attempt

@@ -1399,6 +1399,11 @@
       padding: 12px; background: var(--card); border-radius: var(--r); box-shadow: var(--shadow-card);
     }
     /* Bumped 14px -> 16px: reading tip content, same family as .phrase-tip. */
+    /* Judgement buttons on a saved row, revealed with the English. Same
+       classes as the review card's so the two never drift apart visually. */
+    .saved-item-judge { display: flex; gap: 8px; margin-top: 10px; }
+    .saved-item-judge button { flex: 1; }
+
     /* The audio mark doubles as the play control on rows that have a clip.
        44px is the minimum comfortable tap target on a phone; anything smaller
        and a parent holding a child misses it. */
@@ -2652,11 +2657,41 @@ function renderSavedScreen() {
     enHint.className = 'saved-item-en-hint';
     enHint.textContent = '👁 点击显示英文';
 
+    // The two judgement buttons appear only once the English is showing.
+    // Tapping 记住了 without having tried to recall records "I read it" as
+    // "I remembered it", and spaced repetition is worth exactly as much as
+    // that self-assessment is honest.
+    const judge = document.createElement('div');
+    judge.className = 'saved-item-judge';
+    judge.hidden = true;
+    const mkJudge = (cls, text, remembered) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = cls;
+      b.textContent = text;
+      b.onclick = () => {
+        // By id, never through the queue — see answerById().
+        answerById(p.id, remembered);
+        updateNavBadge();
+        renderReviewStrip();
+        // Rebuild the queue: changing an item in place leaves the review card
+        // holding a phrase that is no longer due, or missing one that now is.
+        renderReviewArea();
+        renderSavedScreen();
+      };
+      return b;
+    };
+    judge.append(
+      mkJudge('review-btn-again', '还要练', false),
+      mkJudge('review-btn-good', '记住了', true),
+    );
+
     const revealEn = () => {
       if (enWrap.classList.contains('revealed')) return;
       enWrap.classList.add('revealed');
       enWrap.setAttribute('aria-pressed', 'true');
       enWrap.setAttribute('aria-label', '英文已显示');
+      judge.hidden = false;
     };
     enWrap.onclick = revealEn;
     enWrap.onkeydown = (e) => {
@@ -2724,6 +2759,7 @@ function renderSavedScreen() {
     badge.appendChild(document.createTextNode(' '));
     textDiv.appendChild(badge);
     textDiv.appendChild(mark);
+    textDiv.appendChild(judge);
     item.appendChild(textDiv);
     item.appendChild(unsaveBtn);
     list.appendChild(item);
@@ -2770,20 +2806,44 @@ function dueReviews() {
   return sortedBySavedAtDesc(savedPhrases.filter(p => p.rv && p.rv.due <= now));
 }
 
-function reviewAnswer(remembered) {
-  const item = reviewQueue.shift();
+// Reschedule ONE phrase, named by id. This is the form the saved list needs:
+// reviewAnswer() below works on the head of the queue, and a list row wired
+// straight to it would reschedule the FIRST phrase when the parent tapped the
+// fifth — silently, with no error, discoverable only weeks later when the
+// wrong phrase stopped coming up.
+//
+// Returns whether anything was actually rescheduled. An id that is not in
+// savedPhrases changes nothing and writes nothing: the list can be a render
+// behind a deletion, and "not found, so adjust the first one" is the worst
+// possible reading of that.
+function answerById(id, remembered) {
+  if (!id) return false;
+  const item = savedPhrases.find(p => p.id === id);
+  if (!item) return false;
+  // Items saved by older versions, or restored by hand, may have no schedule
+  // at all. Give them one rather than throwing.
+  if (!item.rv) item.rv = { s: 0, due: Date.now() };
   const now = Date.now();
   if (remembered) {
     item.rv.s = Math.min((item.rv.s || 0) + 1, REVIEW_INTERVALS.length);
     const days = REVIEW_INTERVALS[Math.min(item.rv.s - 1, REVIEW_INTERVALS.length - 1)];
     item.rv.due = now + days * 86400000;
   } else {
-    // Back to stage 0, stays due — comes around again this session
+    // Back to stage 0, due now — comes around again today.
     item.rv.s = 0;
     item.rv.due = now;
-    reviewQueue.push(item);
   }
   safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  return true;
+}
+
+// The review card's own answer. Keeps its queue semantics — take the head,
+// and on "还要练" put it back so it returns THIS session rather than merely
+// today — while the interval arithmetic itself lives in one place above.
+function reviewAnswer(remembered) {
+  const item = reviewQueue.shift();
+  answerById(item.id, remembered);
+  if (!remembered) reviewQueue.push(item);
   updateNavBadge();
   renderReviewStrip();
   if (reviewQueue.length) renderReviewCard();

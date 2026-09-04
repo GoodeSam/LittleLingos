@@ -4323,6 +4323,111 @@ function setupVoiceInputs() {
 setupVoiceInputs();
 
 // ── Access code ────────────────────────────────────────
+/* ll:audio-store:start */
+// Where a generated clip lives once it has been paid for.
+//
+// Every clip in here cost money to make (ADR 0003). The point of keeping them
+// on the device is that reviewing a phrase fifty times costs nothing and works
+// with no signal. So the one thing this module must never do is quietly lose
+// one: putAudio() reports whether the write actually landed, and the caller is
+// expected to tell the parent when it did not. A silent failure means the
+// money was spent and the sound is gone, and nobody finds out until a review
+// days later.
+//
+// IndexedDB rather than localStorage because these are Blobs, not strings —
+// verified on device before this was written (tech-constraints C11: 38GB
+// available on an iPhone PWA, Blob stored directly, played back in airplane
+// mode). Storing base64 instead would be 33% larger and would need decoding
+// on every single playback.
+//
+// Every path degrades to "there is no audio" rather than throwing. Private
+// browsing, a locked-down webview, a parent who cleared site data — on those
+// phones the whole app still has to work, just without the real voice. A
+// storage failure must never be the reason a button stops responding.
+const AUDIO_DB = "ll_audio";
+const AUDIO_STORE = "clips";
+const AUDIO_FAIL = { failed: true };
+let audioDbPromise = null;
+
+// Opened once and shared. Not merely a speed concern: marking up a list of
+// saved phrases asks about dozens of ids at once, and a fresh open per call
+// would be dozens of opens. The promise is assigned synchronously so calls
+// made in the same tick — a save landing while the list renders — join this
+// one rather than starting their own.
+function openAudioDb() {
+  if (audioDbPromise) return audioDbPromise;
+  audioDbPromise = new Promise(resolve => {
+    if (typeof indexedDB === "undefined" || !indexedDB) return resolve(null);
+    let req;
+    try { req = indexedDB.open(AUDIO_DB, 1); }
+    catch { return resolve(null); }
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(AUDIO_STORE)) db.createObjectStore(AUDIO_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    // Resolve, never reject: "no database" is a state this module handles, not
+    // an error the rest of the app should have to catch.
+    req.onerror = () => resolve(null);
+    req.onblocked = () => resolve(null);
+  });
+  return audioDbPromise;
+}
+
+// One shape for every operation, so no caller has to know how IndexedDB
+// reports trouble. Returns {value} or AUDIO_FAIL — kept distinct because a
+// stored-but-absent clip and an unreachable database are different answers,
+// and only the second one is worth telling a parent about.
+function audioOp(mode, run) {
+  return openAudioDb().then(db => {
+    if (!db) return AUDIO_FAIL;
+    return new Promise(resolve => {
+      let req;
+      try { req = run(db.transaction(AUDIO_STORE, mode).objectStore(AUDIO_STORE)); }
+      catch { return resolve(AUDIO_FAIL); }
+      req.onsuccess = () => resolve({ value: req.result });
+      req.onerror = () => resolve(AUDIO_FAIL);
+    });
+  }).catch(() => AUDIO_FAIL);
+}
+
+// true only if the bytes are actually on the device now. The caller decides
+// what to say when this is false; what it must not do is assume success.
+async function putAudio(id, blob) {
+  const r = await audioOp("readwrite", s => s.put(blob, id));
+  return !r.failed;
+}
+
+async function getAudio(id) {
+  const r = await audioOp("readonly", s => s.get(id));
+  return r.failed ? null : (r.value ?? null);
+}
+
+// Asks whether a clip exists WITHOUT reading it. A review list marks dozens of
+// rows, and pulling ~52KB per row to draw an icon is what makes a list stutter
+// on an older phone.
+async function hasAudio(id) {
+  const r = await audioOp("readonly", s => s.count(id));
+  return !r.failed && r.value > 0;
+}
+
+async function deleteAudio(id) {
+  await audioOp("readwrite", s => s.delete(id));
+}
+
+// The batch form of hasAudio(), for rendering a list in one pass instead of
+// one transaction per row. Returns the subset of `ids` that have audio.
+async function whichHaveAudio(ids) {
+  const wanted = new Set(ids || []);
+  // Nothing asked, nothing to open — a list that renders before anything is
+  // saved should not be touching the database at all.
+  if (!wanted.size) return new Set();
+  const r = await audioOp("readonly", s => s.getAllKeys());
+  if (r.failed) return new Set();
+  return new Set((r.value || []).filter(k => wanted.has(k)));
+}
+/* ll:audio-store:end */
+
 /* ll:access-code:start */
 // The client half of the access gate. Two endpoints cost money per call
 // (translate, and dictionary lookups of uncurated words), so the server

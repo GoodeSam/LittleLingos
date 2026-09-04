@@ -2655,7 +2655,7 @@ function renderSavedScreen() {
     if (started === false && !audioLoopPlaying()) {
       // Distinguish "stopped on purpose" from "nothing here can be played" —
       // a button that does nothing and says nothing reads as broken.
-      const anyAudio = rows.some(r => audioUrlFor(r.id));
+      const anyAudio = rows.some(r => playableUrlFor(r));
       if (!anyAudio) showOfflineToast('还没有可播放的声音 — 收藏的句子生成好之后就能连续播');
     }
     paintLoopBtn();
@@ -3042,9 +3042,9 @@ function playReviewAudio(item, btn) {
   // device (ADR 0003). Both are real recordings — only their origin differs.
   // The stored one is looked up SYNCHRONOUSLY here; see ll:audio-playback for
   // why that matters on iOS.
-  const storedUrl = isAudioBacked(item) ? null : audioUrlFor(item.id);
-  if (isAudioBacked(item) || storedUrl) {
-    const mp3 = new Audio(storedUrl || `./audio/${item.id}_normal.mp3`);
+  const url = playableUrlFor(item);
+  if (url) {
+    const mp3 = new Audio(url);
     currentAudio = mp3;
     mp3.addEventListener("ended", () => {
       if (!isCurrent()) return;
@@ -4565,7 +4565,7 @@ function audioLoopPlaying() { return loopOn; }
 // tapping a button that appears dead.
 function startAudioLoop(items) {
   stopAudioLoop();
-  loopQueue = (items || []).filter(it => it && it.id && audioUrlFor(it.id));
+  loopQueue = (items || []).filter(it => playableUrlFor(it));
   if (!loopQueue.length) return false;
 
   if (!loopEl) {
@@ -4585,7 +4585,7 @@ function startAudioLoop(items) {
 
 function playCurrentLoopClip() {
   const item = loopQueue[loopIndex];
-  const url = item && audioUrlFor(item.id);
+  const url = playableUrlFor(item);
   if (!url) { scheduleNextLoopClip(); return; }
   loopEl.src = url;
   const p = loopEl.play();
@@ -4744,6 +4744,26 @@ async function primeAudioUrl(id) {
   })();
   audioUrlPending.set(id, job);
   return job;
+}
+
+// Where THIS item's recording comes from, whatever its origin. Two sources
+// exist and nothing outside this function should have to know which is which:
+// preset phrases ship with the app as ./audio/<id>_normal.mp3, while saved
+// translations and dictionary words are voiced one at a time and kept on the
+// device (ADR 0003).
+//
+// It lives here because the loop got this wrong by rewriting it: it filtered
+// on audioUrlFor() alone, so a library made entirely of preset phrases was
+// judged to have nothing playable at all. One implementation, so the two
+// playback paths cannot drift apart again.
+//
+// Synchronous, like audioUrlFor() and for the same iOS reason.
+function playableUrlFor(item) {
+  if (!item || !item.id) return null;
+  if (typeof isAudioBacked === "function" && isAudioBacked(item)) {
+    return `./audio/${item.id}_normal.mp3`;
+  }
+  return audioUrlFor(item.id);
 }
 
 function releaseAudioUrls() {

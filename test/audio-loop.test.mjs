@@ -75,7 +75,7 @@ function fakeAudioClass(made) {
   };
 }
 
-function loadModule({ withAudio = ["a", "b", "c"] } = {}) {
+async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [] } = {}) {
   const s = html.indexOf(START), e = html.indexOf(END);
   assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
   const made = [];
@@ -83,9 +83,20 @@ function loadModule({ withAudio = ["a", "b", "c"] } = {}) {
   const ctx = {
     console,
     Audio: fakeAudioClass(made),
-    // From ll:audio-playback — its own tests cover how addresses are made.
-    audioUrlFor: id => (withAudio.includes(id) ? `blob:${id}` : null),
-    primeAudioUrl: () => Promise.resolve(null),
+    // 预设短语的音频是随应用下发的文件，不在 IndexedDB 里。
+    isAudioBacked: item => presetIds.includes(item && item.id),
+    // ll:audio-playback 的真实源码跑进同一个 realm（见下）。playableUrlFor()
+    // 是纯同步的一小段判定，属于同一个行为契约 —— 手写一份桩会漂移，
+    // 而这次的 bug 恰恰就是「在循环里重写了一遍那个判定，写漏了预设短语」。
+    getAudio: async id => {
+      if (!withAudio.includes(id)) return null;
+      const b = new Blob([new Uint8Array(4)], { type: "audio/mpeg" });
+      b._id = id;                       // 让地址读得懂，断言才能写成 blob:a
+      return b;
+    },
+    URL: { createObjectURL: b => `blob:${b._id}`, revokeObjectURL: () => {} },
+    queueMicrotask,
+    Blob,
     stopAllAudio: () => {},
     // Controllable clock: the pause between phrases is the difference between
     // a practice session and a wall of sound, so tests drive it explicitly.
@@ -94,18 +105,28 @@ function loadModule({ withAudio = ["a", "b", "c"] } = {}) {
     _timers: timers,
   };
   vm.createContext(ctx);
+  // 先跑 ll:audio-playback（定义 audioUrlFor / primeAudioUrl / playableUrlFor），
+  // 再跑本块。
+  const ps = html.indexOf("/* ll:audio-playback:start */");
+  const pe = html.indexOf("/* ll:audio-playback:end */");
+  assert.ok(ps !== -1 && pe !== -1, "ll:audio-playback markers not found");
+  vm.runInContext(html.slice(ps, pe), ctx);
   vm.runInContext(html.slice(s, e + END.length), ctx);
   for (const fn of ["startAudioLoop", "stopAudioLoop", "audioLoopPlaying"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
   const tick = () => { const t = timers.shift(); if (t) t.fn(); return !!t; };
+  // 真实路径里，地址是列表渲染时备好的。测试里显式做这一步。
+  // 真实路径里，地址是列表渲染时备好的（renderSavedScreen 给每一行 prime）。
+  // 这里替它做一遍，之后 audioUrlFor() 才答得出东西。
+  for (const id of withAudio) await ctx.primeAudioUrl(id);
   return { ctx, made, timers, tick };
 }
 
 // ══ 1. 一点就开始，一句接一句 ═════════════════════════════════════════
 
 test("点一下，第一句就开始放", async () => {
-  const { ctx, made } = loadModule();
+  const { ctx, made } = await loadModule();
   ctx.startAudioLoop(ITEMS);
   assert.equal(made.length, 1, "整场只该有一个音频元素");
   assert.deepEqual(made[0].played, ["blob:a"]);
@@ -114,7 +135,7 @@ test("点一下，第一句就开始放", async () => {
 
 test("一句放完，隔一段停顿再放下一句", async () => {
   // 停顿是这个功能和「一堵声音墙」的区别：家长要在缝里跟着念一遍。
-  const { ctx, made, timers, tick } = loadModule();
+  const { ctx, made, timers, tick } = await loadModule();
   ctx.startAudioLoop(ITEMS);
   made[0].fire("ended");
   assert.equal(made[0].played.length, 1, "还没到时候就不该抢着放下一句");
@@ -125,7 +146,7 @@ test("一句放完，隔一段停顿再放下一句", async () => {
 });
 
 test("放到最后一句之后，从头再来", async () => {
-  const { ctx, made, tick } = loadModule();
+  const { ctx, made, tick } = await loadModule();
   ctx.startAudioLoop(ITEMS);
   for (let i = 0; i < 3; i++) { made[0].fire("ended"); tick(); }
   assert.deepEqual(made[0].played, ["blob:a", "blob:b", "blob:c", "blob:a"],
@@ -135,7 +156,7 @@ test("放到最后一句之后，从头再来", async () => {
 test("整场只用一个音频元素", async () => {
   // iOS 上只有被那次点击解锁的元素能继续播。每句新建一个的话，
   // 第二句开始会被静默拒绝，循环停在第一句而屏幕上什么都不说。
-  const { ctx, made, tick } = loadModule();
+  const { ctx, made, tick } = await loadModule();
   ctx.startAudioLoop(ITEMS);
   for (let i = 0; i < 5; i++) { made[0].fire("ended"); tick(); }
   assert.equal(made.length, 1, `建了 ${made.length} 个元素`);
@@ -146,24 +167,24 @@ test("整场只用一个音频元素", async () => {
 test("没有声音的条目被跳过，不插进一段机器音", async () => {
   // 中间掺进浏览器朗读，会把一段听力练习打断成两种质感 —— 而 C1 已经
   // 判定那个声音不可接受。
-  const { ctx, made, tick } = loadModule({ withAudio: ["a", "c"] });
+  const { ctx, made, tick } = await loadModule({ withAudio: ["a", "c"] });
   ctx.startAudioLoop(ITEMS);
   made[0].fire("ended"); tick();
   assert.deepEqual(made[0].played, ["blob:a", "blob:c"], "b 没有声音，直接跳过");
 });
 
 test("一条声音都没有时，明确地不开始，而不是静默装死", async () => {
-  const { ctx, made } = loadModule({ withAudio: [] });
+  const { ctx, made } = await loadModule({ withAudio: [] });
   assert.equal(ctx.startAudioLoop(ITEMS), false, "调用方要靠这个告诉家长为什么没动静");
   assert.equal(made.length, 0);
   assert.equal(ctx.audioLoopPlaying(), false);
 
-  const ok = loadModule();
+  const ok = await loadModule();
   assert.equal(ok.ctx.startAudioLoop(ITEMS), true, "对照：有声音时必须真的开始");
 });
 
 test("空列表也不开始", async () => {
-  const { ctx } = loadModule();
+  const { ctx } = await loadModule();
   assert.equal(ctx.startAudioLoop([]), false);
   assert.equal(ctx.startAudioLoop(null), false);
   assert.equal(ctx.startAudioLoop(ITEMS), true, "对照：正常列表必须开始");
@@ -172,7 +193,7 @@ test("空列表也不开始", async () => {
 // ══ 3. 停 ═════════════════════════════════════════════════════════════
 
 test("停下来之后，正在响的那一句也停", async () => {
-  const { ctx, made } = loadModule();
+  const { ctx, made } = await loadModule();
   ctx.startAudioLoop(ITEMS);
   ctx.stopAudioLoop();
   assert.equal(ctx.audioLoopPlaying(), false);
@@ -182,7 +203,7 @@ test("停下来之后，正在响的那一句也停", async () => {
 test("停下来之后，已经排好的下一句不会再冒出来", async () => {
   // 停止时可能正卡在句间停顿里。那个定时器到点还照放的话，
   // 家长会在按下停止几秒后又听到一句。
-  const { ctx, made, tick } = loadModule();
+  const { ctx, made, tick } = await loadModule();
   ctx.startAudioLoop(ITEMS);
   made[0].fire("ended");        // 排好了下一句
   ctx.stopAudioLoop();
@@ -191,7 +212,7 @@ test("停下来之后，已经排好的下一句不会再冒出来", async () =>
 });
 
 test("停完还能再开", async () => {
-  const { ctx, made } = loadModule();
+  const { ctx, made } = await loadModule();
   ctx.startAudioLoop(ITEMS);
   ctx.stopAudioLoop();
   assert.equal(ctx.startAudioLoop(ITEMS), true);
@@ -200,7 +221,7 @@ test("停完还能再开", async () => {
 });
 
 test("已经在放的时候再点开始，不会变成两条线同时放", async () => {
-  const { ctx, made, tick } = loadModule();
+  const { ctx, made, tick } = await loadModule();
   ctx.startAudioLoop(ITEMS);
   ctx.startAudioLoop(ITEMS);
   made[0].fire("ended"); tick();
@@ -214,11 +235,49 @@ test("已经在放的时候再点开始，不会变成两条线同时放", async
 test("某一句放不出来时，跳过它继续往下", async () => {
   // 地址可能已经被淘汰（缓存有上限）。卡在那儿的话，
   // 家长听到的是循环无缘无故停了。
-  const { ctx, made, tick } = loadModule();
+  const { ctx, made, tick } = await loadModule();
   ctx.startAudioLoop(ITEMS);
   made[0].fire("error");
   tick();
   assert.deepEqual(made[0].played, ["blob:a", "blob:b"], "一句坏掉不该让整场停下");
+});
+
+// ══ 4b. 预设短语也要能进循环 ═══════════════════════════════════════════
+
+test("收藏进来的预设短语也能连续播", async () => {
+  // 那 1204 段是随应用下发的文件，不在 IndexedDB 里。只认 IndexedDB 的话，
+  // 一个全是预设短语的收藏列表会被判定成「一条都不能播」。
+  const P1 = { id: "p1", en: "Time for bed." };
+  const { ctx, made } = await loadModule({ withAudio: [], presetIds: ["p1"] });
+  assert.equal(ctx.startAudioLoop([P1]), true, "预设短语必须能开始");
+  assert.equal(made[0].played.length, 1);
+  assert.match(made[0].played[0], /p1_normal\.mp3/, "放的是随应用下发的那个文件");
+});
+
+test("预设短语和自己生成的混在一起，都能放", async () => {
+  const P1 = { id: "p1", en: "Time for bed." };
+  const { ctx, made, tick } = await loadModule({ withAudio: ["a"], presetIds: ["p1"] });
+  ctx.startAudioLoop([P1, ITEMS[0]]);
+  made[0].fire("ended"); tick();
+  assert.equal(made[0].played.length, 2, "两种来源都该被放出来");
+  assert.match(made[0].played[0], /p1_normal\.mp3/);
+  assert.equal(made[0].played[1], "blob:a");
+});
+
+test("整个收藏都是预设短语时，不该说「没有可播放的声音」", async () => {
+  // 这正是家长报的那句话。
+  const P1 = { id: "p1" }, P2 = { id: "p2" };
+  const { ctx } = await loadModule({ withAudio: [], presetIds: ["p1", "p2"] });
+  assert.equal(ctx.startAudioLoop([P1, P2]), true);
+});
+
+test("判断一条能不能播这件事，只有一处实现", async () => {
+  // 复习卡的播放路径本来就分得清两种来源。循环里重写一遍就写漏了预设短语。
+  const at = html.indexOf(START);
+  const src = html.slice(at, html.indexOf(END));
+  assert.match(src, /playableUrlFor\(/, "循环必须用共用的那个判定");
+  assert.ok(!/_normal\.mp3/.test(src),
+    "预设短语的路径拼装不该在这个块里再出现一次 —— 两处拼装迟早会分叉");
 });
 
 // ══ 5. 界面接上了 ═════════════════════════════════════════════════════

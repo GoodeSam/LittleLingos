@@ -189,11 +189,16 @@ test("复习播放先问本机有没有存好的声音，再谈别的", async ()
   const at = html.indexOf("function playReviewAudio");
   assert.ok(at !== -1, "playReviewAudio not found");
   const body = html.slice(at, html.indexOf("\n}", at));
-  assert.match(body, /audioUrlFor\(/, "复习播放必须先问本机存了没有");
-  const usesStored = body.indexOf("audioUrlFor(");
+  assert.match(body, /playableUrlFor\(/,
+    "复习播放必须先问「这一条的声音从哪儿来」——共用那个判定，不自己再写一遍");
+  const usesStored = body.indexOf("playableUrlFor(");
   const fallsBack = body.indexOf("speakText(");
   assert.ok(usesStored < fallsBack,
     "必须先查本机、查不到才退回浏览器朗读，顺序反了等于那些声音白生成了");
+  // 只看代码，不看注释 —— 注释里提到那个路径是在解释，不是在拼装。
+  const code = body.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+  assert.ok(!/_normal\.mp3/.test(code),
+    "预设短语的路径拼装已经收进 playableUrlFor()，这里不该再出现第二份");
 });
 
 test("复习卡渲染时会去准备，否则第一次点击必然落空", async () => {
@@ -212,9 +217,12 @@ test("预设短语仍然走它自己那条路", async () => {
   // 用空壳探测时它会「通过」，那是设计如此，不是假绿。
   const at = html.indexOf("function playReviewAudio");
   const body = html.slice(at, html.indexOf("\n}", at));
-  assert.match(body, /isAudioBacked\(/, "预设短语的判断不能被去掉");
-  assert.match(body, /\.\/audio\/\$\{item\.id\}_normal\.mp3|_normal\.mp3/,
-    "预设短语仍然直接播随应用下发的那个文件");
+  // 判断本身收进了 playableUrlFor()，所以在这里验它，而不是在调用点。
+  const at2 = html.indexOf("function playableUrlFor");
+  assert.ok(at2 !== -1, "playableUrlFor not found");
+  const pf = html.slice(at2, html.indexOf("\n}", at2));
+  assert.match(pf, /isAudioBacked\(/, "预设短语的判断不能被去掉");
+  assert.match(pf, /_normal\.mp3/, "预设短语仍然直接播随应用下发的那个文件");
 });
 
 // ── Runner ───────────────────────────────────────────────

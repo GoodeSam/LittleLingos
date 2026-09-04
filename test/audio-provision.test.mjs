@@ -260,13 +260,21 @@ test("界面刷新那一步出错时，收藏这条路径仍然不会炸", async
 test("翻译和查词两个收藏动作，都会去补声音", async () => {
   // 断言的是源码，因为这两个函数要 DOM 才能跑。要紧的是没有一条
   // 保存路径被漏掉——漏掉的那条会安静地永远没有声音。
-  for (const [label, fn] of [["翻译", "function saveTranslation"], ["查词", "function saveDictSense"]]) {
-    const at = html.indexOf(fn);
-    assert.ok(at !== -1, `${label}的保存函数没找到`);
+  // 翻译那条现在经由共用的 saveTranslatedPhrase()，所以验的是整条链：
+  // 入口 → 共用实现 → 补声音。只验入口有 requestAudio( 的话，重构一次就
+  // 会误报；只验共用实现有的话，入口不调它也发现不了。
+  const reaches = (fnName, hop) => {
+    const at = html.indexOf(fnName);
+    assert.ok(at !== -1, `${fnName} 没找到`);
     const body = html.slice(at, html.indexOf("\n}", at));
-    assert.match(body, /requestAudio\(/,
-      `${label}这条保存路径没有去补声音，那些条目会永远是哑的`);
-  }
+    return new RegExp(hop.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\(").test(body);
+  };
+  assert.ok(reaches("function saveTranslation", "saveTranslatedPhrase"),
+    "翻译收藏必须走共用的保存实现");
+  assert.ok(reaches("function saveTranslatedPhrase", "requestAudio"),
+    "共用的保存实现必须去补声音，否则两个入口一起哑掉");
+  assert.ok(reaches("function saveDictSense", "requestAudio"),
+    "查词这条保存路径没有去补声音，那些条目会永远是哑的");
 });
 
 test("真正的存储模块和这一层是接在一起的，不是各写各的", async () => {

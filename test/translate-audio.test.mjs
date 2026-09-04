@@ -83,6 +83,13 @@ function loadModule({ store = fakeStore(), code = CODE, onLine = true, fetchImpl
     },
   };
   vm.createContext(ctx);
+  // provisionTranslation() 现在调用 assignTranslationIds()，它在 ll:translate-save
+  // 里。那是一小段纯同步的判定，属于同一个行为契约 —— 按上一轮定下的分界线
+  // 跑真代码，而不是手写一份会漂移的桩。
+  const ts = html.indexOf("/* ll:translate-save:start */");
+  const te = html.indexOf("/* ll:translate-save:end */");
+  assert.ok(ts !== -1 && te !== -1, "ll:translate-save markers not found");
+  vm.runInContext(html.slice(ts, te), ctx);
   vm.runInContext(html.slice(s, e + END.length), ctx);
   assert.equal(typeof ctx.provisionTranslation, "function", "module must define provisionTranslation()");
   return { ctx, store, fetchCalls, primed };
@@ -216,11 +223,18 @@ test("翻译结果一显示就去补声音", async () => {
 });
 
 test("收藏用的是翻译时那个身份，不另铸一个", async () => {
+  // 收藏现在经由共用的 saveTranslatedPhrase()，所以验两段：入口把带 id 的
+  // 那个对象整个交出去，共用实现沿用它的 id 而不是当场铸一个新的。
   const at = html.indexOf("function saveTranslation");
-  const body = html.slice(at, html.indexOf("\n}", at));
-  assert.ok(!/id:\s*"t_"\s*\+\s*Date\.now\(\)/.test(body),
-    "在这里另铸 id，会让翻译时生成的那段声音成为孤儿，同一句话付两次钱");
-  assert.match(body, /r\.id|result\.id/, "必须沿用翻译结果自己的 id");
+  const entry = html.slice(at, html.indexOf("\n}", at));
+  assert.match(entry, /saveTranslatedPhrase\(r\)/,
+    "必须把翻译结果整个交出去 —— 只传字段的话 id 就丢了");
+
+  const at2 = html.indexOf("function saveTranslatedPhrase");
+  assert.ok(at2 !== -1, "saveTranslatedPhrase not found");
+  const shared = html.slice(at2, html.indexOf("\n}", at2));
+  assert.match(shared, /id:\s*entry\.id/,
+    "共用实现必须沿用传进来的 id，另铸一个会让那段声音成为孤儿，同一句话付两次钱");
 });
 
 test("翻译页播放先看本机有没有生成好的那段", async () => {

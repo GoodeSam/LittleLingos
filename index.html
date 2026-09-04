@@ -1399,6 +1399,17 @@
       padding: 12px; background: var(--card); border-radius: var(--r); box-shadow: var(--shadow-card);
     }
     /* Bumped 14px -> 16px: reading tip content, same family as .phrase-tip. */
+    /* Buttons under each alternative phrasing. 44px tall for the same reason
+       every other tap target here is: a parent is holding a child. */
+    .result-related-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .result-related-btn {
+      flex: 1; min-height: 44px; font: inherit; font-size: 15px;
+      border: 1px solid var(--border); border-radius: 10px;
+      background: var(--card); color: inherit; cursor: pointer;
+    }
+    .result-related-btn:active { opacity: .6; }
+    .result-related-btn:disabled { opacity: .5; cursor: default; }
+
     /* One-tap loop playback. Full width and 48px tall: this is the control a
        parent reaches for while holding a child, not a precision target. */
     .loop-btn {
@@ -3142,6 +3153,63 @@ function renderRelatedExpressions(related) {
       zh.textContent = r.zh;
       item.appendChild(zh);
     }
+
+    // Play and save, the two things the main sentence could already do and
+    // these could not. Without them a parent who preferred one of these had
+    // to retype it into the box.
+    const actions = document.createElement("div");
+    actions.className = "result-related-actions";
+
+    const playBtn = document.createElement("button");
+    playBtn.type = "button";
+    playBtn.className = "result-related-btn";
+    const paintPlay = () => {
+      playBtn.textContent = playableUrlFor(r) ? "▶ 朗读" : "🔈 生成朗读";
+      playBtn.setAttribute("aria-label", playBtn.textContent);
+    };
+    paintPlay();
+    playBtn.onclick = () => {
+      const url = playableUrlFor(r);
+      if (url) {
+        // Already voiced — start it inside the tap, synchronously (C12).
+        stopAllAudio();
+        const a = new Audio(url);
+        currentAudio = a;
+        a.play().catch(() => {});
+        return;
+      }
+      // First tap pays for it. Generation takes ~3s; the button says so, and
+      // becomes ▶ when the clip lands. The play attempted afterwards may be
+      // refused on iOS because it no longer belongs to a gesture (C12) — if
+      // it is, the button now reads ▶ and a second tap always works.
+      playBtn.textContent = "⏳ 生成中…";
+      playBtn.disabled = true;
+      Promise.resolve(requestAudio(r)).then(ok => {
+        playBtn.disabled = false;
+        if (!ok) { playBtn.textContent = "⚠ 生成失败，点一下重试"; return; }
+        primeAudioUrl(r.id).then(() => {
+          paintPlay();
+          const u = playableUrlFor(r);
+          if (u) { stopAllAudio(); const a = new Audio(u); currentAudio = a; a.play().catch(() => {}); }
+        });
+      });
+    };
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "result-related-btn";
+    saveBtn.textContent = "⭐ 收藏";
+    saveBtn.onclick = () => {
+      if (saveTranslatedPhrase(r)) {
+        saveBtn.textContent = "✓ 已收藏";
+        saveBtn.disabled = true;
+      } else {
+        alert("已经收藏过了。");
+      }
+    };
+
+    actions.append(playBtn, saveBtn);
+    item.appendChild(actions);
     box.appendChild(item);
   });
   box.classList.add("show");
@@ -3263,25 +3331,10 @@ function playResultAudio(btn) {
 function saveTranslation() {
   if (!lastTranslateResult) return;
   const r = lastTranslateResult;
-  if (savedPhrases.some(s => s.en === r.en)) { alert("已经收藏过了。"); return; }
-  savedPhrases.push({
-    // The id the clip was already stored under (provisionTranslation). Minting
-    // a fresh one here would orphan that clip and pay for this sentence twice.
-    id: r.id || ("t_" + Date.now()),
-    en: r.en,
-    zh: r.zh || document.getElementById("zhInput").value.trim(),
-    tip: r.tip || "",
-    scenario: "__translate__",
-    age: translateAge,
-    source: r.source || "local",
-    savedAt: Date.now(),
-    rv: { s: 0, due: Date.now() },
-  });
-  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
-  updateNavBadge();
-  // Deliberately NOT awaited. The phrase is saved; the voice catches up in the
-  // background and the row picks up its mark when it lands (ADR 0003).
-  requestAudio(savedPhrases[savedPhrases.length - 1]);
+  // The Chinese box is the fallback only for the main sentence — an
+  // alternative carries its own.
+  if (!r.zh) r.zh = document.getElementById("zhInput").value.trim();
+  if (!saveTranslatedPhrase(r)) { alert("已经收藏过了。"); return; }
   alert("已收藏！去「收藏 · 复习」页可以反复练习。");
 }
 
@@ -4532,6 +4585,56 @@ function setupVoiceInputs() {
 setupVoiceInputs();
 
 // ── Access code ────────────────────────────────────────
+/* ll:translate-save:start */
+// Identity and saving for a translation and the alternatives it comes with.
+//
+// Audio is keyed by id, so every sentence on the translate screen needs its
+// own — sharing one would make the second alternative play the first one's
+// voice. The main sentence's id is minted here rather than at save time so
+// the clip generated on arrival is stored under the id the saved item will
+// carry; a second id at save time would orphan it and pay twice.
+//
+// One save implementation for both. Copying the decision is what caused two
+// separate bugs in this delivery already (tech-constraints C13).
+function assignTranslationIds(result) {
+  if (!result || !result.en) return;
+  const stamp = Date.now();
+  if (!result.id) result.id = "t_" + stamp;
+  const related = Array.isArray(result.related) ? result.related : [];
+  related.forEach((r, i) => {
+    // Suffixed rather than re-stamped: several ids minted in the same
+    // millisecond would collide, and Date.now() has exactly that resolution.
+    if (r && r.en && !r.id) r.id = `${result.id}_r${i}`;
+  });
+}
+
+// Returns false when nothing was saved — already there, or nothing to save —
+// so the caller can say which rather than leaving the tap unexplained.
+function saveTranslatedPhrase(entry) {
+  if (!entry || !entry.en) return false;
+  if (savedPhrases.some(s => s.en === entry.en)) return false;
+  if (!entry.id) entry.id = "t_" + Date.now();
+  savedPhrases.push({
+    id: entry.id,
+    en: entry.en,
+    zh: entry.zh || "",
+    tip: entry.tip || "",
+    scenario: "__translate__",
+    age: typeof translateAge !== "undefined" ? translateAge : undefined,
+    source: entry.source || "local",
+    savedAt: Date.now(),
+    rv: { s: 0, due: Date.now() },
+  });
+  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  updateNavBadge();
+  // Claims the clip if one already exists — requestAudio() checks the device
+  // before spending anything, so an alternative the parent played before
+  // saving costs nothing to keep.
+  requestAudio(savedPhrases[savedPhrases.length - 1]);
+  return true;
+}
+/* ll:translate-save:end */
+
 /* ll:audio-loop:start */
 // One tap, and every saved phrase plays in turn, over and over.
 //
@@ -4891,8 +4994,11 @@ async function provisionAudio(item, id) {
 // making the parent wait three seconds the first time they tap play.
 function provisionTranslation(result) {
   if (!result || !result.en) return Promise.resolve(false);
-  // Keep an existing id: a re-render must not throw away the clip just made.
-  if (!result.id) result.id = "t_" + Date.now();
+  // Ids for the main sentence AND its alternatives. Existing ones are kept: a
+  // re-render must not throw away the clip just made. Only the main sentence
+  // is voiced here — the alternatives wait for a tap, or one translation
+  // becomes four or five generations, most never listened to.
+  assignTranslationIds(result);
   return requestAudio(result).then(ok => {
     // Storing the clip is not enough. Until its address is prepared, the play
     // path finds nothing and falls back to the browser voice — the clip sits

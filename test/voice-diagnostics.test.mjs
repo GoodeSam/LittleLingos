@@ -201,6 +201,26 @@ test("拿得到更多候选 —— 只要一个的话，诊断也没什么可看
   assert.ok(Number(m[1]) >= 3, `maxAlternatives = ${m[1]}，看不到候选就没法判断该不该提示确认`);
 });
 
+// ══ 4. 家长真的点得到 ═════════════════════════════════════════════════
+
+test("收藏页上真的有那个按钮 —— 不只是函数存在", async () => {
+  // 这一条是补上一次漏网的：函数写进去了、测试全绿、按钮的 HTML 没写。
+  // 我还宣称「开关已加到收藏页」，直到 Victor 说找不到。
+  //
+  // 孤儿守卫抓的是反向 —— 函数造了没人调。这条抓的是正向：调用点在
+  // HTML 里，而 HTML 不在任何 vm 测试的视野内。
+  assert.match(html, /id="voiceDebugBtn"/, "按钮元素不在页面里，家长点不到");
+  assert.match(html, /onclick="toggleVoiceDebug\(\)"/, "按钮没接上开关");
+  assert.match(html, /语音识别诊断/, "没有标题，那个按钮说不清自己是干嘛的");
+});
+
+test("按钮在设置区里，不在别的屏幕上", async () => {
+  const at = html.indexOf('id="voiceDebugBtn"');
+  const before = html.slice(Math.max(0, at - 1200), at);
+  assert.match(before, /backup-section/,
+    "它该和邀请码、备份并排 —— 那是家长找设置时去的地方");
+});
+
 console.log("voice diagnostics tests");
 let passed = 0, failed = 0;
 for (const t of tests) {

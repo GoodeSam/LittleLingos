@@ -1701,6 +1701,22 @@
 
   <!-- Backup / restore. Lives at the bottom of the saved screen because that
        is where a parent can see what they'd be losing. -->
+  <!-- Speech diagnostics. Last of the three settings blocks: it is for
+       chasing down a specific complaint, not for daily use, and a parent who
+       never taps it should meet the two that matter first. -->
+  <div class="backup-section">
+    <div class="backup-title">语音识别诊断</div>
+    <p class="backup-note">
+      打开之后，每次用麦克风都会显示引擎<strong>到底听到了什么、有多确定</strong>，
+      以及它考虑过的其他候选。用来排查「识别不准」到底是哪一种不准 ——
+      平时关着就好。
+    </p>
+    <div class="backup-actions">
+      <button class="backup-btn" type="button" id="voiceDebugBtn"
+              onclick="toggleVoiceDebug()">诊断：关</button>
+    </div>
+  </div>
+
   <!-- Access code. Sits above backup because a parent sent here by an error
        message needs to find it without scrolling past anything. -->
   <div class="backup-section">

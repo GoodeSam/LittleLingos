@@ -729,7 +729,15 @@
     }
     .backup-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
     .backup-note  { font-size: 13px; line-height: 1.6; color: var(--muted); margin: 0 0 12px; }
-    .backup-actions { display: flex; gap: 10px; }
+    .backup-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    /* Monospace and horizontally scrollable: these are timings, and a wrapped
+       timeline is harder to compare against the one above it. */
+    .voice-log {
+      margin: 10px 0 0; padding: 10px;
+      font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre; overflow-x: auto;
+      background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    }
     .backup-btn {
       flex: 1; min-height: 44px; padding: 12px;
       border: 1px solid var(--border); border-radius: 12px;
@@ -1724,7 +1732,12 @@
     <div class="backup-actions">
       <button class="backup-btn" type="button" id="voiceDebugBtn"
               onclick="toggleVoiceDebug()">诊断：关</button>
+      <button class="backup-btn" type="button" onclick="showVoiceLog()">看记录</button>
+      <button class="backup-btn" type="button" onclick="wipeVoiceLog()">清空</button>
     </div>
+    <!-- Read after the experiment, not during it: a toast is gone in 3.5
+         seconds and a timeline cannot be read in 3.5 seconds. -->
+    <pre id="voiceLogBox" class="voice-log" hidden></pre>
   </div>
 
   <!-- Access code. Sits above backup because a parent sent here by an error
@@ -4662,6 +4675,42 @@ function describeSpeechResult(evt) {
   };
 }
 
+// Recorded attempts, newest last, capped.
+//
+// A toast lasts 3.5 seconds. Nobody reads
+// "tap 0ms → start 620ms → end 900ms · 没检测到人声" in 3.5 seconds, let alone
+// five of them in a row while holding a child. A record that cannot be read is
+// not a record — so attempts are kept and the settings screen shows them,
+// which moves the reading to after the experiment instead of during it.
+//
+// Only while diagnostics are on. Nothing accumulates on a parent's device.
+const VOICE_LOG_KEY = "ll_voice_log";
+const VOICE_LOG_MAX = 20;
+
+function readVoiceLog() {
+  try {
+    const raw = localStorage.getItem(VOICE_LOG_KEY);
+    if (!raw) return [];
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.filter(x => typeof x === "string") : [];
+  } catch { return []; }
+}
+
+function appendVoiceLog(line) {
+  if (!voiceDebugOn()) return;
+  try {
+    const list = readVoiceLog();
+    list.push(line);
+    // Capped rather than unbounded: this is a diagnostic, not a log server,
+    // and a few taps must not push the earlier ones out of reach.
+    localStorage.setItem(VOICE_LOG_KEY, JSON.stringify(list.slice(-VOICE_LOG_MAX)));
+  } catch {}
+}
+
+function clearVoiceLog() {
+  try { localStorage.removeItem(VOICE_LOG_KEY); } catch {}
+}
+
 // A stopwatch across one listen attempt.
 //
 // The earlier readout only fired when a result arrived — blind to the failure
@@ -4821,17 +4870,20 @@ function setupVoiceInputs() {
         timeline.mark("end");
         setIdle();
         startCooldown();
-        // The whole timeline, printed on the way out — including the runs
-        // where nothing was heard, which is the case the earlier readout
-        // could not see at all.
+        const line = timeline.summary() +
+          (timeline.has("speechstart") ? "" : " · 没检测到人声") +
+          (gotResult ? "" : " · 没有结果");
+        appendVoiceLog(line);
+        // REPLACES the generic message rather than preceding it. The first
+        // version called showOfflineToast twice in a row, and the second call
+        // overwrote the first — so on the exact failure this was built to
+        // observe, the reading was never visible.
         if (voiceDebugOn()) {
-          showOfflineToast("🎙 " + timeline.summary() +
-            (timeline.has("speechstart") ? "" : " · 没检测到人声"));
-        }
-        // Chrome/Safari can fire onstart -> onend with neither onresult nor
-        // onerror ever firing (short/flaky utterance). A silent end must
-        // never be a dead tap with zero explanation (F1).
-        if (!gotResult && !gotError) {
+          showOfflineToast("🎙 " + line);
+        } else if (!gotResult && !gotError) {
+          // Chrome/Safari can fire onstart -> onend with neither onresult nor
+          // onerror ever firing (short/flaky utterance). A silent end must
+          // never be a dead tap with zero explanation (F1).
           showOfflineToast('🤫 没听清，请再说一次');
         }
       };
@@ -5798,6 +5850,24 @@ function saveAccessCode() {
 // a console incantation: the person who needs this reading is the one holding
 // the phone that mis-heard, and asking them to open devtools means the
 // measurement never happens.
+// Shown on demand rather than always: the box is for a debugging session, and
+// a settings screen that permanently displays millisecond timings is one a
+// parent stops scrolling to the bottom of.
+function showVoiceLog() {
+  const box = document.getElementById("voiceLogBox");
+  if (!box) return;
+  const lines = readVoiceLog();
+  box.textContent = lines.length
+    ? lines.map((l, i) => `${i + 1}. ${l}`).join("\n")
+    : "还没有记录 —— 先把诊断打开，再用几次话筒。";
+  box.hidden = false;
+}
+
+function wipeVoiceLog() {
+  clearVoiceLog();
+  showVoiceLog();
+}
+
 function toggleVoiceDebug() {
   const on = !voiceDebugOn();
   setVoiceDebug(on);

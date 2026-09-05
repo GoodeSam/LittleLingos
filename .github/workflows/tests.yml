@@ -49,9 +49,20 @@ jobs:
       # needed a real key would be one that could spend money on a push.
       - run: node test/run.mjs
 
+      # Breaks the product ten ways and checks that a test notices each one. A
+      # green suite says the tests passed; this says they would have failed had
+      # the code been wrong, which is the claim that actually matters and the
+      # one that was not true here in September.
+      #
+      # After the suite, because a mutant surviving an already-red suite tells
+      # you nothing. It restores index.html itself and refuses to start on a
+      # dirty tree.
+      - run: node scripts/mutation-check.mjs
+
       # A test that writes a file passes locally and then ships that file,
       # because a deploy uploads the working directory rather than a commit.
-      # Cheap to check here, and the check itself cannot be forgotten.
+      # Cheap to check here, and the check itself cannot be forgotten. Placed
+      # last so it also catches a mutation run that failed to clean up.
       - name: the suite must not leave the tree dirty
         run: |
           if [ -n "$(git status --porcelain)" ]; then

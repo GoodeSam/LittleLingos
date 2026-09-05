@@ -5764,17 +5764,43 @@ function mergeScenarios(existing, incoming) {
   const merged = Array.isArray(existing) ? existing.slice() : [];
   const seenId = new Set(merged.map(x => x && x.id));
   const seenName = new Set(merged.map(x => x && String(x.name || "").trim()));
+  // Which local scenario an incoming one was folded into. Without this, the
+  // phrases that came with a skipped scenario still carry ITS id, find nothing
+  // under that id, and get filed into the general bucket — a parent who made
+  // 「去医院」 on two devices loses the grouping on restore, silently, while
+  // the phrases and their review progress survive.
+  const byName = new Map(merged.map(x => [String(x && x.name || "").trim(), x && x.id]));
+  const aliases = {};
   let added = 0, skipped = 0;
   for (const sc of (Array.isArray(incoming) ? incoming : [])) {
     if (!isRestorableScenario(sc)) { skipped++; continue; }
     const name = String(sc.name).trim();
-    if (seenId.has(sc.id) || seenName.has(name)) { skipped++; continue; }
+    if (seenId.has(sc.id)) { skipped++; continue; }
+    if (seenName.has(name)) {
+      const keptId = byName.get(name);
+      if (keptId && keptId !== sc.id) aliases["custom_" + sc.id] = "custom_" + keptId;
+      skipped++;
+      continue;
+    }
     merged.push(sc);
     seenId.add(sc.id);
     seenName.add(name);
+    byName.set(name, sc.id);
     added++;
   }
-  return { merged, added, skipped };
+  return { merged, added, skipped, aliases };
+}
+
+// Rewrite incoming phrases onto the scenario they were folded into. Runs
+// BEFORE healScenarioTags — reversed, a phrase that belongs in a same-named
+// local scenario is judged an orphan first and loses its tag for good.
+function applyScenarioAliases(phrases, aliases) {
+  if (!Array.isArray(phrases) || !aliases) return;
+  for (const p of phrases) {
+    if (!p || typeof p.scenario !== "string") continue;
+    const to = aliases[p.scenario];
+    if (to) p.scenario = to;
+  }
 }
 
 // Merge, never overwrite. An id already on this device wins over the backup's
@@ -5817,6 +5843,10 @@ function mergeSaved(existing, incoming) {
 const CSV_COLUMNS = [
   "rowType", "id", "en", "zh", "scenario", "age", "tier",
   "tip", "why", "next", "fallback", "senseLabel", "source",
+  // `name`/`icon` belong to scenario rows only. The alternative was accepting
+  // that a CSV restore always drops every self-made grouping — the rowType
+  // column exists precisely so the format can grow a fifth kind of row.
+  "name", "icon",
   "savedAt", "rv_s", "rv_due", "currentAge",
 ];
 const CSV_NUMERIC = new Set(["savedAt", "rv_s", "rv_due"]);
@@ -5854,7 +5884,7 @@ function csvLine(cells) {
   return CSV_COLUMNS.map(col => csvCell(cells[col])).join(",");
 }
 
-function buildCsvBackup({ saved, age }) {
+function buildCsvBackup({ saved, age, scenarios }) {
   const rows = [
     CSV_COLUMNS.map(csvCell).join(","),
     // The settings row. It is a legitimate kind of row, not a phrase with
@@ -5862,6 +5892,14 @@ function buildCsvBackup({ saved, age }) {
     // library is empty.
     csvLine({ rowType: "meta", currentAge: typeof age === "string" ? age : "" }),
   ];
+  // Before the phrases: a reader scanning the file top to bottom meets the
+  // scenario before the sentences that reference it.
+  for (const sc of (Array.isArray(scenarios) ? scenarios : []).filter(isRestorableScenario)) {
+    rows.push(csvLine({
+      rowType: "scenario", id: sc.id, name: sc.name,
+      icon: sc.icon || "", savedAt: sc.createdAt,
+    }));
+  }
   for (const r of (Array.isArray(saved) ? saved : []).filter(isRestorableRecord)) {
     const type = csvRowType(r);
     const cells = { rowType: type };
@@ -5913,7 +5951,7 @@ function parseCsvBackup(text) {
   const idx = {};
   header.forEach((h, i) => { idx[h] = i; });
 
-  const saved = [];
+  const saved = [], scenarios = [];
   let dropped = 0, age = null;
 
   for (const row of rows.slice(1)) {
@@ -5925,6 +5963,17 @@ function parseCsvBackup(text) {
     const type = get("rowType");
 
     if (type === "meta") { age = get("currentAge") || age; continue; }
+    // Handled before the numeric check below: a scenario row has no savedAt or
+    // rv_due, and would otherwise be counted as a damaged phrase.
+    if (type === "scenario") {
+      const sc = { id: get("id"), name: get("name"), icon: get("icon") || "📌" };
+      const created = get("savedAt");
+      if (/^\d+$/.test(created)) sc.createdAt = Number(created);
+      // A half-written scenario row is skipped, not fatal, and not counted as
+      // damage: the phrases it would have grouped are still restorable.
+      if (isRestorableScenario(sc)) scenarios.push(sc);
+      continue;
+    }
     if (!CSV_FIELDS_BY_TYPE[type]) { dropped++; continue; }
 
     const id = get("id");
@@ -5950,7 +5999,9 @@ function parseCsvBackup(text) {
     saved.push(rec);
   }
 
-  return { ok: true, payload: { age, saved, dropped } };
+  // `scenarios` is always present, empty for a file predating them, so the
+  // importer has one shape to handle whichever format it read.
+  return { ok: true, payload: { age, saved, scenarios, dropped } };
 }
 /* ll:data-export:end */
 
@@ -5996,7 +6047,7 @@ function exportUserData() {
   // Second click in the same gesture: some browsers block back-to-back
   // downloads, so let the first settle before starting the second.
   setTimeout(() => {
-    downloadBlob(buildCsvBackup({ saved: savedPhrases, age: currentAge }),
+    downloadBlob(buildCsvBackup({ saved: savedPhrases, age: currentAge, scenarios: loadCustomScenarios() }),
                  `littlelingos-backup-${stamp}.csv`, "text/csv;charset=utf-8");
   }, 400);
 
@@ -6041,6 +6092,10 @@ function importUserData(input) {
     // phrase with nowhere to appear, even if only for the next few lines.
     const sc = mergeScenarios(loadCustomScenarios(), parsed.payload.scenarios);
     if (sc.added) saveCustomScenarios(sc.merged);
+    // Before healing: a phrase whose scenario was folded into a same-named
+    // local one must be pointed at that one, or the next line judges it an
+    // orphan and it loses the grouping for good.
+    applyScenarioAliases(parsed.payload.saved, sc.aliases);
 
     // After the scenarios are in, never before: a phrase can only be judged
     // orphaned once we know which scenarios this restore brought back.

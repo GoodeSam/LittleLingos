@@ -1185,6 +1185,16 @@
        the .play-btn.playing precedent above rather than --accent (fails
        non-text contrast at ~2.6:1). Pulse ring gives a non-color-only signal
        for the active state. */
+    /* Getting ready: visibly changed the instant the button is tapped, and
+       deliberately unlike .listening — a slow fade rather than the pulse, so
+       "wait" and "speak now" are never confused for one another. */
+    .mic-btn.starting {
+      background: var(--card); border-color: var(--accent-deep);
+      animation: mic-wait 1s ease-in-out infinite;
+    }
+    .mic-btn.starting::before { content: "…"; }
+    @keyframes mic-wait { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
     .mic-btn.listening {
       background: var(--accent-deep); color: #fff; border-color: var(--accent-deep);
       animation: mic-pulse 1.2s ease-in-out infinite;
@@ -4652,6 +4662,30 @@ function describeSpeechResult(evt) {
   };
 }
 
+// A stopwatch across one listen attempt.
+//
+// The earlier readout only fired when a result arrived — blind to the failure
+// actually being reported, which is that nothing arrives. This records what
+// happened and when, so the three failures that all surface as 「没听清」 can
+// be told apart:
+//
+//   tap, then nothing            the engine never started (handshake, or the
+//                                1.5s watchdog aborting a slow start)
+//   tap → start, no speechstart  it listened and heard no voice — either the
+//                                parent spoke before it was ready, or the mic
+//                                is not picking them up
+//   tap → start → speechstart    it heard a voice and made nothing of it;
+//                                that one is genuine misrecognition
+function voiceTimeline() {
+  const t0 = Date.now();
+  const marks = [];
+  return {
+    mark(name) { marks.push({ name, at: Date.now() - t0 }); },
+    has(name) { return marks.some(m => m.name === name); },
+    summary() { return marks.map(m => `${m.name} ${m.at}ms`).join(" → "); },
+  };
+}
+
 // Purely an observer: it must not touch what was heard, or the thing being
 // measured stops being the thing that ships.
 function reportSpeechResult(evt) {
@@ -4695,12 +4729,35 @@ function setupVoiceInputs() {
     let recognition = null;
     let sessionId = 0;
 
+    // Three visible states, not two. The engine needs a moment between .start()
+    // and actually listening — a handshake, commonly half a second and often
+    // more on a phone — and setListening(true) only runs when that finishes.
+    // Until this existed the button looked untouched for that entire window,
+    // so a parent tapped, saw nothing, and started talking into an engine that
+    // was not listening yet. It then heard silence and answered
+    // 「没听清，请再说一次」, which reads as "your pronunciation was the
+    // problem". The faster the parent, the more reliably they lost.
+    function setStarting(on) {
+      button.classList.toggle('starting', on);
+      if (on) button.setAttribute('aria-label', '正在准备…请稍等一下再说');
+    }
+
     function setListening(on) {
       listening = on;
+      // Leaving both classes on would show a button that is simultaneously
+      // getting ready and listening — and the moment to speak is exactly one.
+      if (on) setStarting(false);
       button.classList.toggle('listening', on);
       button.setAttribute('aria-label', on ? '正在聆听…（再次点击停止）' : '语音输入');
       if (on) activeController = api;
       else if (activeController === api) activeController = null;
+    }
+
+    // Every path out of a listen attempt goes through here, so no exit can
+    // leave the button stuck claiming it is getting ready.
+    function setIdle() {
+      setStarting(false);
+      setListening(false);
     }
 
     function updateOnlineState() {
@@ -4733,6 +4790,8 @@ function setupVoiceInputs() {
 
       const session = ++sessionId;
       const isCurrentSession = () => session === sessionId;
+      const timeline = voiceTimeline();
+      timeline.mark("tap");
 
       let gotResult = false; // onresult fired at least once, any transcript (F1)
       let gotError = false;  // onerror already surfaced its own toast (F1)
@@ -4740,18 +4799,35 @@ function setupVoiceInputs() {
 
       rec.onstart = () => {
         if (!isCurrentSession()) return;
+        timeline.mark("start");
         started = true;
         setListening(true);
       };
       rec.onaudiostart = () => {
         if (!isCurrentSession()) return;
+        timeline.mark("audiostart");
         started = true;
         setListening(true);
       };
+      // Not previously observed at all, and it is the line between "heard
+      // nothing" and "heard something and made nothing of it" — two failures
+      // that need opposite fixes and currently share one message.
+      rec.onspeechstart = () => {
+        if (!isCurrentSession()) return;
+        timeline.mark("speechstart");
+      };
       rec.onend = () => {
         if (!isCurrentSession()) return;
-        setListening(false);
+        timeline.mark("end");
+        setIdle();
         startCooldown();
+        // The whole timeline, printed on the way out — including the runs
+        // where nothing was heard, which is the case the earlier readout
+        // could not see at all.
+        if (voiceDebugOn()) {
+          showOfflineToast("🎙 " + timeline.summary() +
+            (timeline.has("speechstart") ? "" : " · 没检测到人声"));
+        }
         // Chrome/Safari can fire onstart -> onend with neither onresult nor
         // onerror ever firing (short/flaky utterance). A silent end must
         // never be a dead tap with zero explanation (F1).
@@ -4763,8 +4839,9 @@ function setupVoiceInputs() {
       // always reset to idle so the button never gets stuck listening.
       rec.onerror = (evt) => {
         if (!isCurrentSession()) return;
+        timeline.mark("error:" + (evt && evt.error || "?"));
         gotError = true;
-        setListening(false);
+        setIdle();
         const messages = {
           'not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
           'service-not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
@@ -4776,6 +4853,7 @@ function setupVoiceInputs() {
       rec.onresult = (evt) => {
         if (!isCurrentSession()) return;
         gotResult = true;
+        timeline.mark("result");
         // Observed before anything is decided, so the reading reflects what
         // the engine said rather than what this function made of it.
         reportSpeechResult(evt);
@@ -4801,7 +4879,7 @@ function setupVoiceInputs() {
       setTimeout(() => {
         if (!isCurrentSession() || started || gotError) return;
         try { rec.abort(); } catch (e) {}
-        setListening(false);
+        setIdle();
         startCooldown();
         showOfflineToast('🎙️ 没有响应 — 请再试一次');
       }, 1500);
@@ -4822,6 +4900,9 @@ function setupVoiceInputs() {
       if (activeController && activeController !== api) activeController.preempt();
       // Fresh instance every tap (F3) — see createSession().
       recognition = createSession();
+      // Before .start(), not after: the point is that the parent sees this
+      // during the handshake, and .start() is where the handshake begins.
+      setStarting(true);
       try {
         recognition.start();
       } catch (e) {
@@ -4831,7 +4912,7 @@ function setupVoiceInputs() {
         // the button never sticks, surface it so the parent isn't left
         // guessing, and cool down so the next tap doesn't hit the same race.
         sessionId++;
-        setListening(false);
+        setIdle();
         showOfflineToast('🎙️ 请稍等一下再试');
         startCooldown();
       }
@@ -4848,7 +4929,7 @@ function setupVoiceInputs() {
       preempt: () => {
         sessionId++;
         if (recognition) { try { recognition.abort(); } catch (e) {} }
-        setListening(false);
+        setIdle();
       },
       isListening: () => listening,
     };

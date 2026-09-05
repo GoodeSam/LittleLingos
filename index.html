@@ -5723,6 +5723,39 @@ function parseImportPayload(text) {
   };
 }
 
+// Phrases that came back pointing at a scenario that is not here.
+//
+// Two ways it happens, neither hypothetical. A CSV backup carries each
+// phrase's `scenario` column — custom_<id> included — but the format has
+// nowhere to put the scenario's name and icon, so a CSV restore brings back
+// every self-made phrase tagged for a scenario that does not exist. And a JSON
+// backup with a damaged `scenarios` field is read as "no custom scenarios"
+// rather than rejected, on purpose: it is the parent's only copy, and refusing
+// it over a secondary field gambles their sentences on it.
+//
+// They are not lost either way — 全部收藏 shows everything. But the tag points
+// at nothing, and a scenario recreated later gets a fresh id, so those phrases
+// would never rejoin it. Dropping the tag is what deleteCustomScenario()
+// already does: keep the phrase, keep its review progress, lose only the
+// grouping that has no counterpart.
+function healScenarioTags(phrases, scenarios) {
+  const list = Array.isArray(phrases) ? phrases : [];
+  const live = new Set((Array.isArray(scenarios) ? scenarios : [])
+    .filter(x => x && typeof x.id === "string")
+    .map(x => "custom_" + x.id));
+  let healed = 0;
+  for (const p of list) {
+    if (!p || typeof p.scenario !== "string") continue;
+    // Preset scenarios and the two general buckets are not this mechanism's
+    // business — only custom_ tags can be orphaned this way.
+    if (!p.scenario.startsWith("custom_")) continue;
+    if (live.has(p.scenario)) continue;
+    p.scenario = "__translate__";
+    healed++;
+  }
+  return { phrases: list, healed };
+}
+
 // Same stance as mergeSaved(): importing ADDS what is missing, it does not
 // replace what this device already has. A name that already exists counts as
 // present even under a different id — the same scenario created separately on
@@ -6009,6 +6042,13 @@ function importUserData(input) {
     const sc = mergeScenarios(loadCustomScenarios(), parsed.payload.scenarios);
     if (sc.added) saveCustomScenarios(sc.merged);
 
+    // After the scenarios are in, never before: a phrase can only be judged
+    // orphaned once we know which scenarios this restore brought back.
+    // Applied to both formats — the CSV path is the one that produces orphans
+    // by construction, so branching on format here is exactly where the two
+    // would drift apart.
+    const heal = healScenarioTags(parsed.payload.saved, loadCustomScenarios());
+
     const { merged, added, skipped } = mergeSaved(savedPhrases, parsed.payload.saved);
     savedPhrases = merged;
     safeSetItem("ll_saved", JSON.stringify(savedPhrases));
@@ -6022,6 +6062,10 @@ function importUserData(input) {
 
     let msg = `已恢复 ${added} 条收藏`;
     if (sc.added) msg += `、${sc.added} 个自建场景`;
+    // Said out loud rather than done quietly: these phrases moved, and a
+    // parent who goes looking for them in a scenario needs to know why they
+    // are in 全部收藏 instead.
+    if (heal.healed) msg += `。其中 ${heal.healed} 条原本属于备份里没带上的场景，已放进「全部收藏」`;
     if (skipped) msg += `，跳过 ${skipped} 条（这台设备上已经有了，保留了本机的复习进度）`;
     // A CSV that a spreadsheet rewrote loses records silently unless this is
     // said out loud — the parent needs to know their backup is damaged while

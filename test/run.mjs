@@ -49,6 +49,7 @@ step("L0 · backup export/import round trip (test/data-export.test.mjs)", () => 
 step("L0 · CSV backup format (test/data-export-csv.test.mjs)", () => run("node", ["test/data-export-csv.test.mjs"]));
 step("L0 · custom scenarios (test/custom-scenarios.test.mjs)", () => run("node", ["test/custom-scenarios.test.mjs"]));
 step("L0 · scenarios ride along in the backup (test/backup-scenarios.test.mjs)", () => run("node", ["test/backup-scenarios.test.mjs"]));
+step("L0 · orphaned scenario tags on restore (test/orphan-scenario-tags.test.mjs)", () => run("node", ["test/orphan-scenario-tags.test.mjs"]));
 step("L0 · reaching a self-made scenario (test/scenario-ui.test.mjs)", () => run("node", ["test/scenario-ui.test.mjs"]));
 step("L0 · scenario grid order (test/scenario-order.test.mjs)", () => run("node", ["test/scenario-order.test.mjs"]));
 step("L0 · the saved-state star (test/save-star.test.mjs)", () => run("node", ["test/save-star.test.mjs"]));

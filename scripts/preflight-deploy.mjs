@@ -48,6 +48,18 @@ try {
 
 // 2 · Local == origin. Deploying something nobody else can see means the only
 //     copy of what is live sits on one laptop.
+//
+//     Fetched first: `git rev-parse origin/main` reads a locally cached ref,
+//     which only reflects the last fetch or push. Without this the check would
+//     claim something it cannot see. A fetch failure is not fatal — the
+//     comparison then falls back to the cached ref and says so.
+let remoteFresh = false;
+try {
+  sh("git", ["fetch", "--quiet", "origin"]);
+  remoteFresh = true;
+} catch {
+  notes.push("取不到远端最新状态（离线？）—— 下面的比对基于本地缓存的 ref");
+}
 try {
   const branch = sh("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
   const head = sh("git", ["rev-parse", "HEAD"]);
@@ -62,7 +74,7 @@ try {
       `本地与 origin/${branch} 不一致（领先 ${ahead}、落后 ${behind}）。\n` +
       `     即将上线的东西 GitHub 上没有 —— 线上版本的唯一副本会只存在于这台电脑`);
   } else {
-    notes.push(`本地与 origin/${branch} 一致`);
+    notes.push(`本地与 origin/${branch} 一致${remoteFresh ? "" : "（基于缓存的 ref，未核实远端）"}`);
   }
 } catch {
   problems.push("git 比对跑不通 —— 无法确认本地与远端是否一致");
@@ -89,9 +101,16 @@ try {
   problems.push("全量测试不是绿的 —— 跑 `node test/run.mjs` 看哪一层挂了");
 }
 
+// NOTE ON ORDER: the clean-tree check above runs BEFORE the suite, so anything
+// the suite writes would slip through the gap. scripts/deploy-prod.mjs re-checks
+// it immediately before deploying, which is the one that counts — a deploy
+// uploads the working directory, not a commit.
+//
 // 5 · What is live right now, for comparison after the deploy. Reported, never
 //     enforced: this script must work offline, and being unable to reach the
-//     site is not a reason to block a deploy.
+//     site is not a reason to block a deploy. Confirming the deploy LANDED is
+//     deploy-prod.mjs's job — doing it here would mean checking before the
+//     thing being checked has happened.
 try {
   const localStamp = (readFileSync(join(ROOT, "sw.js"), "utf8")
     .match(/ll-[0-9a-f]{8}/) || [])[0];
@@ -108,7 +127,7 @@ try {
 
 for (const n of notes) console.log(`  ✓ ${n}`);
 if (!problems.length) {
-  console.log("\n✓ 可以部署：node scripts/preflight-deploy.mjs && netlify deploy --prod --dir=.");
+  console.log("\n✓ 可以部署：node scripts/deploy-prod.mjs");
   process.exit(0);
 }
 console.error("");

@@ -30,8 +30,9 @@ if (!Number.isInteger(LAYER_TIMEOUT_MS) || LAYER_TIMEOUT_MS <= 0 || LAYER_TIMEOU
   process.exit(2);
 }
 const run = (cmd, args) => execFileSync(cmd, args, { cwd: ROOT, stdio: "inherit", timeout: LAYER_TIMEOUT_MS });
-let failed = 0;
+let failed = 0, ran = 0;
 const step = (label, fn) => {
+  ran++;
   console.log(`\n=== ${label} ===`);
   try { fn(); } catch (e) {
     failed++;
@@ -84,5 +85,11 @@ if (process.argv.includes("--codex")) {
   step("L3 · codex judge · visual (vera-visual-critic lens)", () => run("node", ["scripts/codex-eval.mjs", "--lens", "visual"]));
 }
 
-console.log(failed ? `\n✗ ${failed} layer(s) failed` : "\n✓ all layers green");
+// The count comes from here, not from eyeballing the output. Counting the
+// "✓ all N tests passed" lines undercounts: the product-data gate, the sw
+// stamp check and the crew layer do not print one. That mistake reached a
+// commit message more than once.
+console.log(failed
+  ? `\n✗ ${failed} of ${ran} layer(s) failed`
+  : `\n✓ all ${ran} layers green`);
 process.exit(failed ? 1 : 0);

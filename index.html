@@ -4581,6 +4581,73 @@ window.addEventListener('online',  () => showOfflineToast('✅ 已恢复网络�
 // both environments: window, document, navigator, setTimeout,
 // showOfflineToast, onSearchInput.
 /* ll:voice-input:start */
+// ── Diagnostics ────────────────────────────────────────────────────────
+// A window into what the speech engine actually returned, because
+// "识别经常不准确" has four plausible causes in this file and no way to tell
+// them apart from the outside:
+//
+//   · continuous is never set, so the engine stops at the first pause and a
+//     sentence with a comma comes back as a fragment
+//   · confidence is never read, so a transcript the engine is 30% sure of
+//     looks exactly like one it is certain about — and the next tap costs money
+//   · maxAlternatives was 1, so the right answer sitting in slot 2 was thrown
+//     away and low confidence could not even be noticed
+//   · the home box invites 英文查单词 while the mic is hardcoded zh-CN
+//
+// Their fixes conflict, and none of them can be tested here — Node has no
+// speech engine. So measure first: this shows what came back, and what the
+// parent says they SAID is the other half of the reading.
+//
+// OFF unless switched on. A parent should never see confidence scores.
+const VOICE_DEBUG_KEY = "ll_voice_debug";
+
+function voiceDebugOn() {
+  try { return localStorage.getItem(VOICE_DEBUG_KEY) === "1"; }
+  catch { return false; }
+}
+
+function setVoiceDebug(on) {
+  try {
+    if (on) localStorage.setItem(VOICE_DEBUG_KEY, "1");
+    else localStorage.removeItem(VOICE_DEBUG_KEY);
+  } catch {}
+}
+
+// Reads the same result the live path reads — the LAST one, for the same
+// reason — plus the two things it currently throws away.
+function describeSpeechResult(evt) {
+  const empty = { transcript: "", confidence: null, alternatives: [] };
+  const results = evt && evt.results;
+  if (!results || !results.length) return empty;
+  const last = results[results.length - 1];
+  if (!last || !last.length) return empty;
+  const alternatives = [];
+  for (let i = 0; i < last.length; i++) {
+    const t = last[i] && last[i].transcript;
+    if (typeof t === "string") alternatives.push(t.trim());
+  }
+  const top = last[0] || {};
+  return {
+    transcript: typeof top.transcript === "string" ? top.transcript.trim() : "",
+    // null, not 0. A missing field means the engine did not say — Safari
+    // often omits it — and 0 would read as "certain it is wrong".
+    confidence: typeof top.confidence === "number" ? top.confidence : null,
+    alternatives,
+  };
+}
+
+// Purely an observer: it must not touch what was heard, or the thing being
+// measured stops being the thing that ships.
+function reportSpeechResult(evt) {
+  if (!voiceDebugOn()) return;
+  const d = describeSpeechResult(evt);
+  const conf = d.confidence === null ? "?" : Math.round(d.confidence * 100) + "%";
+  const others = d.alternatives.slice(1);
+  showOfflineToast(
+    `🎙 听到「${d.transcript}」· 把握 ${conf}` +
+    (others.length ? ` · 其他候选：${others.join("、")}` : " · 没有其他候选"));
+}
+
 function setupVoiceInputs() {
   const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
   const controllers = [];
@@ -4642,7 +4709,11 @@ function setupVoiceInputs() {
       const rec = new Ctor();
       rec.lang = 'zh-CN';
       rec.interimResults = false;
-      rec.maxAlternatives = 1;
+      // 3, not 1. The engine often has the right answer in slot 2, and with
+      // one alternative there is no way even to notice that it was unsure.
+      // Costs nothing — the extras are only read by the diagnostics below;
+      // the live path still takes [0], exactly as before.
+      rec.maxAlternatives = 3;
 
       const session = ++sessionId;
       const isCurrentSession = () => session === sessionId;
@@ -4689,6 +4760,9 @@ function setupVoiceInputs() {
       rec.onresult = (evt) => {
         if (!isCurrentSession()) return;
         gotResult = true;
+        // Observed before anything is decided, so the reading reflects what
+        // the engine said rather than what this function made of it.
+        reportSpeechResult(evt);
         // Read the LAST result, not the first: some engines deliver one
         // event carrying earlier results plus the current one, and with
         // interimResults=false every entry is final — the newest wins.
@@ -5623,9 +5697,30 @@ function saveAccessCode() {
 // Prefill on entry so a parent can see whether one is already saved — and so
 // the installed PWA showing an empty box is itself the answer to "why does it
 // work in Safari but not here" (the two have separate storage).
+// The switch lives in 收藏 · 复习 beside the other settings rather than behind
+// a console incantation: the person who needs this reading is the one holding
+// the phone that mis-heard, and asking them to open devtools means the
+// measurement never happens.
+function toggleVoiceDebug() {
+  const on = !voiceDebugOn();
+  setVoiceDebug(on);
+  paintVoiceDebugBtn();
+  showOfflineToast(on
+    ? "🎙 诊断已打开 —— 现在每次说话都会显示引擎返回了什么"
+    : "诊断已关闭");
+}
+
+function paintVoiceDebugBtn() {
+  const btn = document.getElementById("voiceDebugBtn");
+  if (btn) btn.textContent = voiceDebugOn() ? "诊断：开（点击关闭）" : "诊断：关";
+}
+
 function syncAccessCodeInput() {
   const input = document.getElementById("accessCodeInput");
   if (input) input.value = getAccessCode();
+  // Repainted whenever the settings screen is shown, so the button never
+  // claims 关 while the readout is actually appearing on every tap.
+  paintVoiceDebugBtn();
 }
 
 // ── Backup / restore ───────────────────────────────────

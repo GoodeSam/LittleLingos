@@ -5794,6 +5794,11 @@ function mergeScenarios(existing, incoming) {
 // Rewrite incoming phrases onto the scenario they were folded into. Runs
 // BEFORE healScenarioTags — reversed, a phrase that belongs in a same-named
 // local scenario is judged an orphan first and loses its tag for good.
+//
+// That ordering is the whole point and it is not self-evident from either
+// function alone, so it is pinned by a test and recorded in ADR 0004. If you
+// are here to refactor the import path, read that first: the failure mode is
+// silent, and what it costs a parent is the grouping they built by hand.
 function applyScenarioAliases(phrases, aliases) {
   if (!Array.isArray(phrases) || !aliases) return;
   for (const p of phrases) {

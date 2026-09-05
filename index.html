@@ -4830,7 +4830,15 @@ function setupVoiceInputs() {
     function createSession() {
       const rec = new Ctor();
       rec.lang = 'zh-CN';
-      rec.interimResults = false;
+      // On, purely to observe. The first real reading showed sessions running
+      // 7–12 seconds and ending with nothing and no error; with interim
+      // results off, those seconds are a black box. If partials arrive during
+      // them, audio is reaching the recogniser and the final result is being
+      // lost — if none do, nothing is getting in. Two different problems.
+      //
+      // The live path is unchanged: only final results are ever used, and an
+      // interim is recorded and discarded.
+      rec.interimResults = true;
       // 3, not 1. The engine often has the right answer in slot 2, and with
       // one alternative there is no way even to notice that it was unsure.
       // Costs nothing — the extras are only read by the diagnostics below;
@@ -4870,9 +4878,13 @@ function setupVoiceInputs() {
         timeline.mark("end");
         setIdle();
         startCooldown();
-        const line = timeline.summary() +
-          (timeline.has("speechstart") ? "" : " · 没检测到人声") +
-          (gotResult ? "" : " · 没有结果");
+        // NOT "没检测到人声" any more. The first real reading had a run that
+        // produced a result while that label was attached: this engine never
+        // fires speechstart at all, so inferring silence from its absence was
+        // the diagnostic inventing a fact — worse than having no diagnostic,
+        // because it sends the search in a direction with nothing in it.
+        // Marks are recorded; conclusions are not drawn from what is missing.
+        const line = timeline.summary() + (gotResult ? "" : " · 没有结果");
         appendVoiceLog(line);
         // REPLACES the generic message rather than preceding it. The first
         // version called showOfflineToast twice in a row, and the second call
@@ -4904,16 +4916,27 @@ function setupVoiceInputs() {
       };
       rec.onresult = (evt) => {
         if (!isCurrentSession()) return;
+        // Read the LAST result, not the first: some engines deliver one event
+        // carrying earlier results plus the current one — the newest wins.
+        const last = evt.results && evt.results.length
+          ? evt.results[evt.results.length - 1] : null;
+
+        // An interim is a guess made while the parent is still talking. It is
+        // recorded — its mere existence answers "is any audio getting in" —
+        // and then dropped. Acting on one would put half-formed text in the
+        // field, and an EMPTY interim is common, which under the old code
+        // would fire 「没听清」 mid-sentence: interrupting someone to tell
+        // them they were not heard.
+        if (last && last.isFinal === false) {
+          timeline.mark("interim");
+          return;
+        }
+
         gotResult = true;
         timeline.mark("result");
         // Observed before anything is decided, so the reading reflects what
         // the engine said rather than what this function made of it.
         reportSpeechResult(evt);
-        // Read the LAST result, not the first: some engines deliver one
-        // event carrying earlier results plus the current one, and with
-        // interimResults=false every entry is final — the newest wins.
-        const last = evt.results && evt.results.length
-          ? evt.results[evt.results.length - 1] : null;
         const transcript = last && last[0] ? last[0].transcript.trim() : '';
         if (!transcript) {
           // Chrome's cloud STT can fire a result event with an empty/low-

@@ -1,0 +1,65 @@
+# Runs the full suite on every push and pull request.
+#
+# WHY. Until now the suite ran when someone remembered to run it. That worked
+# until it didn't: on 2026-09-05 a commit was reported as 已上线 while
+# production sat one version behind, and the same week a `git push` was
+# followed by six minutes of waiting for a build that was never coming. Neither
+# was a code defect — both were a human step that got skipped.
+#
+# This does NOT deploy. Deploying stays a deliberate act
+# (`node scripts/deploy-prod.mjs`), because on this site production is uploaded
+# from a laptop and there is a real user on the other end. What this gives you
+# is one honest answer to "were the tests green on this commit", recorded
+# against the commit rather than remembered.
+#
+# It also does not make the tests better. The suite has missed real defects —
+# every bug found in the 2026-09 deliveries was caught by review, by a
+# hand-written wiring guard, or by walking the data flow, not by a failing
+# test. CI removes the randomness of "sometimes runs, sometimes doesn't"; it
+# says nothing about coverage. See docs/change-review.md.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 rather than the 26 on the author's laptop: it is what Netlify
+      # runs the functions on (nodejs22.x in the deploy manifest), so the layer
+      # that ships is tested on the runtime that ships. The gap is real and
+      # worth knowing about — a syntax or API difference between 22 and 26
+      # would show up here and not locally, which is the useful direction for
+      # that surprise to point.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The L1 crew layer inside test/run.mjs shells out to pytest.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install -r requirements-dev.txt
+
+      # No secrets. Every test stubs its own network and env — a suite that
+      # needed a real key would be one that could spend money on a push.
+      - run: node test/run.mjs
+
+      # A test that writes a file passes locally and then ships that file,
+      # because a deploy uploads the working directory rather than a commit.
+      # Cheap to check here, and the check itself cannot be forgotten.
+      - name: the suite must not leave the tree dirty
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "✗ 跑完测试之后工作区变脏了 —— 有测试在写文件："
+            git status --porcelain
+            echo ""
+            echo "  部署上传的是工作区而不是某个提交，所以这些文件会随下次部署上线，"
+            echo "  却不在任何一次提交里。"
+            exit 1
+          fi
+          echo "✓ 工作区仍然干净"

@@ -6,6 +6,7 @@
 // critique of rules/08-strict-product-critique.md, executed by the OpenAI
 // Codex CLI (never Claude) via scripts/codex-eval.mjs.
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,6 +32,17 @@ if (!Number.isInteger(LAYER_TIMEOUT_MS) || LAYER_TIMEOUT_MS <= 0 || LAYER_TIMEOU
 }
 const run = (cmd, args) => execFileSync(cmd, args, { cwd: ROOT, stdio: "inherit", timeout: LAYER_TIMEOUT_MS });
 let failed = 0, ran = 0;
+const skipped = [];
+
+// A layer that cannot run is not a layer that passed. Skipping requires a
+// reason, and the reason is printed here and counted in the summary — a green
+// line that quietly covers a layer nobody ran is worse than a red one.
+const skip = (label, why) => {
+  skipped.push({ label, why });
+  console.log(`\n=== ${label} ===`);
+  console.log(`⊘ 跳过：${why}`);
+};
+
 const step = (label, fn) => {
   ran++;
   console.log(`\n=== ${label} ===`);
@@ -78,7 +90,21 @@ step("L0 · dictionary save flows through the existing review engine (test/dicti
 // pytest runs INSIDE crew check (scripts/crew.mjs check) — no standalone
 // pytest step, or one underlying failure would be reported twice and the
 // suite would pay the collection cost twice per run.
-step("L1 · crew integrity + engine check (scripts/crew.mjs — includes pytest)", () => run("node", ["scripts/crew.mjs", "check"]));
+// The crew layer checks .claude/agents/*.md, which .gitignore excludes: those
+// files exist on the author's laptop and in no clone of this repository. So it
+// verifies the local authoring environment, not the product — and a fresh
+// checkout (CI included) has nothing for it to look at.
+//
+// Skipped rather than failed, because a red build on a clean clone would say
+// "this commit is broken" about a commit that is fine. Skipped LOUDLY rather
+// than silently, because the alternative is a green run that quietly covers a
+// layer nobody executed.
+if (existsSync(join(ROOT, ".claude/agents"))) {
+  step("L1 · crew integrity + engine check (scripts/crew.mjs — includes pytest)", () => run("node", ["scripts/crew.mjs", "check"]));
+} else {
+  skip("L1 · crew integrity + engine check (scripts/crew.mjs — includes pytest)",
+       ".claude/agents 不在这个检出里（.gitignore 排除了它）—— 这一层验的是本机的编写环境，不是产品");
+}
 
 if (process.argv.includes("--codex")) {
   step("L3 · codex judge · function (felix-function-critic lens)", () => run("node", ["scripts/codex-eval.mjs", "--lens", "function"]));
@@ -89,7 +115,13 @@ if (process.argv.includes("--codex")) {
 // "✓ all N tests passed" lines undercounts: the product-data gate, the sw
 // stamp check and the crew layer do not print one. That mistake reached a
 // commit message more than once.
+// The project's own test discipline requires reporting passed / failed /
+// SKIPPED and what was not run. "all N green" with a silent skip is the shape
+// of report this line exists to make impossible.
+const tail = skipped.length
+  ? `，${skipped.length} 层跳过：${skipped.map(s => s.label.split(" (")[0]).join("、")}`
+  : "";
 console.log(failed
-  ? `\n✗ ${failed} of ${ran} layer(s) failed`
-  : `\n✓ all ${ran} layers green`);
+  ? `\n✗ ${failed} of ${ran} layer(s) failed${tail}`
+  : `\n✓ all ${ran} layers green${tail}`);
 process.exit(failed ? 1 : 0);

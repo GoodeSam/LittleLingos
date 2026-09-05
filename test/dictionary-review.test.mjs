@@ -232,11 +232,6 @@ test(".review-cta carries user-select: none (Sev C touch-hygiene fix)", () => {
   assert.match(block, /user-select:\s*none/);
 });
 
-test(".mic-btn carries user-select: none (Sev C touch-hygiene fix, covers #micBtn + #translateMicBtn)", () => {
-  const block = html.slice(html.indexOf(".mic-btn {"), html.indexOf(".mic-btn::before"));
-  assert.match(block, /user-select:\s*none/);
-});
-
 test(".review-btn-reveal carries user-select: none (Sev C touch-hygiene fix)", () => {
   const block = html.slice(html.indexOf(".review-btn-reveal {"), html.indexOf(".review-btn-again"));
   assert.match(block, /user-select:\s*none/);

@@ -857,8 +857,8 @@
       outline: none; transition: border-color .15s;
     }
     textarea:focus { border-color: var(--accent); }
-    /* Voice input row on the translate screen: the zh textarea plus the same
-       .mic-btn family used by voice search (shared voice-input module). */
+    /* The zh textarea's row. Once held a mic button beside it; dictation now
+       goes through the keyboard's own microphone (see the note under it). */
     .zh-input-row { display: flex; align-items: flex-end; gap: 8px; }
     .zh-input-row textarea { flex: 1; min-width: 0; }
     /* 16px: a substantive data-processing warning the parent must actually
@@ -1168,57 +1168,6 @@
       box-shadow: var(--shadow-card);
     }
     .search-input:focus { border-color: var(--accent); }
-    /* Mic button (voice input, progressive enhancement): same icon-only
-       ghost-button family as .play-btn-slow/.save-btn/.used-btn (44px tap
-       target, transparent/bordered idle state) so it reads as native to the
-       search bar / translate screen rather than bolted on. Stays [hidden]
-       until setupVoiceInputs() confirms SpeechRecognition support. */
-    .mic-btn {
-      flex-shrink: 0;
-      background: var(--card);
-      color: var(--muted);
-      border: 1.5px solid var(--border);
-      border-radius: 50%;
-      min-height: 44px; min-width: 44px;
-      font-size: 18px;
-      cursor: pointer;
-      transition: all .15s;
-      display: inline-flex; align-items: center; justify-content: center;
-      touch-action: manipulation;
-      user-select: none; /* long-press must not select text (2026-08-12 visual critique, Sev C) */
-      box-shadow: var(--shadow-card);
-    }
-    .mic-btn::before { content: "🎤"; }
-    /* Listening state: white on --accent-deep measures 5.20:1 (AA), matching
-       the .play-btn.playing precedent above rather than --accent (fails
-       non-text contrast at ~2.6:1). Pulse ring gives a non-color-only signal
-       for the active state. */
-    /* Getting ready: visibly changed the instant the button is tapped, and
-       deliberately unlike .listening — a slow fade rather than the pulse, so
-       "wait" and "speak now" are never confused for one another. */
-    .mic-btn.starting {
-      background: var(--card); border-color: var(--accent-deep);
-      animation: mic-wait 1s ease-in-out infinite;
-    }
-    .mic-btn.starting::before { content: "…"; }
-    @keyframes mic-wait { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
-
-    .mic-btn.listening {
-      background: var(--accent-deep); color: #fff; border-color: var(--accent-deep);
-      animation: mic-pulse 1.2s ease-in-out infinite;
-    }
-    .mic-btn.listening::before { content: "⏹"; }
-    @keyframes mic-pulse {
-      0%, 100% { box-shadow: 0 0 0 0 rgba(184,74,31,.35); }
-      50%      { box-shadow: 0 0 0 7px rgba(184,74,31,0); }
-    }
-    /* Offline: same unavailable treatment as .play-btn.unavailable (border-tint
-       bg, muted text, not-allowed cursor) so an offline mic reads consistently
-       with every other network-gated control in the app. */
-    .mic-btn:disabled {
-      background: var(--border); color: var(--muted);
-      cursor: not-allowed; box-shadow: none; animation: none;
-    }
     .search-results { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
     #homeScreen.searching .hide-on-search { display: none !important; }
     .search-result {
@@ -1609,14 +1558,10 @@
       <input id="searchInput" class="search-input" type="search" autocomplete="off"
              placeholder="🔍 中文找句子 · 英文查单词"
              oninput="onSearchInput()" />
-      <!-- Voice search (Web Speech API, zh-CN, online-only progressive enhancement):
-           hidden by default and only revealed by setupVoiceInputs() when
-           SpeechRecognition/webkitSpeechRecognition actually exists, so browsers
-           without support never see a dead mic button. Never gates typing —
-           #searchInput's oninput above is untouched. Click wiring is attached
-           by the shared voice-input module. -->
-      <button id="micBtn" class="mic-btn" type="button" aria-label="语音输入" hidden></button>
     </div>
+    <p class="backup-note" style="margin:6px 0 0">
+      💡 也可以点一下框，用<strong>键盘上的 🎤</strong>说 —— 手机自带的听写。
+    </p>
     <!-- Just-in-time data disclosure for the dictionary lookup feature
          (Unit B increment C6): same register as the translate screen's
          .privacy-note, placed at the lookup entry point itself. States the
@@ -1719,27 +1664,6 @@
 
   <!-- Backup / restore. Lives at the bottom of the saved screen because that
        is where a parent can see what they'd be losing. -->
-  <!-- Speech diagnostics. Last of the three settings blocks: it is for
-       chasing down a specific complaint, not for daily use, and a parent who
-       never taps it should meet the two that matter first. -->
-  <div class="backup-section">
-    <div class="backup-title">语音识别诊断</div>
-    <p class="backup-note">
-      打开之后，每次用麦克风都会显示引擎<strong>到底听到了什么、有多确定</strong>，
-      以及它考虑过的其他候选。用来排查「识别不准」到底是哪一种不准 ——
-      平时关着就好。
-    </p>
-    <div class="backup-actions">
-      <button class="backup-btn" type="button" id="voiceDebugBtn"
-              onclick="toggleVoiceDebug()">诊断：关</button>
-      <button class="backup-btn" type="button" onclick="showVoiceLog()">看记录</button>
-      <button class="backup-btn" type="button" onclick="wipeVoiceLog()">清空</button>
-    </div>
-    <!-- Read after the experiment, not during it: a toast is gone in 3.5
-         seconds and a timeline cannot be read in 3.5 seconds. -->
-    <pre id="voiceLogBox" class="voice-log" hidden></pre>
-  </div>
-
   <!-- Access code. Sits above backup because a parent sent here by an error
        message needs to find it without scrolling past anything. -->
   <div class="backup-section">
@@ -1795,12 +1719,16 @@
       <div class="translate-label">用中文说你想对宝宝说的话</div>
       <div class="zh-input-row">
         <textarea id="zhInput" rows="4" placeholder="例如：宝宝，今天你很棒，不哭了！"></textarea>
-        <!-- Same shared voice-input module as the search mic: hidden until
-             setupVoiceInputs() confirms SpeechRecognition support. Speech only
-             fills the textarea — translating stays a manual tap, so a mis-heard
-             transcript never fires an AI call the parent didn't review. -->
-        <button id="translateMicBtn" class="mic-btn" type="button" aria-label="语音输入" hidden></button>
       </div>
+      <!-- Deleting the mic button also deletes the parent's only clue that
+           speaking is possible. They will not go hunting for a key on a
+           keyboard they have not raised. Said plainly as the SYSTEM's
+           feature, because it is: when it misbehaves, this app neither wrote
+           it nor can fix it. -->
+      <p class="backup-note" style="margin-top:6px">
+        💡 不想打字？点一下上面的框，用<strong>键盘上的 🎤</strong>说话就行 ——
+        那是手机自带的听写，比我们自己做的准。
+      </p>
       <!-- Just-in-time data disclosure: free text leaves the device for the
            translate API, unlike every other (fully local) surface. -->
       <div class="privacy-note">🔒 输入内容会发送到在线翻译服务生成建议，请避免包含孩子姓名等个人信息</div>
@@ -4606,8 +4534,6 @@ window.addEventListener('offline', () => showOfflineToast('📴 离线模式 —
 window.addEventListener('online',  () => showOfflineToast('✅ 已恢复网络连接'));
 
 // ── Voice input (Web Speech API, zh-CN) ────────────────
-// Online-only progressive enhancement shared by the search bar (#micBtn →
-// #searchInput) and the translate screen (#translateMicBtn → #zhInput).
 // Never gates or replaces typing: onresult only writes into the target
 // field's value (and, for search, calls the existing onSearchInput() path,
 // exactly as if the parent had typed). Reuses the same navigator.onLine +
@@ -4619,426 +4545,7 @@ window.addEventListener('online',  () => showOfflineToast('✅ 已恢复网络�
 // DOM. Keep everything it touches injectable through globals that exist in
 // both environments: window, document, navigator, setTimeout,
 // showOfflineToast, onSearchInput.
-/* ll:voice-input:start */
-// ── Diagnostics ────────────────────────────────────────────────────────
-// A window into what the speech engine actually returned, because
-// "识别经常不准确" has four plausible causes in this file and no way to tell
-// them apart from the outside:
-//
-//   · continuous is never set, so the engine stops at the first pause and a
-//     sentence with a comma comes back as a fragment
-//   · confidence is never read, so a transcript the engine is 30% sure of
-//     looks exactly like one it is certain about — and the next tap costs money
-//   · maxAlternatives was 1, so the right answer sitting in slot 2 was thrown
-//     away and low confidence could not even be noticed
-//   · the home box invites 英文查单词 while the mic is hardcoded zh-CN
-//
-// Their fixes conflict, and none of them can be tested here — Node has no
-// speech engine. So measure first: this shows what came back, and what the
-// parent says they SAID is the other half of the reading.
-//
-// OFF unless switched on. A parent should never see confidence scores.
-const VOICE_DEBUG_KEY = "ll_voice_debug";
 
-function voiceDebugOn() {
-  try { return localStorage.getItem(VOICE_DEBUG_KEY) === "1"; }
-  catch { return false; }
-}
-
-function setVoiceDebug(on) {
-  try {
-    if (on) localStorage.setItem(VOICE_DEBUG_KEY, "1");
-    else localStorage.removeItem(VOICE_DEBUG_KEY);
-  } catch {}
-}
-
-// Reads the same result the live path reads — the LAST one, for the same
-// reason — plus the two things it currently throws away.
-function describeSpeechResult(evt) {
-  const empty = { transcript: "", confidence: null, alternatives: [] };
-  const results = evt && evt.results;
-  if (!results || !results.length) return empty;
-  const last = results[results.length - 1];
-  if (!last || !last.length) return empty;
-  const alternatives = [];
-  for (let i = 0; i < last.length; i++) {
-    const t = last[i] && last[i].transcript;
-    if (typeof t === "string") alternatives.push(t.trim());
-  }
-  const top = last[0] || {};
-  return {
-    transcript: typeof top.transcript === "string" ? top.transcript.trim() : "",
-    // null, not 0. A missing field means the engine did not say — Safari
-    // often omits it — and 0 would read as "certain it is wrong".
-    confidence: typeof top.confidence === "number" ? top.confidence : null,
-    alternatives,
-  };
-}
-
-// Recorded attempts, newest last, capped.
-//
-// A toast lasts 3.5 seconds. Nobody reads
-// "tap 0ms → start 620ms → end 900ms · 没检测到人声" in 3.5 seconds, let alone
-// five of them in a row while holding a child. A record that cannot be read is
-// not a record — so attempts are kept and the settings screen shows them,
-// which moves the reading to after the experiment instead of during it.
-//
-// Only while diagnostics are on. Nothing accumulates on a parent's device.
-const VOICE_LOG_KEY = "ll_voice_log";
-const VOICE_LOG_MAX = 20;
-
-function readVoiceLog() {
-  try {
-    const raw = localStorage.getItem(VOICE_LOG_KEY);
-    if (!raw) return [];
-    const list = JSON.parse(raw);
-    return Array.isArray(list) ? list.filter(x => typeof x === "string") : [];
-  } catch { return []; }
-}
-
-function appendVoiceLog(line) {
-  if (!voiceDebugOn()) return;
-  try {
-    const list = readVoiceLog();
-    list.push(line);
-    // Capped rather than unbounded: this is a diagnostic, not a log server,
-    // and a few taps must not push the earlier ones out of reach.
-    localStorage.setItem(VOICE_LOG_KEY, JSON.stringify(list.slice(-VOICE_LOG_MAX)));
-  } catch {}
-}
-
-function clearVoiceLog() {
-  try { localStorage.removeItem(VOICE_LOG_KEY); } catch {}
-}
-
-// A stopwatch across one listen attempt.
-//
-// The earlier readout only fired when a result arrived — blind to the failure
-// actually being reported, which is that nothing arrives. This records what
-// happened and when, so the three failures that all surface as 「没听清」 can
-// be told apart:
-//
-//   tap, then nothing            the engine never started (handshake, or the
-//                                1.5s watchdog aborting a slow start)
-//   tap → start, no speechstart  it listened and heard no voice — either the
-//                                parent spoke before it was ready, or the mic
-//                                is not picking them up
-//   tap → start → speechstart    it heard a voice and made nothing of it;
-//                                that one is genuine misrecognition
-function voiceTimeline() {
-  const t0 = Date.now();
-  const marks = [];
-  return {
-    mark(name) { marks.push({ name, at: Date.now() - t0 }); },
-    has(name) { return marks.some(m => m.name === name); },
-    summary() { return marks.map(m => `${m.name} ${m.at}ms`).join(" → "); },
-  };
-}
-
-// Purely an observer: it must not touch what was heard, or the thing being
-// measured stops being the thing that ships.
-function reportSpeechResult(evt) {
-  if (!voiceDebugOn()) return;
-  const d = describeSpeechResult(evt);
-  const conf = d.confidence === null ? "?" : Math.round(d.confidence * 100) + "%";
-  const others = d.alternatives.slice(1);
-  showOfflineToast(
-    `🎙 听到「${d.transcript}」· 把握 ${conf}` +
-    (others.length ? ` · 其他候选：${others.join("、")}` : " · 没有其他候选"));
-}
-
-function setupVoiceInputs() {
-  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const controllers = [];
-  // One physical microphone: the controller currently listening. Starting a
-  // different controller stops this one first.
-  let activeController = null;
-
-  // Builds one mic-button controller. All the hard-won voice-search race
-  // fixes live here exactly once, shared by every mic surface:
-  //  - fresh recognition instance per tap — eliminates the wedged-reuse
-  //    InvalidStateError race where a prior session left the shared object
-  //    unable to .start() again (root cause 3)
-  //  - monotonic session id (F3/F4): handlers and the watchdog close over
-  //    "their" session number and check isCurrentSession() before touching
-  //    state, so a late event from a discarded instance can never desync
-  //    the listening state from the real engine
-  //  - 1.5s watchdog (F4) for .start() returning with neither onstart nor
-  //    onerror ever firing (documented Chrome/Safari behavior across
-  //    network transitions)
-  //  - 400ms cooldown after every session end (Chrome teardown race), which
-  //    re-enables ONLY through updateOnlineState() so a cooldown expiring
-  //    while offline can't override the offline gate
-  //  - explicit toasts for silent/empty/error outcomes (F1/F2) — a tap is
-  //    never dead with zero explanation
-  function createVoiceInput(button, onTranscript) {
-    if (!button) return null;
-    let listening = false;
-    let cooldown = false;
-    let recognition = null;
-    let sessionId = 0;
-
-    // Three visible states, not two. The engine needs a moment between .start()
-    // and actually listening — a handshake, commonly half a second and often
-    // more on a phone — and setListening(true) only runs when that finishes.
-    // Until this existed the button looked untouched for that entire window,
-    // so a parent tapped, saw nothing, and started talking into an engine that
-    // was not listening yet. It then heard silence and answered
-    // 「没听清，请再说一次」, which reads as "your pronunciation was the
-    // problem". The faster the parent, the more reliably they lost.
-    function setStarting(on) {
-      button.classList.toggle('starting', on);
-      if (on) button.setAttribute('aria-label', '正在准备…请稍等一下再说');
-    }
-
-    function setListening(on) {
-      listening = on;
-      // Leaving both classes on would show a button that is simultaneously
-      // getting ready and listening — and the moment to speak is exactly one.
-      if (on) setStarting(false);
-      button.classList.toggle('listening', on);
-      button.setAttribute('aria-label', on ? '正在聆听…（再次点击停止）' : '语音输入');
-      if (on) activeController = api;
-      else if (activeController === api) activeController = null;
-    }
-
-    // Every path out of a listen attempt goes through here, so no exit can
-    // leave the button stuck claiming it is getting ready.
-    function setIdle() {
-      setStarting(false);
-      setListening(false);
-    }
-
-    function updateOnlineState() {
-      // Disabled if offline OR still in the post-session cooldown — either
-      // source can veto enabling the button; neither can force-enable it.
-      button.disabled = !navigator.onLine || cooldown;
-      if (!navigator.onLine && listening && recognition) recognition.stop();
-    }
-
-    function startCooldown() {
-      cooldown = true;
-      button.disabled = true;
-      setTimeout(() => {
-        cooldown = false;
-        updateOnlineState();
-      }, 400);
-    }
-
-    // Builds and fully wires a recognition instance for exactly one listen
-    // session.
-    function createSession() {
-      const rec = new Ctor();
-      rec.lang = 'zh-CN';
-      // On, purely to observe. The first real reading showed sessions running
-      // 7–12 seconds and ending with nothing and no error; with interim
-      // results off, those seconds are a black box. If partials arrive during
-      // them, audio is reaching the recogniser and the final result is being
-      // lost — if none do, nothing is getting in. Two different problems.
-      //
-      // The live path is unchanged: only final results are ever used, and an
-      // interim is recorded and discarded.
-      rec.interimResults = true;
-      // 3, not 1. The engine often has the right answer in slot 2, and with
-      // one alternative there is no way even to notice that it was unsure.
-      // Costs nothing — the extras are only read by the diagnostics below;
-      // the live path still takes [0], exactly as before.
-      rec.maxAlternatives = 3;
-
-      const session = ++sessionId;
-      const isCurrentSession = () => session === sessionId;
-      const timeline = voiceTimeline();
-      timeline.mark("tap");
-
-      let gotResult = false; // onresult fired at least once, any transcript (F1)
-      let gotError = false;  // onerror already surfaced its own toast (F1)
-      let started = false;   // onstart/onaudiostart fired (F4 watchdog)
-
-      rec.onstart = () => {
-        if (!isCurrentSession()) return;
-        timeline.mark("start");
-        started = true;
-        setListening(true);
-      };
-      rec.onaudiostart = () => {
-        if (!isCurrentSession()) return;
-        timeline.mark("audiostart");
-        started = true;
-        setListening(true);
-      };
-      // Not previously observed at all, and it is the line between "heard
-      // nothing" and "heard something and made nothing of it" — two failures
-      // that need opposite fixes and currently share one message.
-      rec.onspeechstart = () => {
-        if (!isCurrentSession()) return;
-        timeline.mark("speechstart");
-      };
-      rec.onend = () => {
-        if (!isCurrentSession()) return;
-        timeline.mark("end");
-        setIdle();
-        startCooldown();
-        // NOT "没检测到人声" any more. The first real reading had a run that
-        // produced a result while that label was attached: this engine never
-        // fires speechstart at all, so inferring silence from its absence was
-        // the diagnostic inventing a fact — worse than having no diagnostic,
-        // because it sends the search in a direction with nothing in it.
-        // Marks are recorded; conclusions are not drawn from what is missing.
-        const line = timeline.summary() + (gotResult ? "" : " · 没有结果");
-        appendVoiceLog(line);
-        // REPLACES the generic message rather than preceding it. The first
-        // version called showOfflineToast twice in a row, and the second call
-        // overwrote the first — so on the exact failure this was built to
-        // observe, the reading was never visible.
-        if (voiceDebugOn()) {
-          showOfflineToast("🎙 " + line);
-        } else if (!gotResult && !gotError) {
-          // Chrome/Safari can fire onstart -> onend with neither onresult nor
-          // onerror ever firing (short/flaky utterance). A silent end must
-          // never be a dead tap with zero explanation (F1).
-          showOfflineToast('🤫 没听清，请再说一次');
-        }
-      };
-      // no-speech / network / not-allowed (permission denied) all land here —
-      // always reset to idle so the button never gets stuck listening.
-      rec.onerror = (evt) => {
-        if (!isCurrentSession()) return;
-        timeline.mark("error:" + (evt && evt.error || "?"));
-        gotError = true;
-        setIdle();
-        const messages = {
-          'not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
-          'service-not-allowed': '🎙️ 无法使用麦克风 — 请在浏览器设置中允许访问',
-          'no-speech': '🤫 没有听到声音 — 请再说一次',
-          'network': '📡 网络错误 — 请检查网络连接后重试',
-        };
-        showOfflineToast(messages[evt.error] || '🎙️ 语音识别出错 — 请再试一次');
-      };
-      rec.onresult = (evt) => {
-        if (!isCurrentSession()) return;
-        // Read the LAST result, not the first: some engines deliver one event
-        // carrying earlier results plus the current one — the newest wins.
-        const last = evt.results && evt.results.length
-          ? evt.results[evt.results.length - 1] : null;
-
-        // An interim is a guess made while the parent is still talking. It is
-        // recorded — its mere existence answers "is any audio getting in" —
-        // and then dropped. Acting on one would put half-formed text in the
-        // field, and an EMPTY interim is common, which under the old code
-        // would fire 「没听清」 mid-sentence: interrupting someone to tell
-        // them they were not heard.
-        if (last && last.isFinal === false) {
-          timeline.mark("interim");
-          return;
-        }
-
-        gotResult = true;
-        timeline.mark("result");
-        // Observed before anything is decided, so the reading reflects what
-        // the engine said rather than what this function made of it.
-        reportSpeechResult(evt);
-        const transcript = last && last[0] ? last[0].transcript.trim() : '';
-        if (!transcript) {
-          // Chrome's cloud STT can fire a result event with an empty/low-
-          // confidence transcript on a short utterance or a flaky
-          // connection. Same "didn't catch that" toast as a silent onend (F2).
-          showOfflineToast('🤫 没听清，请再说一次');
-          return;
-        }
-        onTranscript(transcript);
-      };
-
-      // Watchdog (F4): if neither onstart nor onerror has landed within
-      // 1.5s, force state back to idle and tell the parent to retry instead
-      // of leaving the button silently dead until page reload.
-      setTimeout(() => {
-        if (!isCurrentSession() || started || gotError) return;
-        try { rec.abort(); } catch (e) {}
-        setIdle();
-        startCooldown();
-        showOfflineToast('🎙️ 没有响应 — 请再试一次');
-      }, 1500);
-
-      return rec;
-    }
-
-    function toggle() {
-      if (!navigator.onLine || cooldown) return;
-      if (listening) {
-        if (recognition) recognition.stop();
-        return;
-      }
-      // One mic: a session running on another surface is preempted first —
-      // preempt() (not stop()) invalidates the old session, so a late
-      // onresult from the losing surface can't write into its field while
-      // the parent is already dictating on this one.
-      if (activeController && activeController !== api) activeController.preempt();
-      // Fresh instance every tap (F3) — see createSession().
-      recognition = createSession();
-      // Before .start(), not after: the point is that the parent sees this
-      // during the handshake, and .start() is where the handshake begins.
-      setStarting(true);
-      try {
-        recognition.start();
-      } catch (e) {
-        // start() throws if a recognition session is already active/starting
-        // (Chrome teardown race from a rapid re-tap). Invalidate this
-        // session so its 1.5s watchdog becomes a no-op, reset defensively so
-        // the button never sticks, surface it so the parent isn't left
-        // guessing, and cool down so the next tap doesn't hit the same race.
-        sessionId++;
-        setIdle();
-        showOfflineToast('🎙️ 请稍等一下再试');
-        startCooldown();
-      }
-    }
-
-    const api = {
-      toggle,
-      updateOnlineState,
-      stopListening: () => { if (recognition) recognition.stop(); },
-      // Cross-surface takeover: invalidate the running session so its late
-      // events (onresult/onend after abort) are ignored, then tear down and
-      // reset to idle. A same-surface stop keeps using stopListening(),
-      // which still delivers the final transcript.
-      preempt: () => {
-        sessionId++;
-        if (recognition) { try { recognition.abort(); } catch (e) {} }
-        setIdle();
-      },
-      isListening: () => listening,
-    };
-
-    button.hidden = false;
-    button.addEventListener('click', toggle);
-    updateOnlineState();
-    controllers.push(api);
-    return api;
-  }
-
-  if (!Ctor) {
-    // Buttons stay [hidden]; the feature is not shown at all.
-    return { search: null, translate: null, updateOnlineState: function () {} };
-  }
-
-  const search = createVoiceInput(document.getElementById('micBtn'), (transcript) => {
-    document.getElementById('searchInput').value = transcript;
-    onSearchInput(); // same path as manual typing
-  });
-  const translate = createVoiceInput(document.getElementById('translateMicBtn'), (transcript) => {
-    // Fill only — translating costs an AI call, so the parent reviews the
-    // transcript and taps 翻译 themselves (doTranslate is never auto-fired).
-    document.getElementById('zhInput').value = transcript;
-  });
-
-  const updateOnlineState = () => controllers.forEach((c) => c.updateOnlineState());
-  window.addEventListener('online', updateOnlineState);
-  window.addEventListener('offline', updateOnlineState);
-  return { search, translate, updateOnlineState };
-}
-/* ll:voice-input:end */
-
-setupVoiceInputs();
 
 // ── Access code ────────────────────────────────────────
 /* ll:custom-scenarios:start */
@@ -5873,44 +5380,9 @@ function saveAccessCode() {
 // a console incantation: the person who needs this reading is the one holding
 // the phone that mis-heard, and asking them to open devtools means the
 // measurement never happens.
-// Shown on demand rather than always: the box is for a debugging session, and
-// a settings screen that permanently displays millisecond timings is one a
-// parent stops scrolling to the bottom of.
-function showVoiceLog() {
-  const box = document.getElementById("voiceLogBox");
-  if (!box) return;
-  const lines = readVoiceLog();
-  box.textContent = lines.length
-    ? lines.map((l, i) => `${i + 1}. ${l}`).join("\n")
-    : "还没有记录 —— 先把诊断打开，再用几次话筒。";
-  box.hidden = false;
-}
-
-function wipeVoiceLog() {
-  clearVoiceLog();
-  showVoiceLog();
-}
-
-function toggleVoiceDebug() {
-  const on = !voiceDebugOn();
-  setVoiceDebug(on);
-  paintVoiceDebugBtn();
-  showOfflineToast(on
-    ? "🎙 诊断已打开 —— 现在每次说话都会显示引擎返回了什么"
-    : "诊断已关闭");
-}
-
-function paintVoiceDebugBtn() {
-  const btn = document.getElementById("voiceDebugBtn");
-  if (btn) btn.textContent = voiceDebugOn() ? "诊断：开（点击关闭）" : "诊断：关";
-}
-
 function syncAccessCodeInput() {
   const input = document.getElementById("accessCodeInput");
   if (input) input.value = getAccessCode();
-  // Repainted whenever the settings screen is shown, so the button never
-  // claims 关 while the readout is actually appearing on every tap.
-  paintVoiceDebugBtn();
 }
 
 // ── Backup / restore ───────────────────────────────────

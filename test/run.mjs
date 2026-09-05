@@ -56,12 +56,8 @@ const step = (label, fn) => {
 
 step("L0 · product data gate (validate-scenarios.js)", () => run("node", ["validate-scenarios.js"]));
 step("L0 · sw cache stamp is current (scripts/stamp-sw.mjs --check)", () => run("node", ["scripts/stamp-sw.mjs", "--check"]));
-step("L0 · voice-input module behavior (test/voice-input.test.mjs)", () => run("node", ["test/voice-input.test.mjs"]));
-step("L0 · voice diagnostics readout (test/voice-diagnostics.test.mjs)", () => run("node", ["test/voice-diagnostics.test.mjs"]));
-step("L0 · mic feedback between tap and listening (test/voice-start-feedback.test.mjs)", () => run("node", ["test/voice-start-feedback.test.mjs"]));
-step("L0 · voice attempt log (test/voice-log.test.mjs)", () => run("node", ["test/voice-log.test.mjs"]));
-step("L0 · interim results as an audio probe (test/voice-interim.test.mjs)", () => run("node", ["test/voice-interim.test.mjs"]));
 step("L0 · install-env module behavior (test/install-env.test.mjs)", () => run("node", ["test/install-env.test.mjs"]));
+step("L0 · keyboard dictation hint (test/keyboard-dictation-hint.test.mjs)", () => run("node", ["test/keyboard-dictation-hint.test.mjs"]));
 step("L0 · backup export/import round trip (test/data-export.test.mjs)", () => run("node", ["test/data-export.test.mjs"]));
 step("L0 · CSV backup format (test/data-export-csv.test.mjs)", () => run("node", ["test/data-export-csv.test.mjs"]));
 step("L0 · custom scenarios (test/custom-scenarios.test.mjs)", () => run("node", ["test/custom-scenarios.test.mjs"]));

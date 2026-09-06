@@ -852,6 +852,12 @@
        read is reading content under the typography-sweep floor, not chrome
        (2026-07-26 visual critique, Sev B — supersedes the earlier 13px
        "ancillary note" classification). */
+    /* 事前提示：和隐私提示同一档语气，但用暖色区分——它不是一句背景说明，
+       是一件他现在需要处理的事。 */
+    .access-gate-note {
+      background: var(--warm); color: var(--badge-ink);
+      border-radius: 10px; padding: 8px 10px;
+    }
     .privacy-note { font-size: 16px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
     .translate-btn {
       background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
@@ -1540,7 +1546,7 @@
       <span class="hero-badge" id="heroBadge"></span>
     </div>
     <div id="savedChipsArea">
-      <div class="saved-empty">还没有收藏 — 去场景里探索吧！</div>
+      <!-- renderSavedChips() 在启动时填这里；空状态的文案与按钮来自 firstValueCard() -->
     </div>
     <button class="review-cta" id="reviewCta" onclick="showTab('saved')">开始复习</button>
   </div>
@@ -1560,6 +1566,7 @@
          .privacy-note, placed at the lookup entry point itself. States the
          honest nuance — a curated local hit sends nothing. -->
     <div class="privacy-note dict-privacy-note" id="dictPrivacyNote">🔒 词典查询：已收录的词不联网；查询新词时，这个词会发送到在线词典服务。</div>
+    <div class="privacy-note access-gate-note" id="homeGateNote" hidden></div>
     <div class="search-results" id="searchResults"></div>
     <!-- Dictionary lookup result panel (Unit B increment B): separate from
          #searchResults on purpose. #searchResults is rebuilt from scratch on
@@ -1725,6 +1732,9 @@
       <!-- Just-in-time data disclosure: free text leaves the device for the
            translate API, unlike every other (fully local) surface. -->
       <div class="privacy-note">🔒 输入内容会发送到在线翻译服务生成建议，请避免包含孩子姓名等个人信息</div>
+      <!-- 事前提示：paintAccessGate() 在进入这一屏时填。没有码的人在打字之前
+           就看得见这道门；已经填过码的人一次也看不到它。 -->
+      <div class="privacy-note access-gate-note" id="translateGateNote" hidden></div>
     </div>
     <div>
       <div class="translate-label">宝宝年龄</div>
@@ -1790,6 +1800,7 @@
     <!-- Same disclosure string as #dictPrivacyNote on the home screen
          (id must stay unique per the schema's global-uniqueness rule). -->
     <div class="privacy-note dict-privacy-note" id="dictScreenPrivacyNote">🔒 词典查询：已收录的词不联网；查询新词时，这个词会发送到在线词典服务。</div>
+    <div class="privacy-note access-gate-note" id="dictScreenGateNote" hidden></div>
     <div class="dict-lookup-panel" id="dictScreenPanel"></div>
   </div>
 </div>
@@ -2134,7 +2145,22 @@ function renderTodayProgress() {
 }
 
 // ── Today Strip ────────────────────────────────────────
+// 读钟、读已收藏，把它们喂给上面那个纯函数。分开是为了让「晚上推睡前」
+// 这件事能在测试里用假的钟点验证，而不必去 mock Date。
+function refreshTodayPick() {
+  const now = new Date();
+  todayId = pickTodayScenario({
+    hour: now.getHours(),
+    dayIndex: Math.floor(now.getTime() / 86400000),
+    savedScenarioIds: (typeof savedPhrases !== "undefined" ? savedPhrases : [])
+      .map(p => p.scenario),
+  });
+}
+
 function renderTodayStrip() {
+  // 每次回到首页都重挑：家长早上开着、晚上再看的情况下，
+  // 只在启动时算一次会让他晚上八点还看着「起床时间」。
+  refreshTodayPick();
   const s = scenarios[todayId];
   const count = (s.phrases[currentAge] || []).length;
   const todayIcon = document.getElementById("todayIcon");
@@ -2191,6 +2217,8 @@ function showTab(tab) {
     renderSavedChips();
     renderTodayProgress();
     renderReviewStrip();
+    renderTodayStrip();
+    paintAccessGate();
   } else if (tab === "saved") {
     document.getElementById("savedScreen").classList.add("open");
     renderSavedScreen();
@@ -2205,6 +2233,7 @@ function showTab(tab) {
     // that visit and is not written back to `currentAge`/`ll_age`.
     translateAge = translateAgeForBand(currentAge);
     syncTranslateAgeUI();
+    paintAccessGate();
   } else if (tab === "dict") {
     document.getElementById("dictScreen").classList.add("open");
     // resetDictScreenForEntry (ll:dictionary-lookup) bumps the shared
@@ -2587,10 +2616,80 @@ function sortedBySavedAtDesc(arr) {
 }
 
 // ── Save ───────────────────────────────────────────────
+/* ll:first-value:start */
+// 家长第一次打开到第一条收藏之间的那条路。
+//
+// 之前推给他的场景是一个日历轮盘：
+//     todayId = scenarioOrder[Math.floor(Date.now() / 86400000) % 30]
+// 它不知道现在几点，也不知道这位家长学过什么。晚上八点刚洗完澡的人，
+// 有 29/30 的概率被推去学「超市购物」。
+//
+// 而对一个刚装上的家长，那是他屏幕上唯一还亮着的入口——收藏卡是空的、
+// 待复习徽章隐藏、「开始复习」按钮隐藏。
+//
+// 这里只有纯逻辑：钟点、日期、已学过什么，都由调用方传进来。
+
+// 时段 → 这个钟点最可能正在发生的事。from 含、to 不含；from > to 表示跨零点。
+// 场景 id 必须存在于 scenarios.js —— 有一条测试拿真实数据逐个核对，
+// 因为手写的 id 列表在场景改名时会静默指向 undefined。
+const TIME_BANDS = [
+  { from: 5,  to: 9,  ids: ["morning", "dress", "teeth", "handwash", "meal"] },
+  { from: 9,  to: 12, ids: ["reading", "music", "art", "blocks", "discover", "praise"] },
+  { from: 12, to: 14, ids: ["meal", "handwash", "nap", "manners"] },
+  { from: 14, to: 17, ids: ["outdoor", "friends", "share", "exercise", "pretend", "shopping"] },
+  { from: 17, to: 20, ids: ["meal", "kitchen", "cleanup", "potty", "emotion"] },
+  { from: 20, to: 23, ids: ["bath", "bedtime", "teeth", "reading"] },
+  // 半夜喂奶、哄睡、孩子发烧的家长是真实存在的。少了这一档，
+  // 凌晨三点打开的人会看到一片空白。
+  { from: 23, to: 5,  ids: ["bedtime", "emotion", "sick", "nap"] },
+];
+
+function bandForHour(hour) {
+  for (const b of TIME_BANDS) {
+    const inside = b.from <= b.to
+      ? (hour >= b.from && hour < b.to)
+      : (hour >= b.from || hour < b.to);   // 跨零点
+    if (inside) return b;
+  }
+  return TIME_BANDS[0];
+}
+
+// 今天推哪个场景。优先此刻用得上的，其次他还没学过的。
+function pickTodayScenario({ hour, dayIndex, savedScenarioIds }) {
+  const band = bandForHour(hour);
+  const learned = new Set(savedScenarioIds || []);
+  const fresh = band.ids.filter(id => !learned.has(id));
+  // 这一档全学过了，就在整档里轮转——总要给出一个，不能给空。
+  // （不跳到别的时段：晚上八点推「超市购物」比推一个学过的睡前场景更差。）
+  const pool = fresh.length ? fresh : band.ids;
+  return pool[Math.abs(dayIndex | 0) % pool.length];
+}
+
+// 收下第一句之后说的那句话。他刚点了一颗星，不知道那颗星意味着什么。
+// 只在第一次说 —— 每次都说就成了噪音。
+function firstSaveNotice(savedCount) {
+  if (savedCount !== 1) return null;
+  // 不带 ⭐：这个项目里实心彩星只表示「已收藏」这一个意思，
+  // 出现在别处会稀释它（test/save-star.test.mjs 守着这条）。
+  return "收好了 —— 明天它会回到「今日复习」等你，你不用记着来找它。";
+}
+
+// 一条收藏都没有时，首页那张卡的内容。
+// 旧文案是「还没有收藏 — 去场景里探索吧！」：「探索」不是一个动作，
+// 他不知道探索完该干什么，也不知道干完能得到什么。
+function firstValueCard() {
+  return {
+    text: "挑一句现在就用得上的，收下来 —— 明天它会自己回来找你。",
+    buttonLabel: "学第一句 →",
+  };
+}
+/* ll:first-value:end */
+
 function toggleSave(id) {
   const phrase = findPhrase(id);
   if (!phrase) return;
   const idx = savedPhrases.findIndex(s => s.id === id);
+  const added = idx === -1;
   if (idx > -1) {
     savedPhrases.splice(idx, 1);
   } else {
@@ -2598,6 +2697,12 @@ function toggleSave(id) {
                         savedAt: Date.now(), rv: { s: 0, due: Date.now() } });
   }
   safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  // 只在「加」的时候说。从两条取消到剩一条也会让计数等于 1，
+  // 那时再弹一次「收好了」，说的是一件没发生的事。
+  if (added) {
+    const notice = firstSaveNotice(savedPhrases.length);
+    if (notice) showOfflineToast(notice);
+  }
   const btn = document.getElementById("save-" + id);
   if (btn) {
     const isSaved = savedPhrases.some(s => s.id === id);
@@ -2731,10 +2836,17 @@ function renderSavedChips() {
   const area = document.getElementById("savedChipsArea");
   area.innerHTML = '';
   if (!savedPhrases.length) {
+    const card = firstValueCard();
     const empty = document.createElement('div');
     empty.className = 'saved-empty';
-    empty.textContent = '还没有收藏 — 去场景里探索吧！';
+    empty.textContent = card.text;
     area.appendChild(empty);
+    // 一句话不是下一步，一个按钮才是。指向的正是此刻这个钟点该学的场景。
+    const go = document.createElement('button');
+    go.className = 'review-cta show';
+    go.textContent = card.buttonLabel;
+    go.onclick = () => openTodayScenario();
+    area.appendChild(go);
     return;
   }
   const row = document.createElement('div');
@@ -5303,8 +5415,31 @@ function accessHeaders() {
 function accessErrorMessage(status) {
   if (status !== 403) return null;
   return getAccessCode()
-    ? "邀请码不对 — 请到「收藏 · 复习」页底部重新填写"
-    : "这个功能需要邀请码 — 请到「收藏 · 复习」页底部填写";
+    ? `邀请码不对 — 请到「${ACCESS_CODE_WHERE}」页底部重新填写`
+    : `这个功能需要邀请码 — 请到「${ACCESS_CODE_WHERE}」页底部填写，${ACCESS_CODE_SOURCE}`;
+}
+
+// 邀请码填在哪儿、找谁要 —— 事前提示和事后提示的唯一来源。
+// 之前「收藏 · 复习」页底部这个位置被写死在两句文案里：设置项一旦挪出
+// 收藏页，这两句话就开始骗人，而且没有任何测试会红。
+const ACCESS_CODE_WHERE = "收藏 · 复习";
+// ⚠️ Victor：这里要填真实的索取渠道（微信号 / 邮箱 / 一个页面）。
+// 我不替你编一个联系方式——这句话现在只说了「找作者」，没说怎么找到你。
+const ACCESS_CODE_SOURCE = "向 LittleLingos 的作者索取";
+
+// 在他动手之前就说明这里有一道门。
+//
+// 之前这道门是暗的：家长打开、写下一句中文、点「翻译」，然后才被告知需要
+// 邀请码。他在动手之前没有任何提示，而失败的归因很可能是「这软件坏了」。
+//
+// 查词和翻译的条件不一样，所以说的不是同一句话：已经收录的词不联网、
+// 不需要码，把查词整体说成「需要邀请码」会让他以为一个词也查不了。
+function accessGateNotice(feature) {
+  if (getAccessCode()) return null;
+  const tail = `到「${ACCESS_CODE_WHERE}」页底部填写，${ACCESS_CODE_SOURCE}。`;
+  return feature === "dict"
+    ? `🔑 查新词需要邀请码（已经收录的词不用）—— ${tail}`
+    : `🔑 翻译需要邀请码 —— ${tail}`;
 }
 /* ll:access-code:end */
 
@@ -5315,6 +5450,7 @@ function saveAccessCode() {
   const persisted = setAccessCode(input.value);
   const code = getAccessCode();
   input.value = code;
+  paintAccessGate();
 
   let msg;
   if (!code) msg = "已清除邀请码。翻译和查新单词将不可用。";
@@ -5335,9 +5471,27 @@ function saveAccessCode() {
 // a console incantation: the person who needs this reading is the one holding
 // the phone that mis-heard, and asking them to open devtools means the
 // measurement never happens.
+// 把三处入口的事前提示刷一遍。进入任何一屏时调用，填码之后也调用——
+// 家长刚填完码，那条提示必须当场消失，否则他会以为没生效。
+function paintAccessGate() {
+  const spots = [
+    ["translateGateNote", "translate"],
+    ["dictScreenGateNote", "dict"],
+    ["homeGateNote", "dict"],
+  ];
+  for (const [id, feature] of spots) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const msg = accessGateNotice(feature);
+    el.textContent = msg || "";
+    el.hidden = !msg;
+  }
+}
+
 function syncAccessCodeInput() {
   const input = document.getElementById("accessCodeInput");
   if (input) input.value = getAccessCode();
+  paintAccessGate();
 }
 
 // ── Backup / restore ───────────────────────────────────
@@ -5975,7 +6129,7 @@ function llStartApp() {
     return;
   }
 
-  todayId = scenarioOrder[Math.floor(Date.now() / 86400000) % scenarioOrder.length];
+  refreshTodayPick();
 
   // Sync the DOM (age-tab / age-picker age-opt / badge label, and the
   // translate screen's own age-opt row) to the restored `currentAge` — the

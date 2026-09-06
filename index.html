@@ -483,7 +483,11 @@
       z-index: 50;
       overflow-y: auto;
       /* 让出导航那块高度：不让的话，每一屏最后一句话、最后一个按钮
-         会永远藏在标签底下点不到。 */
+         会永远藏在标签底下点不到。
+         这里的 env() 是故意重复算一次的：--nav-h 是量出来的，已经把导航
+         自己那份安全区包在内了。桌面上安全区是 0，余量正好压到 0px；
+         iPhone 上多出来的这三十来像素是留给「万一没量成」的兜底，
+         宁可多滚一点，不要有一行永远点不到。 */
       padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
     }
     .screen.open { display: flex; }
@@ -3557,6 +3561,10 @@ function updateNavBadge() {
   const n = dueReviews().length;
   badge.textContent = n > 99 ? "99+" : String(n);
   badge.classList.toggle("show", n > 0);
+  // 徽章从无到有会把导航撑高 3px，而 ResizeObserver 在后台标签页里
+  // 一次都不触发（连 observe 时的首次回调都没有），所以这里直接量一次。
+  // 观察者留着兜别的情况——系统字号、字体迟到、转屏。
+  if (typeof syncNavHeight === "function") syncNavHeight();
 }
 
 // Home-v2 redesign (2026-07-18): the standalone .review-strip banner is
@@ -6563,7 +6571,20 @@ if (document.fonts && document.fonts.ready) {
   document.fonts.ready.then(syncNavHeight).catch(() => {});
 }
 
-document.addEventListener("DOMContentLoaded", () => { llStartApp(); syncNavHeight(); });
+// 但导航的高度也会因为它自己的内容而变：收藏徽章从无到有，它就从 84px
+// 长到 87px，而上面那些事件一个都不会触发——线上量到的结果是首页和收藏
+// 页最下面一行被压掉 2–3px。盯住元素本身，什么原因引起的都跟得上。
+function watchNavHeight() {
+  const nav = document.querySelector(".bottom-nav");
+  if (!nav || typeof ResizeObserver === "undefined") return;
+  new ResizeObserver(syncNavHeight).observe(nav);
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  llStartApp();
+  syncNavHeight();
+  watchNavHeight();
+});
 </script>
 </body>
 </html>

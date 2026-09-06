@@ -858,6 +858,29 @@
       background: var(--warm); color: var(--badge-ink);
       border-radius: 10px; padding: 8px 10px;
     }
+    /* 一句问话 + 一个输入框。用暖色跟场景里的句子卡片区分开 —— 它不是
+       一条要学的句子，是一件请他做的事。 */
+    .own-words {
+      background: var(--warm); border-radius: 12px;
+      padding: 12px; margin: 8px 0;
+    }
+    .own-words-text {
+      margin: 0 0 8px; font-size: 14px; line-height: 1.5;
+      color: var(--badge-ink);
+    }
+    .own-words-input {
+      width: 100%; box-sizing: border-box; min-height: 44px;
+      padding: 0 12px; font: inherit; font-size: 16px;
+      border: 1px solid var(--border); border-radius: 10px;
+      background: var(--card); color: var(--ink);
+    }
+    .own-words-btn {
+      margin-top: 8px; min-height: 44px; padding: 0 18px;
+      font: inherit; font-size: 15px; font-weight: 600;
+      border: none; border-radius: 10px;
+      background: var(--accent); color: var(--ink-on-brand); cursor: pointer;
+    }
+    .own-words-btn:disabled { opacity: .6; }
     .privacy-note { font-size: 16px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
     .translate-btn {
       background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
@@ -1648,6 +1671,10 @@
     <div class="tier-tab"        role="button" tabindex="0" data-tier="basic"      onclick="filterTier('basic')">🌿 基础句</div>
     <div class="tier-tab"        role="button" tabindex="0" data-tier="expressive" onclick="filterTier('expressive')">🌳 进阶句</div>
   </div>
+  <!-- paintOwnWordsInvite() 在每次打开场景时填。他讲过一句之后就空着。
+       放在两排筛选标签「之后」：年龄和难度是一组，中间插一张卡会把它们
+       劈开——相关的东西要靠在一起（_Sheji 的亲密性）。 -->
+  <div class="own-words" id="ownWordsInvite" hidden></div>
   <div class="phrase-list" id="phraseList"></div>
 </div>
 
@@ -2056,6 +2083,82 @@ function renderScenarioGrid() {
 // The parent types the Chinese they would have said anyway; the English and
 // the voice come back. Takes a few seconds, so the button says what is
 // happening — a control that goes quiet reads as broken.
+async function paintOwnWordsInvite() {
+  const box = document.getElementById("ownWordsInvite");
+  if (!box) return;
+  const s = scenarios[currentScenario];
+  const inv = ownWordsInvite({
+    scenarioTag: currentScenario,
+    scenarioName: s ? s.name : "",
+    saved: savedPhrases,
+  });
+  box.replaceChildren();
+  box.hidden = !inv;
+  if (!inv) return;
+
+  const p = document.createElement("p");
+  p.className = "own-words-text";
+  p.textContent = inv.text;
+
+  // 内联输入，不是 prompt()。系统弹窗里没地方放「点键盘上的 🎤」这句话,
+  // 而那句话正是这个功能的全部内容 —— 藏起来就等于没做。
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "own-words-input";
+  input.id = "ownWordsInput";
+  input.placeholder = "例如：来，我们洗洗小手";
+  input.autocomplete = "off";
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "own-words-btn";
+  btn.textContent = inv.buttonLabel;
+  btn.onclick = () => submitOwnWords(input, btn);
+  input.onkeydown = (e) => { if (e.key === "Enter") submitOwnWords(input, btn); };
+
+  box.append(p, input, btn);
+
+  // 这是一个通往付费路径的新入口，所以它也要在他开口之前说明这道门。
+  // 走的是 accessGateNotice 这个唯一来源，跟翻译页、查词页说的是同一句话
+  // ——三处措辞各写一份的话，改一处就会有两处开始骗人。
+  const gate = accessGateNotice("translate");
+  if (gate) {
+    const g = document.createElement("div");
+    g.className = "privacy-note access-gate-note";
+    g.textContent = gate;
+    box.appendChild(g);
+  }
+}
+
+async function submitOwnWords(input, btn) {
+  const zh = input.value.trim();
+  if (!zh) { input.focus(); return; }
+  const label = btn.textContent;
+  btn.disabled = true;
+  input.disabled = true;
+  btn.textContent = "正在生成…";
+  try {
+    const r = await addPhraseToScenario(zh, currentScenario);
+    if (r.ok) {
+      input.value = "";
+      // 重画整屏：他的话现在是这个场景里的一条，问话也该让路了。
+      openScenario(currentScenario);
+      showOfflineToast("收好了 —— 这是你自己的话，明天会回来找你。");
+      return;
+    }
+    showOfflineToast({
+      access: "🔑 " + (r.message || "这个功能需要邀请码"),
+      duplicate: "这句话已经在收藏里了。",
+      offline: "现在连不上网，等有网了再试 —— 这一句需要联网翻译。",
+      empty: "说点什么再试吧。",
+    }[r.error] || "这次没生成出来，再试一次吧。");
+  } finally {
+    btn.disabled = false;
+    input.disabled = false;
+    btn.textContent = label;
+  }
+}
+
 async function newScenarioPhrase(tag, btn) {
   const zh = prompt("这句话中文怎么说？（比如：别怕，妈妈在这儿）");
   if (zh === null) return;
@@ -2268,6 +2371,7 @@ function openScenario(id) {
   hIcon.textContent = s.icon;
   hIcon.style.setProperty("--tint-color", s.color); // tile tint, same as .s-icon-tile
   document.getElementById("scenarioTitle").textContent = s.name;
+  paintOwnWordsInvite();
 
   document.querySelectorAll(".age-tab").forEach(t =>
     t.classList.toggle("active", t.dataset.age === currentAge)
@@ -2687,6 +2791,52 @@ function firstValueCard() {
   };
 }
 /* ll:first-value:end */
+
+/* ll:own-words:start */
+// 问家长一句：你平时在这个场景里，对孩子说的是什么？
+//
+// 597 条精选句子摆在那儿，真正被说出口的只有三句 `Let's + 动词`
+// （docs/jtbd.md 发现 2）。原因不是句子不好，是那些句子不是他的话。
+//
+// 而他不知道自己习惯说什么 —— 你问他「洗澡时你都说什么」，他答出来的是
+// 他**以为**自己说的。这是 docs/jtbd.md 第七节候选 D 的核心。
+//
+// 能力其实早就有了：iPhone 键盘自带听写，音频不出设备，转出来的文字走的
+// 是翻译已经在走的那条路。缺的只有两样 —— 他不知道可以对着话筒说，
+// 也不知道该说什么进去。所以这里做的是一句问话，不是一个录音器。
+//
+// 这同时是候选 D 的实验：区分「他自己的话」和「精选的句子」不需要新字段，
+// 翻译产物的 id 一律带 t_ 前缀，而 597 条预设句子里没有一条是。
+// 不改数据格式，也就不需要迁移。
+
+const OWN_WORDS_PREFIX = "t_";
+
+// 这条收藏是家长自己讲出来的，还是从现成句子里收的。
+function isOwnWords(phrase) {
+  return !!phrase
+    && typeof phrase === "object"
+    && typeof phrase.id === "string"
+    && phrase.id.startsWith(OWN_WORDS_PREFIX);
+}
+
+// 该不该在这个场景页上问他。问完一次就让路 —— 问话的作用是让他知道
+// 「可以说」和「该说什么」，他一旦讲过，这两件事都不用再讲了。
+//
+// 注意「讲过」只认他自己的话：收藏了一堆现成句子不算。混淆这两件事，
+// 实验的两组样本就分不开了。
+function ownWordsInvite({ scenarioTag, scenarioName, saved }) {
+  const list = Array.isArray(saved) ? saved : [];
+  const spoken = list.some(p => isOwnWords(p) && p && p.scenario === scenarioTag);
+  if (spoken) return null;
+  // 场景名进问话里：笼统地问「说点什么」，他还是不知道该说什么。
+  const name = String(scenarioName || "").trim() || "这个场景";
+  return {
+    text: `不确定自己平时怎么说？说说你在「${name}」时常对孩子讲的中文 —— ` +
+          `点下面的框，用键盘上的 🎤 说就行，我们把它变成你能说出口的英文。`,
+    buttonLabel: "🎤 说说看",
+  };
+}
+/* ll:own-words:end */
 
 function toggleSave(id) {
   const phrase = findPhrase(id);

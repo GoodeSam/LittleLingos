@@ -31,6 +31,9 @@
       --accent:  #FF7A45;
       --accent2: #FFB347;
       --green:   #4CAF82;
+    /* Darker sibling of --green for outlines and text: #4CAF82 is 2.71:1 on a
+       white card, under the 3:1 a boundary needs and well under 4.5:1 for text. */
+    --green-deep: #2E7D5B;
       --blue:    #5BA4CF;
       --purple:  #9B7FD4;
       --text:    #2D2D2D;
@@ -768,46 +771,30 @@
        weight (vs zh's 700 below) so the size-equal/weight-lighter English
        still cedes hierarchy to the Chinese per Pillar 4 (zh>=en in both
        size AND weight — here size ties, zh's weight wins). */
-    .saved-item-en { font-size: 16px; color: var(--muted); }
+    /* The phrase the parent is here to learn. It was 16px regular #5F5F5F
+       against a 16px bold #4A4A4A Chinese — lighter AND thinner than the thing
+       they already know. Bold now, in the accent colour, matching the review
+       card. The accent measures 5.20:1 against 6.39:1 for the old grey: a lower
+       computed contrast traded for the salience of weight and a saturated hue
+       in a page of greys. Bold does not restore contrast — it still clears the
+       4.5:1 body-text threshold, which is what 16px bold is held to. */
+    .saved-item-en { font-size: 16px; font-weight: 700; color: var(--accent-deep); }
     /* Saved-list recall mask (per-item reveal): the review card above already
        hides its answer until tapped (.review-answer / .review-btn-reveal,
        same --warm/--accent-deep palette reused here) — the saved list leaked
        the same recall answer via .saved-item-en with no gate. Masked by
        default, independent per row, unconditional (not gated on reviewQueue
        state). Only .saved-item-en is masked; .saved-item-zh/-tip stay visible. */
-    .saved-item-en-wrap {
-      position: relative;
-      display: inline-block;
-      max-width: 100%;
-      cursor: pointer;
-      touch-action: manipulation;
-      border-radius: 8px;
-    }
-    .saved-item-en-wrap .saved-item-en {
-      filter: blur(6px);
-      user-select: none;
-      transition: filter 0.15s ease;
-    }
-    .saved-item-en-wrap .saved-item-en-hint {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--accent-deep);
-      background: var(--warm);
-      border-radius: 8px;
-      padding: 2px 8px;
-    }
-    .saved-item-en-wrap.revealed .saved-item-en { filter: none; }
-    .saved-item-en-wrap.revealed .saved-item-en-hint { display: none; }
     /* zh is the parent's primary reading language for this card — made the loudest
        element (16px, darker --zh-ink, bold) per hierarchy finding; en demoted to
        muted color/lighter weight since it is the secondary/reference line here. */
+    /* 44px tall like every other tap target here: a parent is holding a child. */
+    .saved-item-reveal {
+      min-height: 44px; padding: 0 14px; font: inherit; font-size: 15px;
+      border: 1px solid var(--border); border-radius: 10px;
+      background: var(--card); color: var(--accent-deep); cursor: pointer;
+    }
+    .saved-item-reveal:active { opacity: .6; }
     .saved-item-zh { font-size: 16px; font-weight: 700; color: var(--zh-ink); margin-top: 3px; }
     /* Sub-16px, kept: supplementary scenario-tag pill (redundant with the
        icon/context already visible on the card), part of the app's
@@ -1353,10 +1340,20 @@
       touch-action: manipulation;
       user-select: none; /* long-press must not select text (2026-08-12 visual critique, Sev C) */
     }
-    .review-btn-again  { background: var(--warm); color: var(--badge-ink); }
+    /* Both outlined, never one filled and one washed out. They are the two
+       options of ONE self-assessment, and spaced repetition is worth exactly
+       what that assessment is honest — visual weight favouring 记住了 pushes
+       phrases the parent did NOT remember further into the future. That is the
+       input being biased, not the appearance.
+       The comment below already measured the TEXT contrast and fixed it; the
+       BOUNDARY was never fixed. #FFF0E0 on a white card is 1.12:1 and #4CAF82
+       is 2.71:1 — both under the 3:1 a control's edge needs, so both get one. */
+    .review-btn-again,
+    .review-btn-good   { background: var(--card); border: 1.5px solid; }
+    .review-btn-again  { border-color: var(--badge-ink); color: var(--badge-ink); }
     /* white text on --green/--blue measured 2.71/2.74:1 (fails AA); --ink-on-brand
        keeps the same button colors and reaches >=5:1 */
-    .review-btn-good   { background: var(--green); color: var(--ink-on-brand); }
+    .review-btn-good   { border-color: var(--green-deep); color: var(--green-deep); }
     .review-btn-play   { background: var(--blue); color: var(--ink-on-brand); flex: 0 0 auto; padding: 12px 16px !important; }
     /* Visible playing state for the review-card audio button (state-visibility finding) */
     .review-btn-play.playing { background: var(--slow-playing); color: var(--ink-on-brand); }
@@ -1406,10 +1403,6 @@
     }
     .loop-btn:active { opacity: .6; }
 
-    /* Judgement buttons on a saved row, revealed with the English. Same
-       classes as the review card's so the two never drift apart visually. */
-    .saved-item-judge { display: flex; gap: 8px; margin-top: 10px; }
-    .saved-item-judge button { flex: 1; }
 
     /* The audio mark doubles as the play control on rows that have a clip.
        44px is the minimum comfortable tap target on a phone; anything smaller
@@ -2867,64 +2860,27 @@ function renderSavedScreen() {
     const textDiv = document.createElement('div');
     textDiv.className = 'saved-item-text';
 
-    const enWrap = document.createElement('div');
-    enWrap.className = 'saved-item-en-wrap';
-    enWrap.setAttribute('role', 'button');
-    enWrap.setAttribute('tabindex', '0');
-    enWrap.setAttribute('aria-pressed', 'false');
-    enWrap.setAttribute('aria-label', '点击显示英文');
-
-    const enDiv = document.createElement('div');
-    enDiv.className = 'saved-item-en';
-    enDiv.textContent = savedHeadline(p);
-
-    const enHint = document.createElement('span');
-    enHint.className = 'saved-item-en-hint';
-    enHint.textContent = '👁 点击显示英文';
-
-    // The two judgement buttons appear only once the English is showing.
-    // Tapping 记住了 without having tried to recall records "I read it" as
-    // "I remembered it", and spaced repetition is worth exactly as much as
-    // that self-assessment is honest.
-    const judge = document.createElement('div');
-    judge.className = 'saved-item-judge';
-    judge.hidden = true;
-    const mkJudge = (cls, text, remembered) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = cls;
-      b.textContent = text;
-      b.onclick = () => {
-        // By id, never through the queue — see answerById().
-        answerById(p.id, remembered);
-        updateNavBadge();
-        renderReviewStrip();
-        // Rebuild the queue: changing an item in place leaves the review card
-        // holding a phrase that is no longer due, or missing one that now is.
-        renderReviewArea();
-        renderSavedScreen();
-      };
-      return b;
+    // A real button, and the English is NOT in the DOM until it is pressed.
+    // The previous version blurred the real text with filter: blur(6px) — which
+    // leaks word count and letter shapes, reads as damaged text once a hint is
+    // laid over it, and makes the tap target the text's own bounding box, so it
+    // changed size with every phrase. It also kept role=button and tabindex
+    // after revealing, on a handler that returned immediately: a focusable
+    // control announced as pressable that does nothing.
+    //
+    // The review card already had this right. Same word, same shape, one action.
+    const enSlot = document.createElement('div');
+    const enBtn = document.createElement('button');
+    enBtn.type = 'button';
+    enBtn.className = 'saved-item-reveal';
+    enBtn.textContent = '显示英文';
+    enBtn.onclick = () => {
+      const enDiv = document.createElement('div');
+      enDiv.className = 'saved-item-en';
+      enDiv.textContent = savedHeadline(p);
+      enSlot.replaceChildren(enDiv);
     };
-    judge.append(
-      mkJudge('review-btn-again', '还要练', false),
-      mkJudge('review-btn-good', '记住了', true),
-    );
-
-    const revealEn = () => {
-      if (enWrap.classList.contains('revealed')) return;
-      enWrap.classList.add('revealed');
-      enWrap.setAttribute('aria-pressed', 'true');
-      enWrap.setAttribute('aria-label', '英文已显示');
-      judge.hidden = false;
-    };
-    enWrap.onclick = revealEn;
-    enWrap.onkeydown = (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); revealEn(); }
-    };
-
-    enWrap.appendChild(enDiv);
-    enWrap.appendChild(enHint);
+    enSlot.appendChild(enBtn);
 
     const zhDiv = document.createElement('div');
     zhDiv.className = 'saved-item-zh';
@@ -2978,13 +2934,12 @@ function renderSavedScreen() {
     unsaveBtn.setAttribute('aria-label', '取消收藏');
     unsaveBtn.onclick = () => removeSaved(p.id);
 
-    textDiv.appendChild(enWrap);
+    textDiv.appendChild(enSlot);
     textDiv.appendChild(zhDiv);
     if (tipDiv) textDiv.appendChild(tipDiv);
     badge.appendChild(document.createTextNode(' '));
     textDiv.appendChild(badge);
     textDiv.appendChild(mark);
-    textDiv.appendChild(judge);
     item.appendChild(textDiv);
     item.appendChild(unsaveBtn);
     list.appendChild(item);

@@ -218,18 +218,16 @@ test("从列表答一条，顶部那张卡不会因此指到别人身上", async
   assert.ok(!ctx.dueReviews().some(p => p.id === "a"), "答完的不该还在今天的队列里");
 });
 
-// ══ 6. 列表真的把按钮接上了 ═══════════════════════════════════════════
-
-test("收藏列表的每一行都能判断，不只是最上面那条", async () => {
-  // 断言源码，因为渲染要 DOM。对应的正是那句反馈：
-  // 「可以选择还要练还是记住了两个选项，但是其他下面的无法选择」。
-  const at = html.indexOf("function renderSavedScreen");
-  assert.ok(at !== -1, "renderSavedScreen not found");
-  const body = html.slice(at, html.indexOf("\nfunction ", at + 10));
-  assert.match(body, /answerById\(/, "列表不接上的话，家长仍然只能对最上面那条做判断");
-  assert.ok(!/reviewAnswer\(/.test(body),
-    "列表绝不能调队列版——那会让点第 5 行改到第 1 行");
-});
+// ══ 6. 列表不再是第二个复习流程 ═════════════════════════════════════
+//
+// 这里原来有一条断言，要求 renderSavedScreen 调用 answerById() —— 逐条
+// 评分。它是 2026-09-04 按 Victor 的要求加的（「其他下面的无法选择还要练
+// 或者记住了」），2026-09-06 由他本人决定反转：那些评分会改排程，让收藏
+// 列表变成一个自发的复习入口，而这个项目测出来的 job 是「别让我发起」。
+//
+// 反向的断言现在在 test/saved-row-shape.test.mjs 里。删掉而不是改写，
+// 是因为这不是修一个 bug，是换了一个方向 —— 留着一条被反过来的断言，
+// 会让后来的人以为原来那个要求从没存在过。
 
 // ── Runner ───────────────────────────────────────────────
 console.log("answer-by-id tests");

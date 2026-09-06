@@ -24,7 +24,14 @@ function test(name, fn) { tests.push({ name, fn }); }
 const navBlock = () => {
   const at = html.indexOf('<div class="bottom-nav">');
   assert.ok(at !== -1, "bottom-nav not found");
-  return html.slice(at, html.indexOf("</div>\n</div>", at));
+  // 导航自己的收尾：顶格的 </div>。
+  //
+  // 上一版找的是「</div> 紧跟 </div>」，那依赖导航被嵌在另一个元素里
+  // （最后一个标签 4 空格、导航 2 空格、首页 0 空格，模式只在导航那行成立）。
+  // 2026-09-06 导航搬到 body 层供每一屏共用之后，最后一个标签的收尾和
+  // 导航的收尾就凑成了这个模式，切片会提前一格停下，只数出 3 个标签。
+  // 下面四条断言的意图没变，坏的只是取块这一行。
+  return html.slice(at, html.indexOf("\n</div>", at));
 };
 
 test("第一个标签写的是「场景」，不是「首页」", () => {

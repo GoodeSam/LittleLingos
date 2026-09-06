@@ -181,6 +181,32 @@ test("有一个地方能让他把文字粘进来", () => {
     "读了粘贴框，但读到的文字没有被拿去挖候选");
 });
 
+test("那一行看得出来是能点开的", () => {
+  // 真人测试的结果：Victor 在手机上找不到它。
+  //
+  // 两处原因，都在样式里：给 <summary> 设了 display:flex，浏览器自带的
+  // 那个展开三角就没了；而它又是 14px 小字、无边框无底色，夹在一张大
+  // 橙卡和一张白色句子卡中间——读起来像一句说明文字，不像控件。
+  //
+  // 一个点得到但看不出能点的东西，等于不存在。
+  const css = html.slice(0, html.indexOf("</style>"));
+  const rule = css.match(/\.transcript-summary\s*\{[^}]*\}/);
+  assert.ok(rule, "找不到那一行的样式");
+
+  // display:flex 会吃掉自带的三角，所以必须自己补一个可见的指示符。
+  if (/display:\s*flex/.test(rule[0])) {
+    const marker = css.match(/\.transcript-summary::(after|before)\s*\{[^}]*content:[^}]*\}/);
+    assert.ok(marker,
+      "summary 设了 display:flex（自带三角会消失），却没有自己补一个展开指示符");
+  }
+
+  // 光有三角还不够——它得有一个边界，才从「一句说明」变成「一个控件」。
+  const box = css.match(/\.transcript\s*\{[^}]*\}/);
+  assert.ok(box, "找不到这一块的样式");
+  assert.match(box[0] + rule[0], /border|background/,
+    "这一行没有任何边界或底色，混在旁边的文字里看不出是控件");
+});
+
 let failed = 0;
 for (const t of tests) {
   try { t.fn(); console.log(`  ✓ ${t.name}`); }

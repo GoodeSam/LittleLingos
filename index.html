@@ -911,12 +911,37 @@
       background: var(--accent); color: var(--ink-on-brand); cursor: pointer;
     }
     .own-words-btn:disabled { opacity: .6; }
-    .transcript { margin: 8px 0; }
-    .transcript-summary {
-      cursor: pointer; font-size: 14px; font-weight: 600;
-      color: var(--accent-deep); padding: 10px 0; min-height: 44px;
-      display: flex; align-items: center;
+    /* 真人测试的结果：Victor 在手机上找不到这一行。它点得到，但看不出
+       能点——14px 小字、无边框无底色，夹在一张大橙卡和一张白色句子卡
+       中间，读起来像一句说明文字。一个看不出能点的控件等于不存在。
+       现在给它一个边界，让它从「一句话」变成「一个东西」。 */
+    .transcript {
+      margin: 8px 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--card);
     }
+    .transcript-summary {
+      cursor: pointer; font-size: 15px; font-weight: 600;
+      color: var(--accent-deep); padding: 0 12px; min-height: 48px;
+      display: flex; align-items: center; gap: 8px;
+      /* 自带的那个三角只在 summary 是 list-item 时才画，
+         display:flex 会把它吃掉——所以自己补一个。 */
+      list-style: none;
+    }
+    .transcript-summary::-webkit-details-marker { display: none; }
+    .transcript-summary::after {
+      content: "▸";
+      margin-left: auto;
+      font-size: 18px;
+      transition: transform .15s;
+    }
+    details.transcript[open] > .transcript-summary::after {
+      transform: rotate(90deg);
+    }
+    /* 展开之后，里面的东西离边框留一点距离。 */
+    details.transcript[open] > :not(summary) { margin-left: 12px; margin-right: 12px; }
+    details.transcript[open] { padding-bottom: 12px; }
     .transcript-hint {
       margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--muted);
     }

@@ -127,7 +127,9 @@ try {
 
 for (const n of notes) console.log(`  ✓ ${n}`);
 if (!problems.length) {
-  console.log("\n✓ 可以部署：node scripts/deploy-prod.mjs");
+  console.log("\n✓ 检查通过。");
+  console.log("  先验：node scripts/deploy-preview.mjs   （免费，随便发）");
+  console.log("  收口：node scripts/deploy-prod.mjs      （15 credits，免费额度一月 20 次）");
   process.exit(0);
 }
 console.error("");

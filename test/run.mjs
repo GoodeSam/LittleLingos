@@ -83,6 +83,7 @@ step("L0 · voicing a translation on arrival (test/translate-audio.test.mjs)", (
 step("L0 · marks survive a restart (test/marks-after-reload.test.mjs)", () => run("node", ["test/marks-after-reload.test.mjs"]));
 step("L0 · one-tap looping playback (test/audio-loop.test.mjs)", () => run("node", ["test/audio-loop.test.mjs"]));
 step("L0 · bottom tab labels (test/nav-labels.test.mjs)", () => run("node", ["test/nav-labels.test.mjs"]));
+step("L0 · tabs reachable from every screen (test/nav-everywhere.test.mjs)", () => run("node", ["test/nav-everywhere.test.mjs"]));
 step("L0 · first-value path for a new parent (test/first-value-path.test.mjs)", () => run("node", ["test/first-value-path.test.mjs"]));
 step("L0 · access gate is legible before it blocks (test/access-gate-legible.test.mjs)", () => run("node", ["test/access-gate-legible.test.mjs"]));
 step("L0 · asking a parent for their own words (test/own-words.test.mjs)", () => run("node", ["test/own-words.test.mjs"]));

@@ -406,13 +406,27 @@
     .review-cta.show { display: block; }
 
     /* ── Bottom Nav ──────────────────────────────────── */
+    /* 导航浮起来之后不再占位置，每一屏都要自己让出这块高度。
+       这里 64px 只是 JS 量出来之前的兜底值——真实高度由 syncNavHeight()
+       写回来。第一版把它写死成 64px，而导航实际是 84px：内容没被压住
+       纯属巧合，只剩 10px 余量，字号一放大就会开始遮挡。 */
+    :root { --nav-h: 64px; }
     .bottom-nav {
-      margin-top: auto;
       background: var(--card); /* was #fff hardcode (2026-07-19 visual critique, Sev C) */
       border-top: 1px solid var(--border);
       display: flex;
-      position: sticky;
+      /* 从 sticky 改成 fixed，并且跟 .screen 用同一套居中与限宽：
+         二级屏是 z-index 50 的整屏浮层，导航要压在它上面才看得见。 */
+      position: fixed;
       bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100vw;
+      max-width: 430px;
+      z-index: 100;
+      min-height: var(--nav-h);
+      box-sizing: border-box;
+      padding-bottom: env(safe-area-inset-bottom);
     }
     .nav-item {
       flex: 1;
@@ -468,8 +482,24 @@
       transform: translateX(-50%);
       z-index: 50;
       overflow-y: auto;
+      /* 让出导航那块高度：不让的话，每一屏最后一句话、最后一个按钮
+         会永远藏在标签底下点不到。 */
+      padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
     }
     .screen.open { display: flex; }
+
+    /* 首页原来靠 margin-top:auto 把导航推到底，导航浮起来之后那招失效了，
+       所以它也要自己让出这块高度。
+       flex-shrink:0 是这里的关键：body 是 min-height:100vh 的 flex column，
+       首页是它的 flex item，默认会被压缩到一屏高，内容溢出到盒子外面画。
+       盒子只有 746 高而内容排到 2149 —— 于是给它加 padding-bottom 毫无
+       效果，加在 body 上、加在最后一个子元素上也一样，那些内容根本不在
+       盒子里。这是导航搬家之前就在的隐患，旧导航的 margin-top:auto 恰好
+       把它盖住了。 */
+    #homeScreen {
+      flex-shrink: 0;
+      padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    }
 
     .screen-header {
       padding: calc(16px + env(safe-area-inset-top)) 16px 14px;
@@ -1622,32 +1652,6 @@
   <div class="scenario-grid hide-on-search" id="scenarioGrid"></div>
 
   <!-- Bottom nav -->
-  <div class="bottom-nav">
-    <!-- Labelled 场景, not 首页: every screen is somewhere, so 「首页」 names the
-         position and says nothing about the contents. What lives here is the
-         set of prepared everyday situations — bedtime, meals, going out — and
-         a parent scanning four labels for "睡前该说什么" needs the label to
-         answer that. The internal tab id stays "home"; renaming it would turn
-         a copy change into a refactor with no benefit to anyone reading it. -->
-    <div class="nav-item active" role="button" tabindex="0" data-tab="home" onclick="showTab('home')">
-      <span class="nav-icon">🏠</span>场景
-    </div>
-    <!-- 4th permanent nav tab (real-user feedback #2): the home search box
-         only asks for Chinese (placeholder above) and its dictionary CTA
-         only appears for English-looking input — a parent who typed Chinese
-         as instructed could never reach the dictionary at all. Placed at
-         position 2 (right after 首页, the highest-scan slot) so it is
-         reachable without typing anything first. -->
-    <div class="nav-item" role="button" tabindex="0" data-tab="dict" onclick="showTab('dict')">
-      <span class="nav-icon">📖</span>查词
-    </div>
-    <div class="nav-item" role="button" tabindex="0" data-tab="saved" onclick="showTab('saved')">
-      <span class="nav-icon">♡</span>收藏<span class="nav-badge" id="navBadge"></span>
-    </div>
-    <div class="nav-item" role="button" tabindex="0" data-tab="translate" onclick="showTab('translate')">
-      <span class="nav-icon">🔤</span>翻译
-    </div>
-  </div>
 </div>
 
 <!-- ════════════════════════════════════════════════════
@@ -1830,6 +1834,37 @@
     <div class="privacy-note access-gate-note" id="dictScreenGateNote" hidden></div>
     <div class="dict-lookup-panel" id="dictScreenPanel"></div>
   </div>
+</div>
+
+<!-- 四个标签在每一屏上都在，不再只长在首页里。
+     二级屏是 position:fixed 的整屏浮层，原来会把导航整个盖住 ——
+     家长在「洗澡时间」里想去收藏复习，得先点左上角的 ← 回首页。
+     那是一道每天要穿好几遍的门，而这个产品的 job 是「别让我发起」。 -->
+<div class="bottom-nav">
+    <!-- Labelled 场景, not 首页: every screen is somewhere, so 「首页」 names the
+         position and says nothing about the contents. What lives here is the
+         set of prepared everyday situations — bedtime, meals, going out — and
+         a parent scanning four labels for "睡前该说什么" needs the label to
+         answer that. The internal tab id stays "home"; renaming it would turn
+         a copy change into a refactor with no benefit to anyone reading it. -->
+    <div class="nav-item active" role="button" tabindex="0" data-tab="home" onclick="showTab('home')">
+      <span class="nav-icon">🏠</span>场景
+    </div>
+    <!-- 4th permanent nav tab (real-user feedback #2): the home search box
+         only asks for Chinese (placeholder above) and its dictionary CTA
+         only appears for English-looking input — a parent who typed Chinese
+         as instructed could never reach the dictionary at all. Placed at
+         position 2 (right after 首页, the highest-scan slot) so it is
+         reachable without typing anything first. -->
+    <div class="nav-item" role="button" tabindex="0" data-tab="dict" onclick="showTab('dict')">
+      <span class="nav-icon">📖</span>查词
+    </div>
+    <div class="nav-item" role="button" tabindex="0" data-tab="saved" onclick="showTab('saved')">
+      <span class="nav-icon">♡</span>收藏<span class="nav-badge" id="navBadge"></span>
+    </div>
+    <div class="nav-item" role="button" tabindex="0" data-tab="translate" onclick="showTab('translate')">
+      <span class="nav-icon">🔤</span>翻译
+    </div>
 </div>
 
 <!-- Age picker overlay -->
@@ -6309,7 +6344,23 @@ function llStartApp() {
   paintAccessGate();
 }
 
-document.addEventListener("DOMContentLoaded", llStartApp);
+// 导航实际多高，由它自己说了算 —— 写死一个数字，字号放大、徽章换行、
+// 换一种语言，两个数字就对不上，而对不上的表现是最下面那条内容被盖住，
+// 谁也不会立刻发现。
+function syncNavHeight() {
+  const nav = document.querySelector(".bottom-nav");
+  if (!nav) return;
+  const h = Math.ceil(nav.getBoundingClientRect().height);
+  if (h > 0) document.documentElement.style.setProperty("--nav-h", h + "px");
+}
+
+window.addEventListener("resize", syncNavHeight);
+// 转屏、系统字号改动、字体迟到——都会改变导航的高度。
+if (document.fonts && document.fonts.ready) {
+  document.fonts.ready.then(syncNavHeight).catch(() => {});
+}
+
+document.addEventListener("DOMContentLoaded", () => { llStartApp(); syncNavHeight(); });
 </script>
 </body>
 </html>

@@ -2679,6 +2679,9 @@ function firstSaveNotice(savedCount) {
 // 他不知道探索完该干什么，也不知道干完能得到什么。
 function firstValueCard() {
   return {
+    // 「最近收藏」是给已经用了一阵的人看的标题。压在「学第一句」上面，
+    // 这张卡对刚装上的家长在说两件互相矛盾的事。
+    heading: "从这一句开始",
     text: "挑一句现在就用得上的，收下来 —— 明天它会自己回来找你。",
     buttonLabel: "学第一句 →",
   };
@@ -2835,8 +2838,15 @@ function resolveItemLabel(item) {
 function renderSavedChips() {
   const area = document.getElementById("savedChipsArea");
   area.innerHTML = '';
+  const heroTitle = document.querySelector(".hero-top h3");
+  // 原标题从 DOM 里取一次存着，不在这里再写一遍字面量——写死第二份的话，
+  // 「⭐ 只表示已收藏」那条守卫会数出两处，而且以后改标题得改两个地方。
+  if (heroTitle && !heroTitle.dataset.savedHeading) {
+    heroTitle.dataset.savedHeading = heroTitle.textContent;
+  }
   if (!savedPhrases.length) {
     const card = firstValueCard();
+    if (heroTitle) heroTitle.textContent = card.heading;
     const empty = document.createElement('div');
     empty.className = 'saved-empty';
     empty.textContent = card.text;
@@ -2849,6 +2859,8 @@ function renderSavedChips() {
     area.appendChild(go);
     return;
   }
+  // 收了第一句之后标题换回来——这时候「最近收藏」说的是实话了。
+  if (heroTitle) heroTitle.textContent = heroTitle.dataset.savedHeading;
   const row = document.createElement('div');
   row.className = 'saved-chips';
   sortedBySavedAtDesc(savedPhrases).forEach(p => {
@@ -6142,6 +6154,9 @@ function llStartApp() {
   renderTodayProgress();
   renderReviewStrip();
   updateNavBadge();
+  // 首页是默认屏，不经过 showTab('home')——只把这一句挂在那个分支上，
+  // 刚装上的家长在首页一个字也看不到，得先切走再切回来才会出现。
+  paintAccessGate();
 }
 
 document.addEventListener("DOMContentLoaded", llStartApp);

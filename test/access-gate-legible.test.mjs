@@ -140,6 +140,21 @@ test("不是邀请码的问题，就不要把他支去改邀请码", () => {
   assert.equal(accessErrorMessage(200), null);
 });
 
+test("首页那条提示，开机就在，不用先切走再切回来", () => {
+  // 真机上抓到的：首页不是通过 showTab('home') 显示的，它是默认屏。
+  // 提示的绘制挂在 showTab 的 home 分支上，于是刚装上的家长在首页
+  // 一个字也看不到，得先点「翻译」再点回「场景」才会出现。
+  //
+  // 这条断言量的是启动序列的形状，不是某个函数的返回值——一个只测纯函数
+  // 的用例看不见「接对了线但接错了时机」，孤儿守卫也看不见（函数确实
+  // 被调用了）。这一类缺陷本次交付已经出过三回。
+  const at = html.indexOf("function llStartApp");
+  assert.ok(at !== -1, "找不到启动函数");
+  const boot = html.slice(at, html.indexOf("document.addEventListener", at));
+  assert.match(boot, /paintAccessGate\(\)/,
+    "启动时没有画事前提示——家长在首页看不到这道门");
+});
+
 let failed = 0;
 for (const t of tests) {
   try { t.fn(); console.log(`  ✓ ${t.name}`); }

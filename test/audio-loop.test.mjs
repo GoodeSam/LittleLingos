@@ -75,7 +75,22 @@ function fakeAudioClass(made) {
   };
 }
 
-async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [] } = {}) {
+// A fake system voice that records every utterance and every cancel(), so the
+// tests can prove the Chinese cue was spoken, in Chinese, and silenced on stop.
+function fakeSpeech() {
+  const spoken = [];
+  let cancels = 0;
+  const synth = {
+    speak: u => spoken.push(u),
+    cancel: () => { cancels++; },
+    get cancels() { return cancels; },
+    spoken,
+  };
+  class Utterance { constructor(text) { this.text = text; this.lang = ""; } }
+  return { synth, Utterance };
+}
+
+async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [], speech = true } = {}) {
   const s = html.indexOf(START), e = html.indexOf(END);
   assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
   const made = [];
@@ -104,6 +119,9 @@ async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [] } = {}) 
     clearTimeout: () => {},
     _timers: timers,
   };
+  // 系统语音默认存在；传 speech:false 模拟没有它的设备。
+  const sp = speech ? fakeSpeech() : null;
+  if (sp) { ctx.speechSynthesis = sp.synth; ctx.SpeechSynthesisUtterance = sp.Utterance; }
   vm.createContext(ctx);
   // 先跑 ll:audio-playback（定义 audioUrlFor / primeAudioUrl / playableUrlFor），
   // 再跑本块。
@@ -120,7 +138,7 @@ async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [] } = {}) 
   // 真实路径里，地址是列表渲染时备好的（renderSavedScreen 给每一行 prime）。
   // 这里替它做一遍，之后 audioUrlFor() 才答得出东西。
   for (const id of withAudio) await ctx.primeAudioUrl(id);
-  return { ctx, made, timers, tick };
+  return { ctx, made, timers, tick, speech: sp ? sp.synth : null };
 }
 
 // ══ 1. 一点就开始，一句接一句 ═════════════════════════════════════════
@@ -288,6 +306,111 @@ test("收藏页有一个一键连续播放的入口", async () => {
   const at = html.indexOf("function renderSavedScreen");
   const body = html.slice(at, html.indexOf("\nfunction ", at + 10));
   assert.match(body, /AudioLoop/, "入口要在收藏页上，那是家长复习时待的地方");
+});
+
+
+// ══ 6. 先中文提示，停一下，再放英文 ═══════════════════════════════════
+//
+// 2026-09-07 之前，连播是「英文、停顿、英文」。家长在停顿里跟着念——
+// 那是听力练习，不是记忆练习：他从头到尾没有一次要自己想出英文来。
+// Pimsleur 的做法是先给母语提示、停顿、再给答案，停顿里人在检索而不是在听。
+// 这一组把播放序列改成那个形状。改的只是顺序和停顿，不动基础设施。
+//
+// 第一句例外：它是被那次点击直接放出来的（iOS 只认这一次手势），所以
+// 第一句先听一遍，从第二句起每一句都是「中文 → 停 → 英文」；转回来时
+// 第一句也照此办理。
+//
+// 这一组测试对应的用户情境（不含函数名）：
+//
+//   1. 一句英文放完，家长先听到下一句的中文，屏幕上也看得到。然后是一段
+//      够他自己想出英文的安静，之后才放英文——他在停顿里是在回忆。
+//
+//   2. 中文提示念的是中文。念成英文等于把答案先说了。
+//
+//   3. 手机没有系统语音时，中文照样显示在屏幕上，循环照常往下走。
+//
+//   4. 按下停止，正在念的中文提示也立刻停。
+//
+//   5. 收藏页上那个按钮真的把提示接到了屏幕上。
+
+const ZH_ITEMS = [
+  { id: "a", en: "Time for bed.", zh: "该睡觉了" },
+  { id: "b", en: "Wash your hands.", zh: "洗手" },
+  { id: "c", en: "Good job!", zh: "做得好" },
+];
+
+test("一句放完，先念下一句的中文，再停够时间想，然后才放英文", async () => {
+  const { ctx, made, timers, tick, speech } = await loadModule();
+  ctx.startAudioLoop(ZH_ITEMS);
+  made[0].fire("ended");
+  assert.equal(speech.spoken.length, 1, "英文一停，下一句的中文提示就该念出来");
+  assert.equal(speech.spoken[0].text, "洗手", "念的是下一句的中文，不是刚放完那句的");
+  assert.equal(made[0].played.length, 1, "中文提示还在，英文不能抢着放");
+  assert.ok(timers.length === 1 && timers[0].ms >= 3000,
+    `停顿要够家长自己想出英文，现在是 ${timers[0] && timers[0].ms}ms`);
+  tick();
+  assert.deepEqual(made[0].played, ["blob:a", "blob:b"], "停顿到了才放英文");
+});
+
+test("中文提示念的是中文", async () => {
+  const { ctx, made, speech } = await loadModule();
+  ctx.startAudioLoop(ZH_ITEMS);
+  made[0].fire("ended");
+  assert.match(speech.spoken[0].lang, /^zh/, `提示的语言是 ${JSON.stringify(speech.spoken[0].lang)}`);
+});
+
+test("屏幕上同步显示正在提示的那句中文", async () => {
+  const shown = [];
+  const { ctx, made, tick } = await loadModule();
+  ctx.startAudioLoop(ZH_ITEMS, item => shown.push(item.zh));
+  assert.deepEqual(shown, ["该睡觉了"], "第一句放的时候，屏幕就该说明放的是哪句");
+  made[0].fire("ended");
+  assert.deepEqual(shown, ["该睡觉了", "洗手"], "英文一停，屏幕先换成下一句的中文");
+  tick();
+  assert.deepEqual(shown, ["该睡觉了", "洗手"], "英文放出来时不再换字——家长在对答案");
+});
+
+test("没有中文的条目，跳过提示但照常停顿、照常放英文", async () => {
+  // 旧收藏可能没有中文。不能因此卡住，也不能念一句空的。
+  const { ctx, made, tick, speech } = await loadModule();
+  ctx.startAudioLoop([ZH_ITEMS[0], { id: "b", en: "Wash your hands." }]);
+  made[0].fire("ended");
+  assert.equal(speech.spoken.length, 0, "没有中文就不念");
+  tick();
+  assert.deepEqual(made[0].played, ["blob:a", "blob:b"]);
+});
+
+test("没有系统语音的手机上，中文照样显示，循环照常走", async () => {
+  const shown = [];
+  const { ctx, made, tick } = await loadModule({ speech: false });
+  assert.equal(ctx.startAudioLoop(ZH_ITEMS, item => shown.push(item.zh)), true);
+  made[0].fire("ended");
+  assert.deepEqual(shown, ["该睡觉了", "洗手"], "念不出来，也得显示出来");
+  tick();
+  assert.deepEqual(made[0].played, ["blob:a", "blob:b"], "没有语音不该让循环停下");
+});
+
+test("按停止，正在念的中文提示也停", async () => {
+  const { ctx, made, speech } = await loadModule();
+  ctx.startAudioLoop(ZH_ITEMS);
+  made[0].fire("ended");            // 中文提示开始念
+  const before = speech.cancels;
+  ctx.stopAudioLoop();
+  assert.ok(speech.cancels > before, "按了停止，中文提示还在念，等于没停");
+});
+
+test("从最后一句转回第一句时，第一句也先给中文提示", async () => {
+  const { ctx, made, tick, speech } = await loadModule();
+  ctx.startAudioLoop(ZH_ITEMS);
+  for (let i = 0; i < 2; i++) { made[0].fire("ended"); tick(); }
+  made[0].fire("ended");            // c 放完，该转回 a
+  assert.equal(speech.spoken.at(-1).text, "该睡觉了", "第一句只在开头例外一次，转回来时照样先提示");
+});
+
+test("收藏页把中文提示接到了屏幕上", async () => {
+  const at = html.indexOf("function renderSavedScreen");
+  const body = html.slice(at, html.indexOf("\nfunction ", at + 10));
+  assert.match(body, /loop-cue/, "循环里算出了提示，收藏页却没地方显示它，等于没做");
 });
 
 // ── Runner ───────────────────────────────────────────────

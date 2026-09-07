@@ -1531,6 +1531,15 @@
       background: var(--card); color: inherit; cursor: pointer;
     }
     .loop-btn:active { opacity: .6; }
+    /* The Chinese on deck during the loop: big enough to read from arm's
+       length while holding a child, and it sits where the eye already is —
+       right under the button that started it. */
+    .loop-cue {
+      margin: -6px 0 14px; padding: 14px 16px;
+      font-size: 22px; line-height: 1.4; text-align: center;
+      color: var(--zh-ink); background: var(--card);
+      border: 1px dashed var(--border); border-radius: 12px;
+    }
 
 
     /* The audio mark doubles as the play control on rows that have a clip.
@@ -3456,17 +3465,29 @@ function renderSavedScreen() {
     loopBtn.setAttribute('aria-label', loopBtn.textContent);
   };
   paintLoopBtn();
+  // The phrase on deck, in Chinese. This is what the parent is trying to say
+  // during the pause; a phone without a Chinese voice has only this to go on.
+  const loopCue = document.createElement('div');
+  loopCue.className = 'loop-cue';
+  loopCue.setAttribute('aria-live', 'polite');
+  loopCue.hidden = true;
+  const paintLoopCue = item => {
+    loopCue.hidden = !item;
+    loopCue.textContent = item ? (item.zh || '（这句没有中文）') : '';
+  };
   loopBtn.onclick = () => {
-    const started = toggleAudioLoop(rows);
+    const started = toggleAudioLoop(rows, paintLoopCue);
     if (started === false && !audioLoopPlaying()) {
       // Distinguish "stopped on purpose" from "nothing here can be played" —
       // a button that does nothing and says nothing reads as broken.
       const anyAudio = rows.some(r => playableUrlFor(r));
       if (!anyAudio) showOfflineToast('还没有可播放的声音 — 收藏的句子生成好之后就能连续播');
     }
+    if (!audioLoopPlaying()) paintLoopCue(null);
     paintLoopBtn();
   };
   list.appendChild(loopBtn);
+  list.appendChild(loopCue);
   // Ready every visible row's clip now so a tap can start it synchronously —
   // the same iOS reason renderReviewCard() primes its one item. Not awaited:
   // the list paints immediately, and a tap arriving first falls back to speech
@@ -5412,25 +5433,62 @@ function saveTranslatedPhrase(entry) {
 // rule that shapes ll:audio-playback.
 //
 // Only phrases that actually have a recorded clip take part. Dropping the
-// browser voice in between would break a listening session into two textures,
-// and C1 already ruled that voice out.
-const LOOP_GAP_MS = 1500;
+// browser voice in for the ENGLISH would break a listening session into two
+// textures, and C1 already ruled that voice out for the thing being learned.
+//
+// THE SEQUENCE (2026-09-07). Before, this was English, gap, English: the
+// parent repeated each sentence after hearing it, and never once had to
+// produce it. That is listening, not remembering. Pimsleur's shape is cue in
+// the mother tongue, a pause, then the answer — the pause is where retrieval
+// happens. So between phrases the loop now speaks the NEXT phrase's Chinese
+// (system voice, zh-CN — a cue, not content; C1's verdict was about the
+// English), shows it on screen, waits long enough to think, then plays the
+// English clip. The first phrase of a session is the exception: the tap
+// itself must start a clip (the iOS rule above), so it is heard once
+// unprompted; from then on, and on every wrap-around, every phrase is cued.
+const LOOP_RECALL_MS = 4000;
 
 let loopEl = null;
 let loopQueue = [];
 let loopIndex = 0;
 let loopTimer = null;
 let loopOn = false;
+let loopOnCue = null;
 
 function audioLoopPlaying() { return loopOn; }
 
+// Tell the screen which phrase is up, then say its Chinese if the device can.
+// The screen comes first: a phone with no zh voice must still show the cue,
+// or the pause is just silence with nothing to retrieve.
+function cueLoopItem(item) {
+  if (typeof loopOnCue === "function") { try { loopOnCue(item); } catch {} }
+}
+function speakLoopCue(item) {
+  const zh = item && typeof item.zh === "string" ? item.zh.trim() : "";
+  if (!zh) return false;
+  if (typeof speechSynthesis === "undefined" || typeof SpeechSynthesisUtterance === "undefined") return false;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(zh);
+    u.lang = "zh-CN";
+    speechSynthesis.speak(u);
+    return true;
+  } catch { return false; }
+}
+function silenceLoopCue() {
+  if (typeof speechSynthesis === "undefined") return;
+  try { speechSynthesis.cancel(); } catch {}
+}
+
 // Must be called from a tap — see the iOS note above. Returns false when there
 // is nothing to play, so the caller can say why rather than leaving the parent
-// tapping a button that appears dead.
-function startAudioLoop(items) {
+// tapping a button that appears dead. `onCue(item)` is called whenever the
+// phrase on deck changes, so the screen can show its Chinese.
+function startAudioLoop(items, onCue) {
   stopAudioLoop();
   loopQueue = (items || []).filter(it => playableUrlFor(it));
   if (!loopQueue.length) return false;
+  loopOnCue = typeof onCue === "function" ? onCue : null;
 
   if (!loopEl) {
     loopEl = new Audio();
@@ -5443,6 +5501,7 @@ function startAudioLoop(items) {
   }
   loopIndex = 0;
   loopOn = true;
+  cueLoopItem(loopQueue[0]);   // shown, not spoken: the English starts now
   playCurrentLoopClip();
   return true;
 }
@@ -5458,29 +5517,34 @@ function playCurrentLoopClip() {
   if (p && typeof p.catch === "function") p.catch(() => { if (loopOn) scheduleNextLoopClip(); });
 }
 
-// The gap is the difference between a practice session and a wall of sound:
-// the parent repeats the sentence in it. Without it this is background noise.
+// Cue the next phrase now, play its English after the pause. The pause is the
+// whole point: it is where the parent tries to say it before hearing it.
+// Without it this is background noise.
 function scheduleNextLoopClip() {
   if (loopTimer) clearTimeout(loopTimer);
+  const next = (loopIndex + 1) % loopQueue.length;
+  cueLoopItem(loopQueue[next]);
+  speakLoopCue(loopQueue[next]);
   loopTimer = setTimeout(() => {
     loopTimer = null;
     if (!loopOn) return;
-    loopIndex = (loopIndex + 1) % loopQueue.length;
+    loopIndex = next;
     playCurrentLoopClip();
-  }, LOOP_GAP_MS);
+  }, LOOP_RECALL_MS);
 }
 
 function stopAudioLoop() {
   loopOn = false;
   if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
   // Cancelling only the schedule would leave the current phrase sounding after
-  // the parent pressed stop.
+  // the parent pressed stop — and a Chinese cue mid-sentence, likewise.
   if (loopEl) { try { loopEl.pause(); } catch {} }
+  silenceLoopCue();
 }
 
-function toggleAudioLoop(items) {
+function toggleAudioLoop(items, onCue) {
   if (loopOn) { stopAudioLoop(); return false; }
-  return startAudioLoop(items);
+  return startAudioLoop(items, onCue);
 }
 /* ll:audio-loop:end */
 

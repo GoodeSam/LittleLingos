@@ -219,6 +219,70 @@ test("残缺的翻译结果不会画出一张空卡", () => {
   assert.ok(ownWordsResult({ zh: "甲", en: "A" }), "控制组失败：正常结果也不给看");
 });
 
+// ── 自己说的那句，也要能听 ──────────────────────────────────────────────
+
+test("结果里带着这句话自己的 id —— 少了它就只有浏览器声音", () => {
+  // 生成的那段音频是按 id 存的。id 不跟着结果卡走，按钮就找不到那段音频，
+  // 只能退回浏览器自带的合成音——而「同一句话在两处音色不同」这个毛病
+  // 本会话已经出过一次，是用户自己报的。
+  const { ownWordsResult } = load();
+  const r = ownWordsResult({ id: "t_1700000001", zh: "来，我们洗洗小手", en: "Let's wash our hands." });
+  assert.equal(r.id, "t_1700000001", "结果卡不知道该放哪一段音频");
+});
+
+test("结果卡上有朗读按钮，跟现成句子上的那个一个样子", () => {
+  const product = html
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+  const at = product.indexOf("function showOwnWordsResult");
+  assert.ok(at !== -1, "找不到画结果卡的地方");
+  const fn = product.slice(at, product.indexOf("\nasync function", at));
+  assert.match(fn, /▶ 朗读/, "结果卡上没有朗读按钮");
+  // 跟现成句子共用同一个按钮样式：两处长得不一样，家长会以为是两种东西。
+  assert.match(fn, /play-btn/, "朗读按钮跟现成句子上的不是同一个样子");
+});
+
+test("朗读走的是跟翻译页同一条路，不是复制了一份", () => {
+  // 本会话已经因为「同一个决定写了两份」出过一次 bug：翻译页和收藏页
+  // 各有一套播放逻辑，同一句话放出两种音色。这条断言不许它重演。
+  const product = html
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+  const shared = product.match(/function playClipOrSpeak\s*\(/);
+  assert.ok(shared, "没有共用的播放函数");
+  const uses = (product.match(/playClipOrSpeak\(/g) || []).length - 1;
+  assert.ok(uses >= 2,
+    `共用函数只被叫了 ${uses} 次：翻译页和「说说看」都该走它`);
+
+  // 只数次数不够：把 playResultAudio 改回自带一套、再在别处添个第三个
+  // 调用点，次数照样 ≥2，而翻译页已经偷偷分家了。得点名。
+  const at = product.indexOf("function playResultAudio");
+  assert.ok(at !== -1, "找不到翻译页那个入口");
+  const fn = product.slice(at, product.indexOf("\n}", at));
+  assert.match(fn, /playClipOrSpeak\(/, "翻译页没走共用那条路");
+
+  // 共用函数必须是同步的：iOS 上手势之后经过 await 再 play()，可能不再
+  // 算作由那次点击发起，浏览器静默拒绝（tech-constraints C12，
+  // ll:audio-loop 里已有两处按它设计）。这条约束验不了，只能守住形状。
+  assert.doesNotMatch(product.slice(
+    product.indexOf("function playClipOrSpeak"),
+    product.indexOf("function playResultAudio")
+  ), /\bawait\b/, "点击路径里出现了 await —— iOS 上可能点了没反应");
+});
+
+test("先放生成好的那段，取不到才退回浏览器声音", () => {
+  const product = html
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+  const at = product.indexOf("function playClipOrSpeak");
+  const fn = product.slice(at, at + 1600);
+  const clipAt = fn.search(/audioUrlFor\(|primeAudioUrl\(/);
+  const ttsAt = fn.indexOf("speakText(");
+  assert.ok(clipAt !== -1, "根本没去找生成好的那段音频");
+  assert.ok(ttsAt !== -1, "没有兜底：音频没生成好时会哑掉");
+  assert.ok(clipAt < ttsAt, "先用了浏览器声音，生成好的那段成了摆设");
+});
+
 // ── 界面上真的挂上去了 ──────────────────────────────────────────────────
 
 test("场景页上真的有这块地方，不是只写了函数", () => {

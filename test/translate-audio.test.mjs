@@ -238,9 +238,24 @@ test("收藏用的是翻译时那个身份，不另铸一个", async () => {
 });
 
 test("翻译页播放先看本机有没有生成好的那段", async () => {
+  // 【取块方式变更】2026-09-07，Victor 批准（选项 A）。
+  //
+  // 上一版把 playResultAudio 的函数体切出来，断言里面含有 audioUrlFor(。
+  // 当天「说说看」也要能朗读，为避免第三份播放逻辑（本会话已因「同一个
+  // 决定写了两份」出过一次 bug：同一句话在翻译页和收藏页音色不同），
+  // 把函数体抽成共用的 playClipOrSpeak，playResultAudio 成了薄壳。
+  //
+  // 断言的意图没变 —— 翻译页播放必须先查本机那段、查不到才退回浏览器
+  // 朗读。变的只是这段逻辑现在住在哪里，所以顺着委派链走一步再验。
   const at = html.indexOf("function playResultAudio");
   assert.ok(at !== -1, "playResultAudio not found");
-  const body = html.slice(at, html.indexOf("\n}", at));
+  const shell = html.slice(at, html.indexOf("\n}", at));
+  assert.match(shell, /playClipOrSpeak\(/,
+    "翻译页没走共用的播放路径 —— 它要么自带了一份，要么断链了");
+
+  const sat = html.indexOf("function playClipOrSpeak");
+  assert.ok(sat !== -1, "找不到共用的播放路径");
+  const body = html.slice(sat, html.indexOf("\n}", sat));
   assert.match(body, /audioUrlFor\(/, "不查的话，生成出来的声音永远没人放");
   const usesStored = body.indexOf("audioUrlFor(");
   const fallsBack = body.indexOf("speakText(");

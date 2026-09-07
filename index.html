@@ -979,6 +979,7 @@
       margin-top: 2px; font-size: 17px; font-weight: 700;
       color: var(--accent-deep); line-height: 1.4;
     }
+    .own-words-result-row { margin-top: 8px; }
     .own-words-result-note { margin-top: 6px; font-size: 12px; color: var(--muted); }
     .privacy-note { font-size: 16px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
     .translate-btn {
@@ -2270,7 +2271,44 @@ function showOwnWordsResult(entry) {
   const note = document.createElement("div");
   note.className = "own-words-result-note";
   note.textContent = r.note;
-  card.append(zh, en, note);
+
+  // 跟现成句子上那个按钮同一个样子、同一句话：两处长得不一样，
+  // 家长会以为是两种不同的东西。
+  const play = document.createElement("button");
+  play.type = "button";
+  play.className = "play-btn";
+  play.textContent = "▶ 朗读";
+  play.setAttribute("aria-label", "朗读");
+  // 播放中也要跟精选句子说同一句话。少了这行，setPlayBtnPlaying 会退到
+  // 默认的「⏸」，而精选句子上写的是「⏸ 播放中」——两处状态不一样，
+  // 而「跟精选内容处于同样的状态」正是这次要做到的事。
+  play.setAttribute("data-playing-label", "⏸ 播放中");
+  // 不让 promise 裸奔：调用方不 await 也不 catch 的话，共用函数里任何
+  // 一处抛出都会变成 unhandled rejection。本会话已经中过一次这个套路
+  // （refreshAudioMarks 在 finally 里抛，没人接）。
+  play.onclick = () => playClipOrSpeak({ id: r.id, text: r.en, btn: play });
+
+  const row = document.createElement("div");
+  row.className = "own-words-result-row";
+  row.appendChild(play);
+
+  card.append(zh, en, row, note);
+  // 取址在渲染时备好 —— 点击时只允许同步查缓存（C12）。
+  //
+  // 这一句的音频是保存时在后台生成的，此刻多半还没落地，所以除了立刻
+  // 试一次，还要等生成结束后再备一次。两次都不成功也不是错：点的时候
+  // 会退回浏览器合成音，跟翻译页一直以来的行为一样。
+  if (r.id) {
+    try { primeAudioUrl(r.id); } catch {}
+    if (typeof audioPending !== "undefined" && audioPending.has(r.id)) {
+      // 生成还在路上：等它结束再备一次，家长过几秒再点就能听到真嗓子。
+      const waitThenPrime = () => {
+        if (audioPending.has(r.id)) { setTimeout(waitThenPrime, 500); return; }
+        try { primeAudioUrl(r.id); } catch {}
+      };
+      setTimeout(waitThenPrime, 500);
+    }
+  }
   const first = box.querySelector(".own-words-result");
   if (first) box.insertBefore(card, first);
   else box.appendChild(card);
@@ -3087,7 +3125,14 @@ function ownWordsResult(entry) {
   const zh = typeof entry.zh === "string" ? entry.zh.trim() : "";
   const en = typeof entry.en === "string" ? entry.en.trim() : "";
   if (!zh || !en) return null;
-  return { zh, en, note: "已存进这个场景的收藏 —— 明天它会回来找你。" };
+  // id 必须跟着走：生成的那段音频是按 id 存的，卡片不知道 id 就只能退回
+  // 浏览器自带的合成音——「同一句话在两处音色不同」这个毛病本会话已经
+  // 由用户报过一次。
+  return {
+    id: entry.id || null,
+    zh, en,
+    note: "已存进这个场景的收藏 —— 明天它会回来找你。",
+  };
 }
 /* ll:own-words:end */
 
@@ -4010,14 +4055,28 @@ function speakText(text, rate, btn, session = playbackSession) {
   speechSynthesis.speak(utter);
 }
 
-function playResultAudio(btn) {
+// 一条播放路径，两个入口共用：翻译页的结果，和场景页「说说看」的结果。
+//
+// 抽出来是因为本会话已经因为「同一个决定写了两份」出过一次 bug —— 翻译页
+// 和收藏页各有一套逻辑，同一句话放出两种音色，是用户自己报的。再复制一份
+// 就是第三处。
+//
+// 顺序不能反：先放生成好的那段（跟复习页、跟精选句子同一个嗓子），
+// 取不到才退回浏览器自带的合成音。
+// 同步，而且必须保持同步。
+//
+// 【2026-09-07 撤回】我一度在这里加了「点击时若缓存未命中就 await
+// primeAudioUrl 补一次」，理由是家长刚翻完就想听。Codex 评审指出它正踩在
+// docs/tech-constraints.md 的 C12 上：iOS Safari 里，音频元素若在用户手势
+// 之后经过 await 才调用 play()，可能不再算作由那次手势发起，浏览器**静默
+// 拒绝**——不报错、不抛异常、什么都不发生。ll:audio-loop 里已经有两处
+// 按这条约束设计。而 Node 测试验不了它，真机上表现为「点了没反应」。
+//
+// 所以取址只在渲染时做（见 showOwnWordsResult），点击时只同步查一次缓存。
+function playClipOrSpeak({ id, text, btn }) {
   stopAllAudio();
   const session = playbackSession;
   const isCurrent = () => session === playbackSession;
-  const text = document.getElementById("resultEn").textContent;
-  // Prefer the clip generated when this translation arrived — same voice the
-  // review screen uses. Looked up synchronously; see ll:audio-playback.
-  const id = lastTranslateResult && lastTranslateResult.id;
   const url = id ? audioUrlFor(id) : null;
   if (url) {
     if (btn) setPlayBtnPlaying(btn);
@@ -4037,6 +4096,15 @@ function playResultAudio(btn) {
     return;
   }
   speakText(text, undefined, btn, session);
+}
+
+// 薄壳：翻译页那个按钮的入口，解析出 id 和文字之后走共用那条。
+function playResultAudio(btn) {
+  playClipOrSpeak({
+    id: lastTranslateResult && lastTranslateResult.id,
+    text: document.getElementById("resultEn").textContent,
+    btn,
+  });
 }
 
 // The main sentence's button used to be a fixed ♡ that never changed, so a

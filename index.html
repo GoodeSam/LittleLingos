@@ -968,6 +968,18 @@
       flex: none; font-size: 13px; font-weight: 700;
       color: var(--accent-deep);
     }
+    /* 刚翻出来的那句，留在卡片里。中文小、英文大 —— 他要学的是英文。 */
+    .own-words-result {
+      margin-top: 10px; padding: 10px 12px;
+      background: var(--card); border-radius: 10px;
+      border-left: 3px solid var(--green-deep);
+    }
+    .own-words-result-zh { font-size: 14px; color: var(--muted); }
+    .own-words-result-en {
+      margin-top: 2px; font-size: 17px; font-weight: 700;
+      color: var(--accent-deep); line-height: 1.4;
+    }
+    .own-words-result-note { margin-top: 6px; font-size: 12px; color: var(--muted); }
     .privacy-note { font-size: 16px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
     .translate-btn {
       background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
@@ -2199,6 +2211,8 @@ async function paintOwnWordsInvite() {
     scenarioName: s ? s.name : "",
     saved: savedPhrases,
   });
+  // 这一屏这次翻出来的结果，重画时留住 —— 它们是他刚刚做完那件事的凭据。
+  const keep = [...box.querySelectorAll(".own-words-result")];
   box.replaceChildren();
   box.hidden = !inv;
   if (!inv) return;
@@ -2235,6 +2249,31 @@ async function paintOwnWordsInvite() {
     g.textContent = gate;
     box.appendChild(g);
   }
+
+  // 之前翻出来的挂回去，最新的在最上面。
+  keep.forEach(el => box.appendChild(el));
+}
+
+// 把一条结果画到卡片里。最新的排在最前，他刚说完那句就在眼皮底下。
+function showOwnWordsResult(entry) {
+  const box = document.getElementById("ownWordsInvite");
+  const r = ownWordsResult(entry);
+  if (!box || !r) return;
+  const card = document.createElement("div");
+  card.className = "own-words-result";
+  const zh = document.createElement("div");
+  zh.className = "own-words-result-zh";
+  zh.textContent = r.zh;
+  const en = document.createElement("div");
+  en.className = "own-words-result-en";
+  en.textContent = r.en;
+  const note = document.createElement("div");
+  note.className = "own-words-result-note";
+  note.textContent = r.note;
+  card.append(zh, en, note);
+  const first = box.querySelector(".own-words-result");
+  if (first) box.insertBefore(card, first);
+  else box.appendChild(card);
 }
 
 // 粘进来的整段文字 → 候选列表。一条都不自动收藏：他真说的话里有他
@@ -2323,9 +2362,12 @@ async function submitOwnWords(input, btn) {
     const r = await addPhraseToScenario(zh, currentScenario);
     if (r.ok) {
       input.value = "";
-      // 重画整屏：他的话现在是这个场景里的一条，问话也该让路了。
-      openScenario(currentScenario);
-      showOfflineToast("收好了 —— 这是你自己的话，明天会回来找你。");
+      // 不再 openScenario()：重画整屏会把刚翻出来的那句英文一起抹掉，
+      // 而那句英文正是他做这件事的全部目的。
+      showOwnWordsResult(r.entry);
+      // 说明那段该收起来了（他已经讲过一句），入口留着。
+      paintOwnWordsInvite();
+      input.focus();
       return;
     }
     showOfflineToast({
@@ -3006,17 +3048,46 @@ function isOwnWords(phrase) {
 //
 // 注意「讲过」只认他自己的话：收藏了一堆现成句子不算。混淆这两件事，
 // 实验的两组样本就分不开了。
+// 【2026-09-07 推翻】上一版在他讲过一句之后返回 null —— 整张卡消失。
+// 当时的理由是「问话的作用是让他知道『可以说』和『该说什么』，讲过一次
+// 这两件事就都不用再讲了」。推理没错，错在把「说明不用再讲」当成了
+// 「入口不用再留」：Victor 在手机上试用时报的第一句话就是「文字只能输入
+// 一次翻译，输入一次之后这个文本就会被折叠，再也不能展示出」。
+// 现在入口永远留着，收起来的只是那段说明。
 function ownWordsInvite({ scenarioTag, scenarioName, saved }) {
   const list = Array.isArray(saved) ? saved : [];
   const spoken = list.some(p => isOwnWords(p) && p && p.scenario === scenarioTag);
-  if (spoken) return null;
   // 场景名进问话里：笼统地问「说点什么」，他还是不知道该说什么。
   const name = String(scenarioName || "").trim() || "这个场景";
+  if (spoken) {
+    return {
+      mode: "repeat",
+      // 教「可以对着话筒说」的那段话讲一次就够了。每次进来都念一遍，
+      // 它就从提示变成了噪音。
+      text: `再说一句你在「${name}」常讲的中文？`,
+      buttonLabel: "🎤 说说看",
+    };
+  }
   return {
+    mode: "first",
     text: `不确定自己平时怎么说？说说你在「${name}」时常对孩子讲的中文 —— ` +
           `点下面的框，用键盘上的 🎤 说就行，我们把它变成你能说出口的英文。`,
     buttonLabel: "🎤 说说看",
   };
+}
+
+// 翻出来的英文，得当场出现在他眼前。
+//
+// 【2026-09-07 新增】之前提交完就重画整屏、弹一句「收好了」。他打了一句
+// 中文、等了两秒，然后什么也没看见 —— 这个软件存在的理由就是给他那句
+// 英文，而那句英文从没在他眼前出现过。Victor 的原话：「翻译的内容会直接
+// 进入收藏，在当前页面看不了」。
+function ownWordsResult(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  const zh = typeof entry.zh === "string" ? entry.zh.trim() : "";
+  const en = typeof entry.en === "string" ? entry.en.trim() : "";
+  if (!zh || !en) return null;
+  return { zh, en, note: "已存进这个场景的收藏 —— 明天它会回来找你。" };
 }
 /* ll:own-words:end */
 

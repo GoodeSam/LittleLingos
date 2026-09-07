@@ -122,44 +122,66 @@ test("问话告诉他可以对着键盘上的话筒说", () => {
 
 // ── 做完了就让路 ────────────────────────────────────────────────────────
 
-test("已经在这个场景里讲过一句，就不再问了", () => {
+test("讲过一句之后，还能接着讲下一句", () => {
+  // 【推翻记录】2026-09-07，Victor 在手机上试用后要求改：
+  //   「文字只能输入一次翻译，输入一次之后这个文本就会被折叠，再也不能展示出」
+  //
+  // 上一版这条测试断言的是 ownWordsInvite(...) === null —— 讲过一句之后
+  // 整张卡消失。那是我 2026-09-06 的设计：「问话的作用是让他知道『可以说』
+  // 和『该说什么』，他一旦讲过，这两件事都不用再讲了。」
+  //
+  // 推理本身没错，错在把「说明不用再讲」当成了「入口不用再留」。家长要的
+  // 是接着往这个场景里加第二句、第三句。真实用法推翻了设计推理。
   const { ownWordsInvite } = load();
-  // 控制组先跑：一个「永远返回 null」的实现能通过下面那条，却什么也没做。
-  assert.ok(ownWordsInvite({ scenarioTag: "bath", scenarioName: "洗澡时间", saved: [] }),
-    "控制组失败：一句都没讲过时也不问");
   const inv = ownWordsInvite({
     scenarioTag: "bath", scenarioName: "洗澡时间", saved: [own("bath")],
   });
-  assert.equal(inv, null, "他已经讲过了，还在问他");
+  assert.ok(inv, "讲过一句之后入口就没了 —— 他加不了第二句");
+  assert.ok(inv.buttonLabel, "还在，但没有能点的");
 });
 
-test("在别的场景讲过，这个场景照问不误", () => {
-  // 控制组，也是真实情境：他在吃饭时间讲过，不代表洗澡时间也讲过。
+test("第二次开始，不再重复那段长说明", () => {
+  // 入口要留，但那段教「可以对着话筒说」的话讲一次就够了 —— 每次进来
+  // 都念一遍，它就从提示变成了噪音。
   const { ownWordsInvite } = load();
-  const inv = ownWordsInvite({
+  const first = ownWordsInvite({ scenarioTag: "bath", scenarioName: "洗澡时间", saved: [] });
+  const again = ownWordsInvite({ scenarioTag: "bath", scenarioName: "洗澡时间", saved: [own("bath")] });
+  assert.notEqual(again.text, first.text, "第二次还在念同一段说明");
+  assert.ok(again.text.length < first.text.length,
+    `第二次的说明没有更短：${again.text.length} vs ${first.text.length}`);
+});
+
+test("在别的场景讲过，这个场景仍然从头说明一遍", () => {
+  // 他在吃饭时间讲过，不代表洗澡时间也讲过 —— 那段说明是按场景算的。
+  const { ownWordsInvite } = load();
+  const fresh = ownWordsInvite({ scenarioTag: "bath", scenarioName: "洗澡时间", saved: [] });
+  const other = ownWordsInvite({
     scenarioTag: "bath", scenarioName: "洗澡时间", saved: [own("meal")],
   });
-  assert.ok(inv, "在别的场景讲过，这个场景就不问了——问话被做成了全局开关");
+  assert.equal(other.text, fresh.text,
+    "在别的场景讲过，这个场景就跳过说明了——被做成了全局开关");
 });
 
-test("收藏了一堆现成句子，仍然问他自己怎么说", () => {
+test("收藏了一堆现成句子，仍然从头问他自己怎么说", () => {
   // 这条是实验能不能读的关键：收藏现成句子 ≠ 讲了自己的话。
   // 混淆了这两件事，两组样本就分不开了。
   const { ownWordsInvite } = load();
+  const fresh = ownWordsInvite({ scenarioTag: "bath", scenarioName: "洗澡时间", saved: [] });
   const inv = ownWordsInvite({
     scenarioTag: "bath", scenarioName: "洗澡时间",
     saved: [preset("bath", 0), preset("bath", 1), preset("bath", 2)],
   });
-  assert.ok(inv, "收藏了现成句子就被当成讲过自己的话了");
+  assert.equal(inv.text, fresh.text, "收藏了现成句子就被当成讲过自己的话了");
 });
 
 test("从翻译页存下的话，不算讲过这个场景", () => {
   // 翻译页存的条目 scenario 是 __translate__，不属于任何场景。
   const { ownWordsInvite } = load();
+  const fresh = ownWordsInvite({ scenarioTag: "bath", scenarioName: "洗澡时间", saved: [] });
   const inv = ownWordsInvite({
     scenarioTag: "bath", scenarioName: "洗澡时间", saved: [own("__translate__")],
   });
-  assert.ok(inv, "翻译页存的话被算成了洗澡场景里的话");
+  assert.equal(inv.text, fresh.text, "翻译页存的话被算成了洗澡场景里的话");
 });
 
 test("场景没名字、收藏是脏数据，都不会让页面崩", () => {
@@ -169,6 +191,32 @@ test("场景没名字、收藏是脏数据，都不会让页面崩", () => {
   // 控制组：吞掉一切异常并永远返回 null 的实现也能通过上面两条。
   assert.ok(ownWordsInvite({ scenarioTag: "bath", scenarioName: "洗澡时间", saved: [] }),
     "控制组失败：正常情况下也不问了");
+});
+
+// ── 翻出来的英文，他得当场看见 ──────────────────────────────────────
+
+test("翻出来的英文当场就能看见，不用去收藏里翻", () => {
+  // 【新增缘由】2026-09-07，Victor 在手机上试用后报的第二个问题：
+  //   「翻译的内容会直接进入收藏，在当前页面看不了」
+  //
+  // 之前提交完就 openScenario() 重画整屏，再弹一句「收好了」。他打了一句
+  // 中文，等了两秒，然后什么也没看见 —— 这个软件存在的理由就是给他那句
+  // 英文，而那句英文从没在他眼前出现过。
+  const { ownWordsResult } = load();
+  const r = ownWordsResult({ zh: "来，我们洗洗小手", en: "Let's wash our hands." });
+  assert.ok(r, "翻完什么也不给看");
+  assert.match(r.en, /Let's wash our hands\./, "看不到英文");
+  assert.match(r.zh, /来，我们洗洗小手/, "看不到自己刚说的那句");
+  assert.ok(r.note, "没说这句去哪儿了");
+});
+
+test("残缺的翻译结果不会画出一张空卡", () => {
+  const { ownWordsResult } = load();
+  for (const junk of [null, undefined, {}, { zh: "甲" }, { en: "" }]) {
+    assert.equal(ownWordsResult(junk), null, `${JSON.stringify(junk)} 画出了东西`);
+  }
+  // 控制组：一个「永远返回 null」的实现也能通过上面那圈。
+  assert.ok(ownWordsResult({ zh: "甲", en: "A" }), "控制组失败：正常结果也不给看");
 });
 
 // ── 界面上真的挂上去了 ──────────────────────────────────────────────────
@@ -187,6 +235,22 @@ test("场景页上真的有这块地方，不是只写了函数", () => {
     .replace(/^[ \t]*\/\/.*$/gm, "");
   assert.match(product, /getElementById\(\s*["']ownWordsInvite["']\s*\)/,
     "容器摆在那儿，但没有任何代码往里面写内容");
+});
+
+test("翻完不再把整屏重画掉，结果留在他眼前", () => {
+  // 重画整屏会把刚翻出来的那句英文一起抹掉。
+  const product = html
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+  const at = product.indexOf("async function submitOwnWords");
+  assert.ok(at !== -1, "找不到提交那段");
+  const fn = product.slice(at, product.indexOf("\nfunction ", at + 10));
+  assert.doesNotMatch(fn, /openScenario\(/,
+    "翻完还在重画整屏，刚出来的英文会被一起抹掉");
+  // 找的是渲染那一步（showOwnWordsResult），不是纯逻辑那一步
+  // （ownWordsResult）—— 后者被前者包着，提交路径里出现的是前者。
+  assert.match(fn, /showOwnWordsResult\(/,
+    "翻完没有把结果画出来");
 });
 
 test("没有邀请码时，问话在他开口之前就说明这里需要码", () => {

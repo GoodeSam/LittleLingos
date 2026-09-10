@@ -1096,7 +1096,9 @@ test("bottom nav carries exactly 4 nav-item tabs in order home, dict, saved, tra
   const tabs = [...navBlock.matchAll(/data-tab="([a-z]+)"/g)].map((m) => m[1]);
   assert.deepEqual(tabs, ["home", "dict", "saved", "translate"],
     "dict must sit at position 2 — right after home, the highest-scan slot — per the spec");
-  assert.ok(navBlock.includes('<span class="nav-icon">📖</span>查词'),
+  // 2026-09-10：导航图标从 emoji 换成 icons.js 的单色线性图标（启动时填进
+  // data-icon 槽），所以不再按 📖 字面比对；标签仍必须是精确的两个字「查词」。
+  assert.match(navBlock, /data-tab="dict"[\s\S]*?<span class="nav-icon"[^>]*><\/span>查词\s*<\/div>/,
     "dict tab label must be exactly the 2-character 查词, matching 首页/收藏/翻译");
 });
 

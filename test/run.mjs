@@ -88,6 +88,7 @@ step("L0 · first-value path for a new parent (test/first-value-path.test.mjs)",
 step("L0 · access gate is legible before it blocks (test/access-gate-legible.test.mjs)", () => run("node", ["test/access-gate-legible.test.mjs"]));
 step("L0 · asking a parent for their own words (test/own-words.test.mjs)", () => run("node", ["test/own-words.test.mjs"]));
 step("L0 · mining a transcript for habits (test/transcript-mine.test.mjs)", () => run("node", ["test/transcript-mine.test.mjs"]));
+step("L0 · design tokens + adult look (test/design-tokens.test.mjs)", () => run("node", ["test/design-tokens.test.mjs"]));
 step("L0 · no capability built and left unwired (test/no-orphan-modules.test.mjs)", () => run("node", ["test/no-orphan-modules.test.mjs"]));
 step("L0 · service-worker behavior (test/sw.test.mjs)", () => run("node", ["test/sw.test.mjs"]));
 step("L0 · dictionary API behavior (test/dictionary-api.test.mjs)", () => run("node", ["test/dictionary-api.test.mjs"]));

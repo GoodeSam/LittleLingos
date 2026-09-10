@@ -57,9 +57,13 @@ const contrast = (a, b) => {
   const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 };
+// 2026-09-10：token 改名为 clay-700 / warning-800 这类带数字的名字，且旧名
+// （--accent-deep 等）成了指向新 token 的 var() 别名。这里只放宽"名字怎么写"：
+// 允许数字，别名跟一层。要量的对比度阈值一个都没动。
 const cssVar = name => {
-  const m = html.match(new RegExp(`--${name}:\\s*(#[0-9A-Fa-f]{6})`));
+  const m = html.match(new RegExp(`--${name}:\\s*(#[0-9A-Fa-f]{6}|var\\(--([a-z0-9-]+)\\))`));
   assert.ok(m, `--${name} not found`);
+  if (m[2]) return cssVar(m[2]);
   return m[1];
 };
 
@@ -108,7 +112,7 @@ test("「还要练」在白卡上看得出边界", () => {
   assert.ok(at !== -1, ".review-btn-again not found");
   const rule = html.slice(at, html.indexOf("}", at));
   const hasBorder = /border(?!-radius)/.test(rule);
-  const bg = (rule.match(/background:\s*var\(--([a-z-]+)\)/) || [])[1];
+  const bg = (rule.match(/background:\s*var\(--([a-z0-9-]+)\)/) || [])[1];
   const ratio = bg ? contrast(cssVar(bg), cssVar("card")) : 0;
   assert.ok(hasBorder || ratio >= 3,
     `底色对比 ${ratio.toFixed(2)}:1 且没有描边 —— 控件边界需要 3:1，或者给它一条边`);
@@ -119,7 +123,7 @@ test("「记住了」也一样 —— 我原先把它当成合格基准，它也
   assert.ok(at !== -1, ".review-btn-good not found");
   const rule = html.slice(at, html.indexOf("}", at));
   const hasBorder = /border(?!-radius)/.test(rule);
-  const bg = (rule.match(/background:\s*var\(--([a-z-]+)\)/) || [])[1];
+  const bg = (rule.match(/background:\s*var\(--([a-z0-9-]+)\)/) || [])[1];
   const ratio = bg ? contrast(cssVar(bg), cssVar("card")) : 0;
   assert.ok(hasBorder || ratio >= 3,
     `底色对比 ${ratio.toFixed(2)}:1 且没有描边 —— 只修一个，只是换一种不平衡`);
@@ -150,7 +154,7 @@ test("揭示后的英文，不比中文弱", () => {
 
 test("英文的颜色仍然可读 —— 换配色不能换掉可读性", () => {
   const en = html.match(/\.saved-item-en\s*\{([^}]*)\}/)[1];
-  const v = (en.match(/color:\s*var\(--([a-z-]+)\)/) || [])[1];
+  const v = (en.match(/color:\s*var\(--([a-z0-9-]+)\)/) || [])[1];
   assert.ok(v, "英文得有明确的颜色");
   const ratio = contrast(cssVar(v), cssVar("card"));
   assert.ok(ratio >= 4.5, `${ratio.toFixed(2)}:1 —— 16px 粗体仍按普通文本算，需要 4.5:1`);

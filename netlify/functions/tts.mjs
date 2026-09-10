@@ -56,6 +56,8 @@ export const ALLOWED_VOICES = [
   "en-US-ChristopherMultilingualNeural",
   "en-US-SerenaMultilingualNeural",
   "en-US-DavisMultilingualNeural",
+  // 原版：2019 年那一代。Victor 点名要，和上面的新版并列着让他自己用耳朵挑。
+  "en-US-ChristopherNeural",
 ];
 
 // The same shape generate-audio.js has used for all 1204 existing clips, so a

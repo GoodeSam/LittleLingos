@@ -84,6 +84,24 @@ async function dispatchFetch(listeners, request) {
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
+test("预缓存的每一个文件，都算进了缓存戳", () => {
+  // 2026-09-10 真踩过：icons.js 加进了 sw.js 的预缓存清单，却没加进
+  // scripts/stamp-sw.mjs 的 SOURCES。后果不是「图标没更新」，是**只改 icons.js
+  // 的那次改动永远到不了已安装的用户**——戳不变，缓存不换，客户端一直发旧文件。
+  // stamp-sw 自己的注释写着这条，但没有任何东西在守它，所以它漂了。
+  const swSrc = readFileSync(join(ROOT, "sw.js"), "utf8");
+  const stampSrc = readFileSync(join(ROOT, "scripts/stamp-sw.mjs"), "utf8");
+  const shellBlock = swSrc.match(/const SHELL = \[([\s\S]*?)\];/);
+  assert.ok(shellBlock, "找不到 sw.js 的 SHELL 清单");
+  const sourcesBlock = stampSrc.match(/const SOURCES = \[([\s\S]*?)\];/);
+  assert.ok(sourcesBlock, "找不到 stamp-sw.mjs 的 SOURCES 清单");
+  const shell = [...shellBlock[1].matchAll(/'\.\/([^']+)'/g)].map(m => m[1]).filter(Boolean);
+  const sources = [...sourcesBlock[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+  const missing = shell.filter(f => !sources.includes(f));
+  assert.deepEqual(missing, [],
+    `这些文件进了预缓存却没算进戳，改了它们等于改动发不出去：${missing.join(", ")}`);
+});
+
 test("activate deletes this app's old ll-* caches but leaves other same-origin caches alone", async () => {
   const { listeners, stores } = makeSW();
   stores.set("ll-old1", new Map());

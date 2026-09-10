@@ -24,6 +24,7 @@ const SW_PATH = resolve(REPO, "sw.js");
 // or cache-first clients keep serving the obsolete asset indefinitely.
 const SOURCES = [
   "index.html",
+  "icons.js",
   "scenarios.js",
   "dictionary-words.js",
   "manifest.json",

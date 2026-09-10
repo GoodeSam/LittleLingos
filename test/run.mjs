@@ -117,6 +117,8 @@ if (existsSync(join(ROOT, ".claude/agents"))) {
        ".claude/agents 不在这个检出里（.gitignore 排除了它）—— 这一层验的是本机的编写环境，不是产品");
 }
 
+step("L0 · 老浏览器也跑得起来 (test/browser-floor.test.mjs)", () => run("node", ["test/browser-floor.test.mjs"]));
+
 // L2 · 真浏览器。上面每一层读的都是源码，看不见样式级联、真实布局和事件
 // 接线——2026-09-10 改信息架构那轮，44 层全绿的同时真浏览器里有三个缺陷。
 // 这一层用 Chrome headless + CDP 跑，不装依赖；Chrome 不在就大声跳过，

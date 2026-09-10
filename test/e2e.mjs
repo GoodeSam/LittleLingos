@@ -114,6 +114,30 @@ function makeEval(client) {
   };
 }
 
+// 只挡网络：/api/* 一律由页面内回答，其余照旧走真实请求。付费路径要有码才
+// 走得到，这个假码只活在这张页面里。恶劣环境那一轮每换一张页面都要重新注入。
+function STUB_FETCH() {
+  const real = window.fetch;
+  window.fetch = async (input, init) => {
+    const url = String(input && input.url ? input.url : input);
+    if (url.indexOf("/api/") === -1) return real(input, init);
+    if (url.indexOf("/api/dictionary") !== -1) {
+      return new Response(JSON.stringify({ word: "hug", senses: [
+        { pos: "n.", zh: "抱抱", example: { en: "Give me a hug!", zh: "抱抱我！" }, tip: "张开双臂。" },
+      ] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (url.indexOf("/api/translate") !== -1) {
+      return new Response(JSON.stringify({ en: "You did great today!", zh: "你今天真棒！",
+        tip: "蹲下来看着他说。", related: [{ en: "Nice job!", zh: "做得好！" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    return new Response("", { status: 204 });
+  };
+  try { localStorage.setItem("ll_access", "e2e"); } catch (e) {}
+  if (typeof paintAccessGate === "function") paintAccessGate();
+  return true;
+}
+
 const checks = [];
 function check(name, fn) { checks.push({ name, fn }); }
 
@@ -321,6 +345,162 @@ check("复习卡上「还要练」和「记住了」一样大", async (ev) => {
   assert.deepEqual(r.a, r.g, "两个按钮的字重/圆角/字号不一致——自评会被样式推着走");
 });
 
+// ── 恶劣环境 ────────────────────────────────────────────
+// 目标用户手机上不一定有 Safari / Chrome / Edge，入口常常是微信内置浏览器
+// 或国产 OEM 浏览器。那里可能没有 service worker、没有 IndexedDB，存储也
+// 可能被关掉。下面每一条都在页面脚本跑起来**之前**把对应的东西弄坏，然后
+// 只问一件事：家长还看得见界面吗。
+//
+// 这些不是「功能还在不在」，是「页面还在不在」——一个没保护的存储读取，
+// 家长看到的不是收藏丢了，是一片白。
+const hostiles = [];
+function hostile(name, sabotage, fn) { hostiles.push({ name, sabotage, fn }); }
+
+const ALIVE = () => {
+  const home = document.getElementById("homeScreen");
+  const nav = document.querySelector(".bottom-nav");
+  return {
+    booted: typeof showTab === "function",
+    homeVisible: !!home && home.getClientRects().length > 0,
+    navItems: nav ? nav.querySelectorAll(".nav-item").length : 0,
+    scenarioCards: document.querySelectorAll("#scenarioGrid .scenario-card").length,
+    text: document.body.innerText.trim().length,
+  };
+};
+
+hostile("存储被关掉（微信里可以关，隐私模式下会直接抛）", `
+  const boom = () => { throw new DOMException("denied", "SecurityError"); };
+  try {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get() { return { getItem: boom, setItem: boom, removeItem: boom, clear: boom, key: boom, length: 0 }; },
+    });
+  } catch (e) {}
+`, async (ev) => {
+  const r = await ev(ALIVE);
+  assert.equal(r.booted, true, "存储一抛异常，脚本就没跑完");
+  assert.equal(r.homeVisible, true, "首页没画出来——家长看到的是一片白");
+  assert.equal(r.navItems, 4, `底部只剩 ${r.navItems} 个标签`);
+  assert.ok(r.scenarioCards > 0, "场景一个都没渲染出来");
+});
+
+// 两种形状都要试。第二种是 http:// 这类非安全来源上的真实样子：属性还在，
+// 值却是 undefined——`'serviceWorker' in navigator` 会是 true。
+hostile("没有 service worker（属性整个不在）", `
+  try { Object.defineProperty(navigator, "serviceWorker", { configurable: true, get() { return undefined; } }); } catch (e) {}
+  try { delete Navigator.prototype.serviceWorker; } catch (e) {}
+`, async (ev) => {
+  const r = await ev(ALIVE);
+  assert.equal(r.booted, true, "没有 service worker 就起不来了");
+  assert.equal(r.homeVisible, true, "首页没画出来");
+  assert.ok(r.scenarioCards > 0, "场景一个都没渲染出来");
+});
+
+hostile("service worker 属性在、值却是 undefined（非安全来源的样子）", `
+  try {
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true, enumerable: true, get() { return undefined; },
+    });
+  } catch (e) {}
+`, async (ev) => {
+  const r = await ev(ALIVE);
+  assert.equal(r.booted, true, "这种形状下脚本半路就断了");
+  assert.equal(r.homeVisible, true, "首页没画出来——家长看到的是一片白");
+  assert.ok(r.scenarioCards > 0, "场景一个都没渲染出来");
+  assert.ok(r.text > 50, "页面上几乎没有字");
+});
+
+hostile("没有 IndexedDB（存声音的地方）", `
+  try { Object.defineProperty(window, "indexedDB", { configurable: true, get() { return undefined; } }); } catch (e) {}
+`, async (ev) => {
+  const r = await ev(async () => {
+    const base = (() => {
+      const home = document.getElementById("homeScreen");
+      return { booted: typeof showTab === "function",
+               homeVisible: !!home && home.getClientRects().length > 0 };
+    })();
+    // 收藏仍然要能收——声音存不了是另一回事，不该拖垮收藏本身
+    const band = scenarios.bath.phrases[currentAge] ? currentAge : "1-2";
+    const p = scenarios.bath.phrases[band][0];
+    // toggleSave 是切换：先确保这句还没被收藏，不然这一步等于取消收藏
+    if (savedPhrases.some(x => x.id === p.id)) toggleSave(p.id);
+    const before = savedPhrases.length;
+    let threw = "";
+    try { toggleSave(p.id); } catch (e) { threw = String(e && e.message || e); }
+    await new Promise(res => setTimeout(res, 200));
+    return Object.assign(base, { threw, before, after: savedPhrases.length });
+  });
+  assert.equal(r.booted, true, "没有 IndexedDB 就起不来了");
+  assert.equal(r.homeVisible, true, "首页没画出来");
+  assert.equal(r.threw, "", `收藏时抛了错：${r.threw}`);
+  assert.equal(r.after, r.before + 1, "声音存不了，连收藏本身也做不成了");
+});
+
+hostile("没有语音合成（有些内置浏览器没有）", `
+  try { Object.defineProperty(window, "speechSynthesis", { configurable: true, get() { return undefined; } }); } catch (e) {}
+`, async (ev) => {
+  const r = await ev(async () => {
+    const home = document.getElementById("homeScreen");
+    const base = { booted: typeof showTab === "function",
+                   homeVisible: !!home && home.getClientRects().length > 0 };
+    openScenario("bath");
+    await new Promise(res => setTimeout(res, 200));
+    const btn = document.querySelector("#phraseList .play-btn") || document.querySelector(".play-btn");
+    let threw = "";
+    if (btn) { try { btn.click(); } catch (e) { threw = String(e && e.message || e); } }
+    await new Promise(res => setTimeout(res, 400));
+    return Object.assign(base, { threw, hasBtn: !!btn,
+      label: btn ? btn.textContent.trim() : "" });
+  });
+  assert.equal(r.booted, true, "没有语音合成就起不来了");
+  assert.equal(r.hasBtn, true, "场景里没有朗读按钮");
+  assert.equal(r.threw, "", `点朗读抛了错：${r.threw}`);
+  assert.ok(r.label.length > 0, "朗读按钮上的字没了——家长不知道发生了什么");
+});
+
+hostile("窄屏 320px（老安卓机最常见的宽度）", "", async (ev) => {
+  const r = await ev(() => {
+    const out = { over: [] };
+    const w = document.documentElement.clientWidth;
+    out.width = w;
+    out.scrollW = document.documentElement.scrollWidth;
+    for (const el of document.querySelectorAll("#homeScreen *, .bottom-nav *")) {
+      const b = el.getBoundingClientRect();
+      if (b.width === 0 && b.height === 0) continue;
+      if (b.right > w + 1 || b.left < -1) {
+        out.over.push(String(el.className || el.tagName).split(" ")[0] +
+          ":" + Math.round(b.left) + "→" + Math.round(b.right));
+      }
+    }
+    out.over = Array.from(new Set(out.over)).slice(0, 6);
+    return out;
+  });
+  assert.ok(r.scrollW <= r.width + 1,
+    `整页可以横向滚动（${r.scrollW} > ${r.width}）——在小屏上会左右晃`);
+  assert.deepEqual(r.over, [], `这些元素超出了屏幕：${r.over.join(", ")}`);
+});
+
+hostile("一句很长的话，不该把卡片撑破", "", async (ev) => {
+  const r = await ev(async () => {
+    const w = document.documentElement.clientWidth;
+    showTab("help");
+    document.getElementById("helpInput").value =
+      "这是一句故意写得很长很长的中文，用来看看结果卡会不会被撑破，因为家长真的会一口气打很多字进去而不换行";
+    onHelpInput(); helpSubmit();
+    await new Promise(res => setTimeout(res, 500));
+    const over = [];
+    for (const el of document.querySelectorAll("#helpScreen *")) {
+      const b = el.getBoundingClientRect();
+      if (b.width === 0 && b.height === 0) continue;
+      if (b.right > w + 1) over.push(String(el.className || el.tagName).split(" ")[0]);
+    }
+    return { width: w, scrollW: document.documentElement.scrollWidth,
+             over: Array.from(new Set(over)).slice(0, 6) };
+  });
+  assert.ok(r.scrollW <= r.width + 1, `长句子把页面撑得能横向滚（${r.scrollW} > ${r.width}）`);
+  assert.deepEqual(r.over, [], `这些元素被长句子撑出了屏幕：${r.over.join(", ")}`);
+});
+
 let srv, chrome, profile, client;
 let passed = 0, failed = 0;
 try {
@@ -359,48 +539,71 @@ try {
   // 那对家长是对的（新版本立刻生效），但会在跑到一半时把页面换掉。所以先把它
   // 注销、缓存清掉，再自己重新加载一次，拿到一个确定的、没有 SW 的页面。
   // 这里测的是布局、样式级联和事件接线，SW 只会带来不确定性。
-  await ev(async () => {
-    if (navigator.serviceWorker) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      for (const r of regs) await r.unregister();
+  // 这一步本身可能正好撞上 controllerchange 触发的自动刷新，页面被换掉，
+  // 求值当场失败。重试几次就好——注销是幂等的。
+  for (let i = 0; i < 5; i++) {
+    try {
+      await ev(async () => {
+        if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const r of regs) await r.unregister();
+        }
+        if (window.caches) {
+          const keys = await caches.keys();
+          for (const k of keys) await caches.delete(k);
+        }
+        return true;
+      });
+      break;
+    } catch {
+      await new Promise(r => setTimeout(r, 400));
+      await waitForApp();
     }
-    if (window.caches) {
-      const keys = await caches.keys();
-      for (const k of keys) await caches.delete(k);
-    }
-    return true;
-  });
+  }
   await client.send("Page.navigate", { url: `http://127.0.0.1:${s.port}/index.html` });
   await new Promise(r => setTimeout(r, 400));
   if (!await waitForApp()) throw new Error("清掉 service worker 之后页面没起来");
 
   // 只挡网络。付费路径要有码才走得到，这个假码只活在这个页面里。
-  await ev(() => {
-    const real = window.fetch;
-    window.fetch = async (input, init) => {
-      const url = String(input && input.url ? input.url : input);
-      if (url.indexOf("/api/") === -1) return real(input, init);
-      if (url.indexOf("/api/dictionary") !== -1) {
-        return new Response(JSON.stringify({ word: "hug", senses: [
-          { pos: "n.", zh: "抱抱", example: { en: "Give me a hug!", zh: "抱抱我！" }, tip: "张开双臂。" },
-        ] }), { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-      if (url.indexOf("/api/translate") !== -1) {
-        return new Response(JSON.stringify({ en: "You did great today!", zh: "你今天真棒！",
-          tip: "蹲下来看着他说。", related: [{ en: "Nice job!", zh: "做得好！" }] }),
-          { status: 200, headers: { "Content-Type": "application/json" } });
-      }
-      return new Response("", { status: 204 });
-    };
-    try { localStorage.setItem("ll_access", "e2e"); } catch {}
-    if (typeof paintAccessGate === "function") paintAccessGate();
-    return true;
-  });
+  await ev(STUB_FETCH);
 
   console.log("e2e（真浏览器）");
   for (const c of checks) {
     try { await c.fn(ev); passed++; console.log(`  ✓ ${c.name}`); }
     catch (e) { failed++; console.error(`  ✗ ${c.name}\n    ${e.message}`); }
+  }
+
+  // ── 恶劣环境：每一条都换一张干净的页面重来 ──────────────
+  console.log("\ne2e · 手机上没有主流浏览器时");
+  const NARROW = ["窄屏 320px（老安卓机最常见的宽度）", "一句很长的话，不该把卡片撑破"];
+  for (const h of hostiles) {
+    let handle = null;
+    try {
+      if (h.sabotage) {
+        const r = await client.send("Page.addScriptToEvaluateOnNewDocument", { source: h.sabotage });
+        handle = r.identifier;
+      }
+      if (NARROW.includes(h.name)) {
+        await client.send("Emulation.setDeviceMetricsOverride",
+          { width: 320, height: 640, deviceScaleFactor: 2, mobile: true });
+      }
+      await client.send("Page.navigate", { url: `http://127.0.0.1:${s.port}/index.html` });
+      await new Promise(r => setTimeout(r, 400));
+      if (!await waitForApp()) throw new Error("这个环境下页面没起来");
+      // 网络照旧挡住；这一轮验的是环境，不是网络
+      await ev(STUB_FETCH);
+      await h.fn(ev);
+      passed++; console.log(`  ✓ ${h.name}`);
+    } catch (e) {
+      failed++; console.error(`  ✗ ${h.name}\n    ${e.message}`);
+    } finally {
+      if (handle) {
+        try { await client.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: handle }); } catch {}
+      }
+      if (NARROW.includes(h.name)) {
+        try { await client.send("Emulation.clearDeviceMetricsOverride"); } catch {}
+      }
+    }
   }
 } catch (e) {
   failed++;

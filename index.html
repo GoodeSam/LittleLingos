@@ -147,7 +147,12 @@
     html, body { height: 100%; background: var(--cream); font-family: var(--font-sans); color: var(--text); }
     body {
       display: flex; flex-direction: column;
-      max-width: 430px; margin: 0 auto; min-height: 100vh;
+      max-width: 430px; margin: 0 auto;
+      /* 安卓上地址栏会伸缩，100vh 量的是收起来之后的高度，最后一行会被顶出
+         屏幕。dvh 跟着实际视口走，但要 Chrome 108——所以先写 vh 兜底，
+         认得 dvh 的浏览器再用后面这条覆盖掉。 */
+      min-height: 100vh;
+      min-height: 100dvh;
       /* safe area for iPhone notch / home bar */
       padding-top: env(safe-area-inset-top);
       padding-bottom: env(safe-area-inset-bottom);
@@ -258,7 +263,8 @@
       user-select: none;
     }
     .age-opt.active { border-color: var(--accent); background: var(--tint-accent); color: var(--accent-deep); font-weight: 600; } /* accent on tint was 2.36:1; accent-deep is 4.75:1 */
-    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 100; }
+    /* inset 简写要 Chrome 87；写全四边，老内核也铺得满。下同。 */
+    .overlay { display: none; position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(0,0,0,.35); z-index: 100; }
     .overlay.open { display: block; }
 
     /* ── Today strip ──────────────────────────────────── */
@@ -333,7 +339,7 @@
 
     /* ── Scenario Grid (v2: horizontal tinted-icon rows) ─
        Home-v2 proposal, ported: bottom color bar replaced by a 44px
-       color-mix() tinted icon tile; card becomes a horizontal flex row so
+       tinted icon tile（2026-09-10 起用 token 着色，不再用 color-mix）；card becomes a horizontal flex row so
        more scenarios are visible per screen. The 2-column grid itself is
        unchanged (mock keeps grid-template-columns:1fr 1fr — only the card's
        internal layout goes horizontal). */
@@ -372,7 +378,7 @@
        `1`, so every icon centers against the same fixed reference regardless
        of the font's internal metrics for that particular character.
        Tint: --tint-color is set inline per-card from the scenario's existing
-       color token (JS: renderScenarioGrid()); color-mix() derives a light
+       color token (JS: renderScenarioGrid())；底色现在直接取 token，不再派生自场景色，
        wash so no hardcoded 7-color tint map is needed and the tile always
        tracks the scenario's real color identity. */
     .scenario-card .s-icon-tile {
@@ -617,8 +623,12 @@
        openScenario(). */
     .screen-header .h-icon {
       width: 40px; height: 40px; flex-shrink: 0;
-      border-radius: 12px;
-      background: color-mix(in srgb, var(--tint-color, var(--accent)) 16%, white);
+      border-radius: var(--radius-md);
+      /* 原来这里是 color-mix()，Chrome 111 才有——微信 X5 上整条 background
+         会被忽略，图标底下直接是白的。换成 token，谁都认。 */
+      background: var(--clay-100);
+      color: var(--clay-800);
+      display: flex; align-items: center; justify-content: center;
       font-size: 22px; line-height: 40px; text-align: center;
     }
 
@@ -1319,7 +1329,7 @@
 
     /* iOS install sheet */
     .ios-sheet {
-      display: none; position: fixed; inset: 0; z-index: 400;
+      display: none; position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 400;
       background: rgba(0,0,0,.5); align-items: flex-end;
     }
     .ios-sheet.open { display: flex; }
@@ -1765,7 +1775,7 @@
 <!-- ════════════════════════════════════════════════════
      HOME SCREEN
 ═══════════════════════════════════════════════════════ -->
-<div id="homeScreen" style="display:flex; flex-direction:column; min-height:100vh;">
+<div id="homeScreen" style="display:flex; flex-direction:column; min-height:100vh; min-height:100dvh;">
 
   <!-- Header -->
   <div class="header">
@@ -2168,6 +2178,14 @@ function safeSetItem(key, value) {
   }
 }
 
+// 微信里可以把存储关掉，隐私模式下 localStorage 一读就抛。这三处在启动路径
+// 上，没保护的话家长看到的不是「收藏丢了」，是一片白。读不到就当没关过——
+// 顶多多看一次横幅，比整页打不开好。
+function installDismissed(key) {
+  try { return !!localStorage.getItem(key); }
+  catch { return false; }
+}
+
 function loadUsedToday() {
   try {
     const meta = JSON.parse(localStorage.getItem("ll_used_meta") || "{}");
@@ -2315,7 +2333,7 @@ function renderScenarioGrid() {
     card.onclick = () => openScenario(id);
     // Tinted icon tile (home-v2 bullet 4) replaces the old bottom color bar:
     // --tint-color is set inline from the scenario's existing color token so
-    // the CSS color-mix() wash always tracks the real scenario color, no
+    // 底色现在统一走 token（--clay-100），不再从场景色派生，
     // hardcoded 7-color tint map to keep in sync.
     const tile = document.createElement("div"); tile.className = "s-icon-tile";
     tile.style.setProperty("--tint-color", s.color);
@@ -5443,7 +5461,11 @@ function deriveOfflineReadiness(state) {
 const installEnv = detectInstallEnvironment(navigator.userAgent);
 
 // ── Service Worker ─────────────────────────────────────
-if ('serviceWorker' in navigator) {
+// 判真值而不是判 'serviceWorker' in navigator：在 http:// 这类非安全来源上，
+// 有的内核把属性留着但值是 undefined，那时 `in` 是 true，下一行就抛 TypeError
+// ——而这段是内联脚本，一抛后面所有函数就都不再定义了。家长看到的不是「离线
+// 功能没了」，是一片白。e2e 的「没有 service worker」那两条就是这么抓出来的。
+if (navigator.serviceWorker) {
   // Auto-reload when a new SW takes control — ensures deploys reach users instantly
   let swRefreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -7008,7 +7030,7 @@ if (!isStandalone) {
     // Deliberately does NOT also register beforeinstallprompt or the
     // install-prompt click handler (no double-binding the banner button).
     setTimeout(() => {
-      if (!localStorage.getItem('ll_wechat_install_dismissed')) {
+      if (!installDismissed('ll_wechat_install_dismissed')) {
         document.getElementById('installHeadline').textContent = '微信里无法安装到主屏幕';
         document.getElementById('installSub').textContent = '换个浏览器打开，几秒就能装';
         document.getElementById('installBtn').textContent = '看方法';
@@ -7019,7 +7041,7 @@ if (!isStandalone) {
   } else if (isIOS) {
     // Show iOS install banner after 3s if not already installed
     setTimeout(() => {
-      if (!localStorage.getItem('ll_ios_install_dismissed')) {
+      if (!installDismissed('ll_ios_install_dismissed')) {
         document.getElementById('installBanner').classList.add('show');
         document.getElementById('installBtn').textContent = '查看步骤';
         document.getElementById('installBtn').onclick = openIosSheet;
@@ -7030,7 +7052,7 @@ if (!isStandalone) {
     window.addEventListener('beforeinstallprompt', e => {
       e.preventDefault();
       deferredInstallPrompt = e;
-      if (!localStorage.getItem('ll_install_dismissed')) {
+      if (!installDismissed('ll_install_dismissed')) {
         setTimeout(() => document.getElementById('installBanner').classList.add('show'), 2000);
       }
     });
@@ -7097,7 +7119,7 @@ function llStartApp() {
     // of the shell uses (2026-07-15 visual critique #6, Sev C palette-drift
     // fix). :root vars are already parsed (declared in <head>) before this
     // script runs, so var(--x) resolves correctly in these inline styles.
-    errorOverlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:var(--cream);" +
+    errorOverlay.style.cssText = "position:fixed;top:0;right:0;bottom:0;left:0;z-index:9999;background:var(--cream);" +
       "display:flex;flex-direction:column;align-items:center;justify-content:center;" +
       "gap:16px;padding:32px;text-align:center;font-family:-apple-system,'PingFang SC',sans-serif;";
     // Sub-16px spans bumped to 16px (typography sweep, 2026-07-18): this is

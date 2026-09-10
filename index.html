@@ -847,6 +847,12 @@
     }
     .backup-section:last-child { margin-bottom: calc(var(--nav-h) + var(--space-8)); }
     .voice-options { display: flex; flex-direction: column; gap: var(--space-2); }
+    .voice-group {
+      font-size: var(--text-sm); line-height: var(--lh-sm);
+      font-weight: var(--w-semibold); color: var(--gray-600);
+      margin-top: var(--space-2);
+    }
+    .voice-group:first-child { margin-top: 0; }
     .voice-row {
       display: flex; align-items: center; gap: var(--space-3);
       min-height: var(--touch-min); padding: var(--space-2) var(--space-3);
@@ -1952,8 +1958,8 @@
   <div class="backup-section">
     <div class="backup-title">朗读声音</div>
     <p class="backup-note">
-      你自己存下的句子用这把嗓子念。场景里的预设句子是提前录好的，不跟着换；
-      已经生成过声音的句子也保持原样。
+      你自己存下的句子用这把嗓子念。越靠上的越接近真人。
+      场景里的预设句子是提前录好的，不跟着换；已经生成过声音的句子也保持原样。
     </p>
     <div id="voiceOptions" class="voice-options"></div>
     <div class="backup-status" id="voiceStatus" hidden></div>
@@ -2791,7 +2797,15 @@ function renderVoiceOptions() {
   if (!box) return;
   const current = getVoice();
   box.innerHTML = "";
+  let lastGroup = null;
   for (const opt of VOICE_OPTIONS) {
+    if (opt.group && opt.group !== lastGroup) {
+      const head = document.createElement("div");
+      head.className = "voice-group";
+      head.textContent = opt.group;
+      box.appendChild(head);
+      lastGroup = opt.group;
+    }
     const row = document.createElement("div");
     row.className = "voice-row" + (opt.id === current ? " on" : "");
     row.setAttribute("role", "button");
@@ -6090,12 +6104,23 @@ async function provisionAudio(item, id) {
 //
 // 名单必须和 netlify/functions/tts.mjs 的 ALLOWED_VOICES 一致——那边挡下
 // 名单外的音色，这边列出名单内的，测试比对两份，对不上就红。
+// 分组是按 Azure 的代次分的，越靠上越接近真人。这不是我们的主观排序：
+// Dragon HD 是最新一代，Multilingual 次之，原版是 2019 年那一批。
+// 名单里每一个都在 2026-09-10 用本项目这套 SSML 真打过一次 Azure eastus，
+// 都回了可播的 mp3。
 const VOICE_OPTIONS = [
-  { id: "en-US-JennyNeural",  label: "Jenny",  desc: "温暖女声 · 场景里的预设句子用的就是这把" },
-  { id: "en-US-AriaNeural",   label: "Aria",   desc: "清亮女声" },
-  { id: "en-US-EmmaNeural",   label: "Emma",   desc: "自然女声" },
-  { id: "en-US-GuyNeural",    label: "Guy",    desc: "沉稳男声" },
-  { id: "en-US-AndrewNeural", label: "Andrew", desc: "自然男声" },
+  { id: "en-US-JennyNeural", label: "Jenny · 原版", desc: "温暖女声 · 场景里的预设句子用的就是这把", group: "默认" },
+
+  { id: "en-US-Jenny:DragonHDLatestNeural",   label: "Jenny · 新版", desc: "同一把嗓子的最新一代",   group: "最新一代 · 最接近真人" },
+  { id: "en-US-Ava:DragonHDLatestNeural",     label: "Ava",     desc: "女声 · 从容",       group: "最新一代 · 最接近真人" },
+  { id: "en-US-Emma:DragonHDLatestNeural",    label: "Emma",    desc: "女声 · 轻快",       group: "最新一代 · 最接近真人" },
+  { id: "en-US-Andrew:DragonHDLatestNeural",  label: "Andrew",  desc: "男声 · 从容",       group: "最新一代 · 最接近真人" },
+  { id: "en-US-Brian:DragonHDLatestNeural",   label: "Brian",   desc: "男声 · 温和",       group: "最新一代 · 最接近真人" },
+  { id: "en-US-Steffan:DragonHDLatestNeural", label: "Steffan", desc: "男声 · 沉稳",       group: "最新一代 · 最接近真人" },
+
+  { id: "en-US-ChristopherMultilingualNeural", label: "Christopher", desc: "男声 · 沉稳清晰", group: "新一代" },
+  { id: "en-US-SerenaMultilingualNeural",      label: "Serena",      desc: "女声 · 柔和",     group: "新一代" },
+  { id: "en-US-DavisMultilingualNeural",       label: "Davis",       desc: "男声 · 平实",     group: "新一代" },
 ];
 const DEFAULT_VOICE_ID = VOICE_OPTIONS[0].id;
 const VOICE_KEY = "ll_voice";

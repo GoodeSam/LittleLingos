@@ -39,12 +39,23 @@ const AZURE_TIMEOUT_MS = 10000;
 // 直接拼进去就是一个注入口。名单外的一律在打给 Azure 之前挡下——请求发出去
 // 之后才拒绝，钱一样花掉了。
 export const DEFAULT_VOICE = "en-US-JennyNeural";
+// 名单是 2026-09-10 拿这个订阅在 eastus 实测过的：每一个都用本文件这套 SSML
+// （含 <prosody rate='-20%'>）真打过一次，都回了可播的 mp3，且放慢确实生效
+// ——带 prosody 的音频一致比不带的长。名字里带冒号是 Azure 新一代音色的写法，
+// 这里是精确字符串比对，冒号不需要特别处理。
 export const ALLOWED_VOICES = [
-  DEFAULT_VOICE,        // 温暖女声，1204 条预设片段用的就是它
-  "en-US-AriaNeural",   // 清亮女声
-  "en-US-EmmaNeural",   // 自然女声
-  "en-US-GuyNeural",    // 沉稳男声
-  "en-US-AndrewNeural", // 自然男声
+  DEFAULT_VOICE,                          // Jenny 原版：1204 条预设片段用的就是它
+  // 最新一代（Dragon HD）：目前最接近真人的一批
+  "en-US-Jenny:DragonHDLatestNeural",
+  "en-US-Ava:DragonHDLatestNeural",
+  "en-US-Emma:DragonHDLatestNeural",
+  "en-US-Andrew:DragonHDLatestNeural",
+  "en-US-Brian:DragonHDLatestNeural",
+  "en-US-Steffan:DragonHDLatestNeural",
+  // 新一代（Multilingual）：比原版自然，Christopher 只有这一代有
+  "en-US-ChristopherMultilingualNeural",
+  "en-US-SerenaMultilingualNeural",
+  "en-US-DavisMultilingualNeural",
 ];
 
 // The same shape generate-audio.js has used for all 1204 existing clips, so a

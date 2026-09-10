@@ -141,6 +141,41 @@ test("生成新句子的声音时，把家长挑的那把一起发出去", () =>
     "只发了句子没发音色——家长挑完还是原来那把嗓子");
 });
 
+test("名字里带冒号的新一代音色，一路走到 Azure 都不能被改坏", async () => {
+  // en-US-Ava:DragonHDLatestNeural 这种写法是 Azure 最新一代的命名。
+  // 谁要是好心加一道「清洗」把冒号去掉，这批最接近真人的嗓子会全部失效，
+  // 而白名单比对会先把它挡成 400——所以这条同时守住两头。
+  const colonVoices = ALLOWED_VOICES.filter(v => v.includes(":"));
+  assert.ok(colonVoices.length >= 3, "最新一代那批不在名单里了");
+  await withEnv(ENV_OK, () => withStub(async calls => {
+    for (const v of colonVoices) {
+      const res = await handler(req({ text: SENTENCE, voice: v }));
+      assert.equal(res.status, 200, `${v} 被自己人挡下了`);
+    }
+    for (let i = 0; i < colonVoices.length; i++) {
+      assert.ok(String(calls[i][1].body).includes(colonVoices[i]),
+        `${colonVoices[i]} 发出去时被改写了`);
+    }
+  }));
+});
+
+test("默认那把仍然是预设片段用的那把", () => {
+  // 1204 条预设片段是提前用它生成的文件。默认换成别的，家长自己存的句子
+  // 就会和场景里的句子听着不是一个人在说话。
+  assert.equal(DEFAULT_VOICE, "en-US-JennyNeural");
+  const ctx = loadVoice();
+  assert.equal(ctx.VOICE_OPTIONS[0].id, DEFAULT_VOICE, "默认那把要排在第一个");
+});
+
+test("每一把都归了组，家长才知道哪些更接近真人", () => {
+  const ctx = loadVoice();
+  for (const v of ctx.VOICE_OPTIONS) {
+    assert.ok(v.group && v.group.trim(), `${v.id} 没归组`);
+  }
+  const groups = [...new Set(ctx.VOICE_OPTIONS.map(v => v.group))];
+  assert.ok(groups.length >= 2, "全挤在一组里，等于没分");
+});
+
 console.log("voice choice tests");
 let passed = 0, failed = 0;
 for (const t of tests) {

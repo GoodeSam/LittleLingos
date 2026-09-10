@@ -2038,16 +2038,19 @@
       <div class="privacy-note access-gate-note" id="translateGateNote" hidden></div>
     </div>
     <div>
-      <div class="translate-label">宝宝年龄</div>
+      <!-- 「说给谁听」而不是「宝宝年龄」：这一栏现在也管不是对孩子说的话。
+           成人档走的是另一套提示词——照实翻译，不迁就年龄。 -->
+      <div class="translate-label">说给谁听</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <div class="age-opt active" role="button" tabindex="0" data-tage="1-2" onclick="selectTranslateAge(this,'1-2')">1–2岁</div>
         <div class="age-opt" role="button" tabindex="0" data-tage="2-3" onclick="selectTranslateAge(this,'2-3')">2–3岁</div>
         <div class="age-opt" role="button" tabindex="0" data-tage="3-6" onclick="selectTranslateAge(this,'3-6')">3–6岁</div>
+        <div class="age-opt" role="button" tabindex="0" data-tage="adult" onclick="selectTranslateAge(this,'adult')">成人</div>
       </div>
     </div>
-    <button class="translate-btn" onclick="doTranslate()">翻译成儿童英语</button>
+    <button class="translate-btn" id="translateBtn" onclick="doTranslate()">翻译成儿童英语</button>
     <div class="translate-result" id="translateResult">
-      <div class="result-label">💡 建议这样对宝宝说：</div>
+      <div class="result-label" id="translateResultLabel">建议这样对宝宝说：</div>
       <div class="result-en" id="resultEn"></div>
       <div class="result-zh" id="resultZh"></div>
       <div class="result-tip" id="resultTip"></div>
@@ -2113,7 +2116,9 @@
 <script>
 // ── State ─────────────────────────────────────────────
 const AGE_KEYS = ["0-1", "1-2", "2-3", "3-6"];
-const TRANSLATE_AGE_KEYS = ["1-2", "2-3", "3-6"]; // /api/translate VALID_AGES — no 0-1
+// 和 /api/translate 的 VALID_AGES 一一对应（没有 0-1）。"adult" 是给
+// 「不是对孩子说的话」留的出口：儿童档会把不合年龄的内容改写成幼儿话。
+const TRANSLATE_AGE_KEYS = ["1-2", "2-3", "3-6", "adult"];
 
 // 0-1 has no translate surface (no age-opt, no preset/AI age bucket) — map
 // down to the youngest supported translate band rather than sending an
@@ -4173,12 +4178,31 @@ function syncTranslateAgeUI() {
   document.querySelectorAll("[data-tage]").forEach(e =>
     e.classList.toggle("active", e.dataset.tage === translateAge)
   );
+  syncTranslateCopy();
 }
 
 function selectTranslateAge(el, age) {
   document.querySelectorAll("[data-tage]").forEach(e => e.classList.remove("active"));
   el.classList.add("active");
   translateAge = age;
+  syncTranslateCopy();
+}
+
+// 选了「成人」之后，「翻译成儿童英语」和「确认适合宝宝」这两句就不对了。
+// 一个按钮说着它不会做的事，比按钮丑更糟。
+function syncTranslateCopy() {
+  const adult = translateAge === "adult";
+  const btn = document.getElementById("translateBtn");
+  if (btn && !btn.disabled) btn.textContent = adult ? "翻译成英语" : "翻译成儿童英语";
+  const label = document.getElementById("translateResultLabel");
+  if (label) label.textContent = adult ? "可以这样说：" : "建议这样对宝宝说：";
+  const note = document.getElementById("aiDisclaimer");
+  if (note) note.textContent = translateDisclaimer();
+}
+function translateDisclaimer() {
+  return translateAge === "adult"
+    ? "⚠ AI 即时生成，未经人工审核 — 用之前先自己读一遍。"
+    : "⚠ AI 即时生成，未经人工审核 — 使用前请先读一读，确认适合宝宝。";
 }
 
 function localTranslate(zh) {
@@ -4311,7 +4335,7 @@ async function doTranslate() {
   try {
     const t = await translateChinese(zh, translateAge);
     if (t.ok) {
-      showTranslateResult(t.result, "⚠ AI 即时生成，未经人工审核 — 使用前请先读一读，确认适合宝宝。");
+      showTranslateResult(t.result, translateDisclaimer());
       return;
     }
     // A missing or wrong code is not an outage. Falling through to the local

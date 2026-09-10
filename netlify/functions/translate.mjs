@@ -8,7 +8,11 @@
 //   LL_ACCESS_CODE  — required; without it this endpoint refuses everyone
 import { isAuthorized, refuse } from "./_shared/access.mjs";
 
-const VALID_AGES = new Set(["1-2", "2-3", "3-6"]);
+// 家长要翻的不总是对孩子说的话——给老师请假、跟同事回话、在店里问一句。
+// 这些内容落在儿童档里会被下面第 5 条改写成幼儿话：看起来翻成功了，
+// 其实答非所问。成人档是这条规则的出口。
+export const ADULT_AGE = "adult";
+export const VALID_AGES = new Set(["1-2", "2-3", "3-6", ADULT_AGE]);
 const MAX_INPUT_LEN = 200;
 
 // Real reviewed phrases from scenarios.js, per band — few-shot anchors so the
@@ -18,7 +22,7 @@ const MAX_INPUT_LEN = 200;
 // is lifted verbatim from already-reviewed phrases in scenarios.js (same
 // scenario/band as the primary example), so no new content clearance is
 // needed for these few-shot anchors (rules/02-role-map.md content ownership).
-const FEW_SHOT = {
+export const FEW_SHOT = {
   "1-2": [
     { zh: "宝宝在洗澡，想让他玩水", en: "Let's splash! Kick kick kick!", zh_out: "让我们溅水！踢踢踢！", tip: "带动宝宝双脚踢水，重复的节奏帮助宝宝预测和记住词汇。",
       related: [
@@ -79,18 +83,50 @@ const FEW_SHOT = {
         { en: "Good eating! You tried something new today!", zh: "吃得真好！你今天尝试了新东西！" },
       ] },
   ],
+  [ADULT_AGE]: [
+    { zh: "跟老师说孩子今天有点发烧，想请一天假",
+      en: "He's running a bit of a fever today, so I'm going to keep him home.",
+      zh_out: "他今天有点发烧，我让他在家休息一天。",
+      tip: "给老师发消息最常用的说法，客气但不生硬；孩子是女孩就把 he 换成 she。",
+      related: [
+        { en: "He's not feeling well today — he'll be staying home.", zh: "他今天不太舒服，会待在家里。" },
+        { en: "I'm keeping him home today. He should be back tomorrow.", zh: "今天让他在家。明天应该就能去了。" },
+        { en: "Could you let me know what he misses today?", zh: "今天落下的内容能告诉我一下吗？" },
+      ] },
+    { zh: "跟同事说这件事我要再想想，明天答复你",
+      en: "Let me think it over and get back to you tomorrow.",
+      zh_out: "我再想想，明天答复你。",
+      tip: "工作场合最常用的一句缓冲，语气中性，不显得推脱。",
+      related: [
+        { en: "I'd like to sleep on it. I'll let you know tomorrow.", zh: "我想再想一晚，明天告诉你。" },
+        { en: "Can I get back to you on that tomorrow?", zh: "这件事我明天答复你可以吗？" },
+        { en: "Give me a day to think it through.", zh: "给我一天时间想清楚。" },
+      ] },
+    { zh: "在店里问这个能不能退",
+      en: "Can I return this?",
+      zh_out: "这个可以退吗？",
+      tip: "最直接的问法，店员都懂；想更客气就在前面加一句 Excuse me。",
+      related: [
+        { en: "What's your return policy?", zh: "你们的退货规定是怎样的？" },
+        { en: "I'd like to return this, please. Here's the receipt.", zh: "我想退这个，这是小票。" },
+        { en: "Is it too late to return this?", zh: "现在退还来得及吗？" },
+      ] },
+  ],
 };
 
 const BAND_RULES = {
   "1-2": "Band 1-2 (first words): naming, simple commands, sound-effect words (pop, splash, vroom), high repetition. 2-6 words. Parent invites imitation; a nod or single word is a full response.",
   "2-3": "Band 2-3 (two-word combos → short sentences): questions, choices, simple cause/effect. 4-10 words. Genuine turn-taking — the child is expected to act or answer.",
   "3-6": "Band 3-6 (conversational): reasoning, sequencing, autonomy, specific praise that names the behaviour (never just the trait). Full sentences. Dialogue and multi-step instructions are fine.",
+  [ADULT_AGE]: "Adult English: full adult register. Match the formality of the input — a note to a teacher, a message to a colleague, a question in a shop, a word to a partner. No simplification, no baby talk, no age adaptation.",
 };
 
-function systemPrompt(age) {
+export function systemPrompt(age) {
+  const label = age === ADULT_AGE ? "输入" : "家长输入";
   const examples = FEW_SHOT[age]
-    .map(e => `家长输入: ${e.zh}\n${JSON.stringify({ en: e.en, zh: e.zh_out, tip: e.tip, related: e.related })}`)
+    .map(e => `${label}: ${e.zh}\n${JSON.stringify({ en: e.en, zh: e.zh_out, tip: e.tip, related: e.related })}`)
     .join("\n\n");
+  if (age === ADULT_AGE) return adultPrompt(examples);
   return `You help a Chinese-speaking parent say something to their ${age}-year-old child in English, in a real daily-life moment. The parent types what they want to say in Chinese; you produce what a NATIVE English-speaking parent would actually say in that exact moment.
 
 Non-negotiable rules:
@@ -102,6 +138,26 @@ Non-negotiable rules:
 6. Always include a "related" array of 3 to 5 objects, each {"en": ..., "zh": ...}. These are OTHER genuinely native things a parent could equally say in this SAME situation and age band — different wording, not a rephrase of your primary "en", not a synonym list, not tips. Same bar as rule 1 (native parent-speak) and rule 4 (aligned, warm Chinese) applies to every related item.
 
 Examples of the exact style expected (these are real reviewed phrases from the app, including their "related" alternatives):
+
+${examples}
+
+Respond with JSON only: {"en": ..., "zh": ..., "tip": ..., "related": [{"en": ..., "zh": ...}, ...]}. The "tip" must be in Chinese. "related" must have 3 to 5 items.`;
+}
+
+// 成人档是另一件事，不是儿童档换个数字：儿童档的第 5 条要求「不合年龄就改写」，
+// 那条对孩子是对的，对成人是灾难。所以这里是一套独立的规则，而不是在上面那段
+// 里加 if——两段话各自读得通，谁改都不会顺手动到另一边。
+function adultPrompt(examples) {
+  return `You help a Chinese-speaking adult say something in English. The user types what they want to say in Chinese; you produce what a native English speaker would actually say in that situation.
+
+Non-negotiable rules:
+1. The English must be genuine, natural adult speech — contractions, the rhythm of how people really talk ("Let me think it over", "Can I get back to you?"). NEVER stiff translation-ese.
+2. Translate faithfully. Keep the meaning, the register and the intent as-is — do NOT simplify it, do NOT soften it, and never rewrite it into something said to a child. ${BAND_RULES[ADULT_AGE]}
+3. Always include a "tip": one sentence in Chinese about WHEN and HOW to use it — how formal it sounds, who it suits, or one thing to watch out for. It is a usage note, not a physical action.
+4. The "zh" field is a Chinese rendering of your English — same intent and same register, natural Chinese, NOT a literal gloss. It may differ from the user's input wording.
+5. Always include a "related" array of 3 to 5 objects, each {"en": ..., "zh": ...}: OTHER natural ways an adult could say the same thing in this SAME situation — different wording or a different level of formality, not a synonym list, not tips.
+
+Examples of the exact style expected:
 
 ${examples}
 

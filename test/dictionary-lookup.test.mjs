@@ -434,10 +434,12 @@ test("📖 dictionary CTA renders even when searchPhrases returns >= 3 results",
     "dictionary CTA must not be hidden by the >=3-results AI-CTA threshold");
 });
 
-test("🤖 AI CTA does NOT render when searchPhrases returns >= 3 results (unchanged behavior)", () => {
+// 2026-09-10 候选一：命中够多就把 AI 出口藏起来，家长会以为这句没法翻。
+// 现在不管命中几条都给，本地命中排在前面。
+test("🤖 AI CTA renders even when searchPhrases returns >= 3 results", () => {
   const { ctx, els } = makeEnv({ inputValue: "eat", searchResultCount: 5 });
   ctx.onSearchInput();
-  assert.equal(panelHasClass(els.searchResults, "search-ai-btn"), false);
+  assert.equal(panelHasClass(els.searchResults, "search-ai-btn"), true);
 });
 
 test("both CTAs can render together when searchPhrases returns < 3 results", () => {
@@ -1088,36 +1090,38 @@ test("C7: .dict-save-btn and .dict-update-btn carry touch-action:manipulation an
 // ═══════════════════════════════════════════════════════════════════════
 
 // ── 1: four nav items, one is the dict tab, in the required position ────
-test("bottom nav carries exactly 4 nav-item tabs in order home, dict, saved, translate", () => {
+test("bottom nav carries exactly 4 nav-item tabs in order home, help, review, saved", () => {
   const start = html.indexOf('<div class="bottom-nav">');
   const end = html.indexOf('</div>\n</div>', start);
   assert.ok(start !== -1 && end !== -1, "must find the bottom-nav block");
   const navBlock = html.slice(start, end);
   const tabs = [...navBlock.matchAll(/data-tab="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(tabs, ["home", "dict", "saved", "translate"],
-    "dict must sit at position 2 — right after home, the highest-scan slot — per the spec");
-  // 2026-09-10：导航图标从 emoji 换成 icons.js 的单色线性图标（启动时填进
-  // data-icon 槽），所以不再按 📖 字面比对；标签仍必须是精确的两个字「查词」。
-  assert.match(navBlock, /data-tab="dict"[\s\S]*?<span class="nav-icon"[^>]*><\/span>查词\s*<\/div>/,
-    "dict tab label must be exactly the 2-character 查词, matching 首页/收藏/翻译");
+  // 2026-09-10 候选一：查词与翻译合成「帮我说」，占第 2 位（原来查词的位置，
+  // 理由不变：进来不用先打字就够得着）；复习从收藏底下拿出来占第 3 位。
+  assert.deepEqual(tabs, ["home", "help", "review", "saved"],
+    "help must sit at position 2 — right after home, the highest-scan slot — per the spec");
+  // 图标是 icons.js 的单色线性图标（启动时填进 data-icon 槽），不按字面比对。
+  assert.match(navBlock, /data-tab="help"[\s\S]*?<span class="nav-icon"[^>]*><\/span>帮我说\s*<\/div>/,
+    "help tab label must read 帮我说");
 });
 
 // ── 2: the new screen and its two required ids exist ────────────────────
-test("#dictScreen, #dictInput, #dictScreenPanel exist in index.html", () => {
-  assert.match(html, /id="dictScreen"/);
+test("#helpScreen, #dictInput, #dictScreenPanel exist in index.html", () => {
+  assert.match(html, /id="helpScreen"/);
   assert.match(html, /id="dictInput"/);
   assert.match(html, /id="dictScreenPanel"/);
 });
 
-test("#dictScreen reuses existing control families only — no mic button, lookup button is a full-width block below the input", () => {
-  const start = html.indexOf('id="dictScreen"');
-  const end = html.indexOf('<!-- Age picker overlay -->', start);
+test("#helpScreen reuses existing control families only — no mic button, the submit button sits below the shared input", () => {
+  const start = html.indexOf('id="helpScreen"');
+  const end = html.indexOf('<div class="bottom-nav">', start);
   assert.ok(start !== -1 && end !== -1);
   const block = html.slice(start, end);
-  assert.doesNotMatch(block, /mic-btn/, "the dict screen must not carry a mic button — the shared voice module is zh-CN only");
-  assert.match(block, /class="search-dict-btn"/, "lookup CTA must reuse the teal curated-family button class");
-  // The button must come AFTER the input in DOM order (below it, not beside it).
-  assert.ok(block.indexOf('id="dictInput"') < block.indexOf('class="search-dict-btn"'));
+  assert.doesNotMatch(block, /mic-btn/, "帮我说不该有自己的话筒按钮——共用的那套语音模块只认中文");
+  // 2026-09-10：查词和翻译共用一个输入框和一个提交按钮，按钮在输入框下方。
+  assert.match(block, /class="translate-btn"/, "提交按钮要复用既有的按钮家族");
+  assert.ok(block.indexOf('id="helpInput"') < block.indexOf('class="translate-btn"'),
+    "按钮要在输入框下面，不是旁边");
 });
 
 // ── 3: performDictLookup(query, panelId) renders into the NAMED panel ───
@@ -1228,16 +1232,20 @@ test("home search placeholder signals both intents (Chinese sentence AND English
 });
 
 // ── 6: showTab('dict') opens the screen and resets the panel ────────────
-test("showTab('dict') branch structurally opens #dictScreen and delegates panel reset to resetDictScreenForEntry", () => {
+test("showTab('help') branch structurally opens #helpScreen and still delegates the panel reset", () => {
   const fnStart = html.indexOf("function showTab(tab)");
   assert.ok(fnStart !== -1);
-  const block = html.slice(fnStart, fnStart + 2200);
-  assert.match(block, /document\.getElementById\("dictScreen"\)\.classList\.remove\("open"\)/,
-    "dictScreen must be reset alongside the other screens at the top of showTab");
-  assert.match(block, /tab === "dict"/);
-  assert.match(block, /document\.getElementById\("dictScreen"\)\.classList\.add\("open"\)/);
-  assert.match(block, /resetDictScreenForEntry\(\)/,
-    "the dict branch must delegate its panel/session reset to the tested resetDictScreenForEntry() function");
+  const block = html.slice(fnStart, fnStart + 2600);
+  assert.match(block, /"helpScreen"/,
+    "helpScreen must be reset alongside the other screens at the top of showTab");
+  assert.match(block, /tab === "help"/);
+  assert.match(block, /document\.getElementById\("helpScreen"\)\.classList\.add\("open"\)/);
+  // 进入这一屏的清场仍然走 resetHelpScreen()，它里面调 resetDictScreenForEntry()
+  // 作废在飞的查词请求——那个函数本身另有测试守着。
+  assert.match(block, /resetHelpScreen\(\)/,
+    "进入帮我说要清场，作废上一次在飞的查词");
+  assert.match(html, /function resetHelpScreen[\s\S]{0,300}resetDictScreenForEntry\(\)/,
+    "清场函数必须把查词的会话作废交给既有的那个函数");
 });
 
 test("resetDictScreenForEntry shows the idle hint and populates starter chips on entry", () => {

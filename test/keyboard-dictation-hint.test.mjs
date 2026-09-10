@@ -34,7 +34,9 @@ const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
 test("翻译框旁边说明了可以用键盘上的话筒说话", () => {
-  const at = html.indexOf('id="zhInput"');
+  // 2026-09-10：查词和翻译合并成「帮我说」一屏，家长打字的框是 #helpInput，
+  // 旧的 #zhInput 退成隐藏镜像。这里只换锚点，断言一字未动。
+  const at = html.indexOf('id="helpInput"');
   assert.ok(at !== -1, "翻译输入框不见了");
   const near = html.slice(at, at + 700);
   assert.match(near, /键盘/, "不提键盘的话，家长不知道去哪儿找那个话筒");
@@ -51,7 +53,7 @@ test("搜索框旁边也说明了", () => {
 test("那句话没有把它说成本应用的功能", () => {
   // 说成「本 App 的语音输入」，出问题时家长会来找我们 —— 而我们既没写它
   // 也修不了它。
-  const at = html.indexOf('id="zhInput"');
+  const at = html.indexOf('id="helpInput"');
   const near = html.slice(at, at + 700);
   assert.match(near, /系统|自带|iPhone|手机/,
     "要点明那是系统自带的，不是这个应用做的");

@@ -27,11 +27,14 @@ const html = readFileSync(join(ROOT, "index.html"), "utf8");
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
+// 2026-09-10 候选一：查词+翻译合成「帮我说」，复习独立成屏，
+// 邀请码与备份收进「设置」。清单跟着屏走，断言的意图没变。
 const SCREENS = [
   ["scenarioScreen", "洗澡时间这一页"],
-  ["savedScreen", "收藏 · 复习这一页"],
-  ["translateScreen", "翻译这一页"],
-  ["dictScreen", "查词这一页"],
+  ["savedScreen", "收藏这一页"],
+  ["reviewScreen", "复习这一页"],
+  ["helpScreen", "帮我说这一页"],
+  ["settingsScreen", "设置这一页"],
 ];
 
 const navAt = () => {

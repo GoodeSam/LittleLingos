@@ -117,6 +117,23 @@ if (existsSync(join(ROOT, ".claude/agents"))) {
        ".claude/agents 不在这个检出里（.gitignore 排除了它）—— 这一层验的是本机的编写环境，不是产品");
 }
 
+// L2 · 真浏览器。上面每一层读的都是源码，看不见样式级联、真实布局和事件
+// 接线——2026-09-10 改信息架构那轮，44 层全绿的同时真浏览器里有三个缺陷。
+// 这一层用 Chrome headless + CDP 跑，不装依赖；Chrome 不在就大声跳过，
+// 因为一个没人跑过的层算成绿的，比红的更糟。
+const CHROME_PATHS = [
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium-browser",
+];
+if (CHROME_PATHS.some(p => existsSync(p))) {
+  step("L2 · 真浏览器走一遍 (test/e2e.mjs)", () => run("node", ["test/e2e.mjs"]));
+} else {
+  skip("L2 · 真浏览器走一遍 (test/e2e.mjs)",
+       "这台机器上没有 Chrome —— 样式级联、真实布局、事件接线这一层这次没人验");
+}
+
 if (process.argv.includes("--codex")) {
   step("L3 · codex judge · function (felix-function-critic lens)", () => run("node", ["scripts/codex-eval.mjs", "--lens", "function"]));
   step("L3 · codex judge · visual (vera-visual-critic lens)", () => run("node", ["scripts/codex-eval.mjs", "--lens", "visual"]));

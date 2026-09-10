@@ -34,18 +34,29 @@ const MAX_INPUT_LEN = 300;
 // parent's spinner) open indefinitely.
 const AZURE_TIMEOUT_MS = 10000;
 
-const VOICE = "en-US-JennyNeural";
+// 家长挑哪一把嗓子念给孩子听，是他要模仿的对象，所以这件事该由他定。
+// 名单是白名单而不是黑名单：这个值会被拼进 SSML 的 XML 属性里，任意字符串
+// 直接拼进去就是一个注入口。名单外的一律在打给 Azure 之前挡下——请求发出去
+// 之后才拒绝，钱一样花掉了。
+export const DEFAULT_VOICE = "en-US-JennyNeural";
+export const ALLOWED_VOICES = [
+  DEFAULT_VOICE,        // 温暖女声，1204 条预设片段用的就是它
+  "en-US-AriaNeural",   // 清亮女声
+  "en-US-EmmaNeural",   // 自然女声
+  "en-US-GuyNeural",    // 沉稳男声
+  "en-US-AndrewNeural", // 自然男声
+];
 
 // The same shape generate-audio.js has used for all 1204 existing clips, so a
 // saved phrase sounds like the preset ones rather than noticeably different.
 // Escaping is not cosmetic: this is XML, and a translation containing "Mom &
 // Dad" or a quoted phrase would otherwise break the document or be read out
 // as markup.
-function buildSSML(text) {
+function buildSSML(text, voice) {
   const safe = String(text).replace(/[<>&'"]/g, c => ({
     "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;",
   }[c]));
-  return `<speak version='1.0' xml:lang='en-US'><voice xml:lang='en-US' name='${VOICE}'>`
+  return `<speak version='1.0' xml:lang='en-US'><voice xml:lang='en-US' name='${voice}'>`
        + `<prosody rate='-20%' pitch='+5%'>${safe}</prosody></voice></speak>`;
 }
 
@@ -66,13 +77,21 @@ export default async (req) => {
     return Response.json({ error: "no Azure credentials configured" }, { status: 500 });
   }
 
-  let text;
-  try { ({ text } = await req.json()); }
+  let text, voice;
+  try { ({ text, voice } = await req.json()); }
   catch { return Response.json({ error: "invalid JSON body" }, { status: 400 }); }
 
   text = typeof text === "string" ? text.trim() : "";
   if (!text || text.length > MAX_INPUT_LEN) {
     return Response.json({ error: "invalid input" }, { status: 400 });
+  }
+
+  // 没给就用默认那把；给了就必须在名单里。名单外的在这里就返回，
+  // Azure 一次都不会被打到——注入尝试和拼错一样，都在花钱之前结束。
+  if (voice === undefined || voice === null || voice === "") {
+    voice = DEFAULT_VOICE;
+  } else if (typeof voice !== "string" || !ALLOWED_VOICES.includes(voice)) {
+    return Response.json({ error: "unknown voice" }, { status: 400 });
   }
 
   let res;
@@ -85,7 +104,7 @@ export default async (req) => {
         "X-Microsoft-OutputFormat": "audio-16khz-128kbitrate-mono-mp3",
         "User-Agent": "LittleLingos",
       },
-      body: buildSSML(text),
+      body: buildSSML(text, voice),
       signal: AbortSignal.timeout(AZURE_TIMEOUT_MS),
     });
   } catch {

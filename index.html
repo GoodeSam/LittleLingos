@@ -846,6 +846,32 @@
       box-shadow: var(--shadow-1);
     }
     .backup-section:last-child { margin-bottom: calc(var(--nav-h) + var(--space-8)); }
+    .voice-options { display: flex; flex-direction: column; gap: var(--space-2); }
+    .voice-row {
+      display: flex; align-items: center; gap: var(--space-3);
+      min-height: var(--touch-min); padding: var(--space-2) var(--space-3);
+      border: var(--border-w) solid var(--gray-200); border-radius: var(--radius-md);
+      background: var(--white); cursor: pointer;
+      touch-action: manipulation; user-select: none;
+    }
+    /* 选中态：底色 + 边框 + 一个对勾，三样一起。只换颜色的话，
+       灰度屏幕和色弱的人都读不出来现在选的是哪一把。 */
+    .voice-row.on { background: var(--clay-100); border-color: var(--clay-400); }
+    .voice-mark {
+      width: var(--icon-md); flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--clay-800);
+    }
+    .voice-body { flex: 1; min-width: 0; }
+    .voice-name { font-size: var(--text-base); font-weight: var(--w-semibold); color: var(--gray-900); }
+    .voice-desc { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--gray-600); }
+    .voice-try {
+      flex: 0 0 auto; min-height: var(--touch-min); padding: 0 var(--space-3);
+      font: inherit; font-size: var(--text-sm); font-weight: var(--w-semibold);
+      color: var(--clay-700); background: transparent;
+      border: var(--border-w-strong) solid var(--clay-400); border-radius: var(--radius-md);
+      cursor: pointer; touch-action: manipulation;
+    }
     .backup-title { font-size: var(--text-base); font-weight: var(--w-semibold); color: var(--gray-900); margin-bottom: var(--space-2); }
     .backup-note  { font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--gray-600); margin: 0 0 var(--space-3); }
     .backup-actions { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -1924,6 +1950,16 @@
   </div>
 
   <div class="backup-section">
+    <div class="backup-title">朗读声音</div>
+    <p class="backup-note">
+      你自己存下的句子用这把嗓子念。场景里的预设句子是提前录好的，不跟着换；
+      已经生成过声音的句子也保持原样。
+    </p>
+    <div id="voiceOptions" class="voice-options"></div>
+    <div class="backup-status" id="voiceStatus" hidden></div>
+  </div>
+
+  <div class="backup-section">
     <div class="backup-title">备份与恢复</div>
     <p class="backup-note">
       收藏和复习进度只存在这台设备上。删除主屏幕图标或换手机都会丢失，
@@ -2682,6 +2718,7 @@ function showTab(tab) {
     document.getElementById("settingsScreen").classList.add("open");
     syncAccessCodeInput();
     paintStandaloneNote();
+    renderVoiceOptions();
   } else if (tab === "help") {
     document.getElementById("helpScreen").classList.add("open");
     // 每次进来都是干净的：两间房收起、提示收起，只留输入框和常用词。
@@ -2746,6 +2783,74 @@ function helpSubmit() {
   }
   paintAccessGate();
 }
+// 设置里那一排嗓子。选中的那一条用 tint 底色 + 一个对勾，不是只换颜色——
+// 只靠颜色表达状态，色弱的人和灰度截图都读不出来。
+const VOICE_SAMPLE = "Time for bed. Good night, sweetie.";
+function renderVoiceOptions() {
+  const box = document.getElementById("voiceOptions");
+  if (!box) return;
+  const current = getVoice();
+  box.innerHTML = "";
+  for (const opt of VOICE_OPTIONS) {
+    const row = document.createElement("div");
+    row.className = "voice-row" + (opt.id === current ? " on" : "");
+    row.setAttribute("role", "button");
+    row.setAttribute("tabindex", "0");
+    row.setAttribute("aria-pressed", opt.id === current ? "true" : "false");
+    row.onclick = () => {
+      if (!setVoice(opt.id)) return;
+      renderVoiceOptions();
+      showVoiceStatus(`以后新存的句子用 ${opt.label} 念。`);
+    };
+    const mark = document.createElement("span");
+    mark.className = "voice-mark";
+    if (opt.id === current) mark.innerHTML = (typeof llIcon === "function" && llIcon("ui", "check")) || "✓";
+    const body = document.createElement("div");
+    body.className = "voice-body";
+    const name = document.createElement("div");
+    name.className = "voice-name"; name.textContent = opt.label;
+    const desc = document.createElement("div");
+    desc.className = "voice-desc"; desc.textContent = opt.desc;
+    body.append(name, desc);
+    const tryBtn = document.createElement("button");
+    tryBtn.type = "button";
+    tryBtn.className = "voice-try";
+    tryBtn.textContent = "试听";
+    tryBtn.onclick = (e) => { e.stopPropagation(); previewVoice(opt); };
+    row.append(mark, body, tryBtn);
+    box.appendChild(row);
+  }
+}
+function showVoiceStatus(msg) {
+  const el = document.getElementById("voiceStatus");
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = !msg;
+}
+// 试听是一次真的生成：家长当场听见的就是以后会听见的。也是唯一能证明
+// 这把嗓子在我们这个 Azure 区域真的可用的办法——不可用就当场说出来，
+// 而不是等到他存了句子才发现没有声音。
+let voicePreviewBusy = false;
+async function previewVoice(opt) {
+  if (voicePreviewBusy) return;
+  if (!getAccessCode()) { showVoiceStatus("试听要先填上面的邀请码。"); return; }
+  voicePreviewBusy = true;
+  showVoiceStatus(`正在生成 ${opt.label} 的试听…`);
+  try {
+    const res = await ttsFetch(VOICE_SAMPLE, opt.id);
+    if (!res.ok) { showVoiceStatus(`${opt.label} 这把嗓子现在用不了，换一把试试。`); return; }
+    const url = URL.createObjectURL(await res.blob());
+    const audio = new Audio(url);
+    audio.onended = () => URL.revokeObjectURL(url);
+    await audio.play();
+    showVoiceStatus(`这是 ${opt.label}。`);
+  } catch {
+    showVoiceStatus("连不上网，试听失败。");
+  } finally {
+    voicePreviewBusy = false;
+  }
+}
+
 // 主屏幕打开的和浏览器里打开的是两个独立空间，这句话只对装过主屏幕的人成立。
 function paintStandaloneNote() {
   const el = document.getElementById("standaloneNote");
@@ -5925,6 +6030,17 @@ function requestAudio(item) {
   return provisionAudio(item, id);
 }
 
+// 要花钱的语音生成只有这一个出口：付费端点、凭据、音色，三件事写在一处。
+// 存句子和设置里的试听都走它——两个地方各自去拼凭据和音色，
+// 迟早有一处会漏掉其中一样。
+function ttsFetch(text, voice) {
+  return fetch("/api/tts", {
+    method: "POST",
+    headers: accessHeaders(),
+    body: JSON.stringify({ text, voice }),
+  });
+}
+
 async function provisionAudio(item, id) {
   try {
     // A restored backup, a re-saved phrase, a fresh page load — all of these
@@ -5939,11 +6055,7 @@ async function provisionAudio(item, id) {
     // Only the English goes out. The Chinese is what the parent typed; it is
     // useless for speech and every field sent needlessly is exposure earned
     // for nothing.
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      headers: accessHeaders(),
-      body: JSON.stringify({ text: item.en }),
-    });
+    const res = await ttsFetch(item.en, getVoice());
     if (!res.ok) return false;
     // Generated and paid for, but not stored, is worse than not generated —
     // it looks like it worked. putAudio() reporting false is the only way to
@@ -5971,6 +6083,35 @@ async function provisionAudio(item, id) {
     }
   }
 }
+
+/* ll:voice:start */
+// 家长挑哪一把嗓子念给孩子听。这一段刻意只碰 localStorage，不碰 DOM，
+// 好让 test/voice-choice.test.mjs 在一个空的沙箱里跑它。
+//
+// 名单必须和 netlify/functions/tts.mjs 的 ALLOWED_VOICES 一致——那边挡下
+// 名单外的音色，这边列出名单内的，测试比对两份，对不上就红。
+const VOICE_OPTIONS = [
+  { id: "en-US-JennyNeural",  label: "Jenny",  desc: "温暖女声 · 场景里的预设句子用的就是这把" },
+  { id: "en-US-AriaNeural",   label: "Aria",   desc: "清亮女声" },
+  { id: "en-US-EmmaNeural",   label: "Emma",   desc: "自然女声" },
+  { id: "en-US-GuyNeural",    label: "Guy",    desc: "沉稳男声" },
+  { id: "en-US-AndrewNeural", label: "Andrew", desc: "自然男声" },
+];
+const DEFAULT_VOICE_ID = VOICE_OPTIONS[0].id;
+const VOICE_KEY = "ll_voice";
+
+// 手机里存着一个已经下架的音色时，退回默认——而不是从此每句话都生成失败。
+function getVoice() {
+  let v = null;
+  try { v = localStorage.getItem(VOICE_KEY); } catch {}
+  return VOICE_OPTIONS.some(o => o.id === v) ? v : DEFAULT_VOICE_ID;
+}
+function setVoice(id) {
+  if (!VOICE_OPTIONS.some(o => o.id === id)) return false;
+  try { localStorage.setItem(VOICE_KEY, id); } catch {}
+  return true;
+}
+/* ll:voice:end */
 
 // Voice a translation the moment it arrives, before it is saved.
 //

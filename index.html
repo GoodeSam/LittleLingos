@@ -3224,6 +3224,7 @@ function speakPhrase(id, btn, rate) {
     // MP3 load failed AND there's no browser speech-synthesis to fall back
     // to — surface that visibly instead of leaving the tap unanswered.
     if (!window.speechSynthesis) { flashAudioUnavailable(btn); return; }
+    noteBrowserVoice();
     const spokenRate = rate ?? 0.82;
     const say = () => {
       if (!isCurrent()) return;
@@ -4379,6 +4380,18 @@ async function doTranslate() {
 // (playReviewAudio's MP3-error fallback) passes it through so a stale
 // fallback can't fire after a newer playback started; direct callers
 // (playResultAudio) default to the current session.
+// 取不到生成好的片段时会退回手机自带的语音合成。那是完全另一把嗓子，
+// 界面上一个字不说的话，家长只会觉得这软件时好时坏。一次会话只说一遍，
+// 说多了就成噪音。
+let browserVoiceNoted = false;
+function noteBrowserVoice() {
+  if (browserVoiceNoted) return;
+  browserVoiceNoted = true;
+  if (typeof showOfflineToast === "function") {
+    showOfflineToast("这句还没生成好，先用手机自带的声音念");
+  }
+}
+
 function speakText(text, rate, btn, session = playbackSession) {
   const isCurrent = () => session === playbackSession;
   if (!isCurrent()) return;
@@ -4388,6 +4401,7 @@ function speakText(text, rate, btn, session = playbackSession) {
   // idle in silence.
   if (!window.speechSynthesis) { flashAudioUnavailable(btn); return; }
   if (!text) { resetPlayBtnState(btn); return; }
+  noteBrowserVoice();
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
   utter.lang = "en-US"; utter.rate = rate || 0.85; utter.pitch = 1.1;
@@ -5638,10 +5652,17 @@ function deleteCustomScenario(id) {
 //
 // One save implementation for both. Copying the decision is what caused two
 // separate bugs in this delivery already (tech-constraints C13).
+// Date.now() 只到毫秒。批量翻译时命中缓存的几句返回极快，两句落在同一
+// 毫秒完全可能——撞了之后后一句的音频存在前一句的键上，家长点前一句听到
+// 的是后一句。加一个只增不减的序号，同一毫秒里也各是各的。
+let localIdSeq = 0;
+function newLocalId() {
+  return "t_" + Date.now() + "_" + (++localIdSeq).toString(36);
+}
+
 function assignTranslationIds(result) {
   if (!result || !result.en) return;
-  const stamp = Date.now();
-  if (!result.id) result.id = "t_" + stamp;
+  if (!result.id) result.id = newLocalId();
   const related = Array.isArray(result.related) ? result.related : [];
   related.forEach((r, i) => {
     // Suffixed rather than re-stamped: several ids minted in the same
@@ -5731,7 +5752,7 @@ function isAlreadySaved(en) {
 function saveTranslatedPhrase(entry) {
   if (!entry || !entry.en) return false;
   if (isAlreadySaved(entry.en)) return false;
-  if (!entry.id) entry.id = "t_" + Date.now();
+  if (!entry.id) entry.id = newLocalId();
   savedPhrases.push({
     id: entry.id,
     en: entry.en,
@@ -6321,13 +6342,36 @@ function audioOp(mode, run) {
 
 // true only if the bytes are actually on the device now. The caller decides
 // what to say when this is false; what it must not do is assume success.
+// 片段的存储键里带上音色。原来只按句子 id 存，于是 provisionAudio 第一行的
+// hasAudio(id) 会直接短路——家长换了嗓子，旧片段永远不会重做，同一个收藏
+// 列表里早存的是旧音色、新存的是新音色。这就是「时而这把、时而那把」的主因。
+//
+// 默认那把仍然用裸 id：已经装了的家长手机上那批付过钱的片段照旧命中，不作废。
+// 换成别的音色就是另一个键——新音色会重新生成，换回去时旧片段还在，不用再花一次钱。
+function clipKey(id) {
+  const fallback = typeof DEFAULT_VOICE_ID === "string" ? DEFAULT_VOICE_ID : null;
+  const v = typeof getVoice === "function" ? getVoice() : fallback;
+  return (!v || v === fallback) ? String(id) : String(id) + "@" + v;
+}
+
+// 一句话在设备上可能有好几把嗓子的副本。删的时候要一起删，不然家长删掉一句，
+// 别的音色那几份还赖在手机里占空间，而且谁也找不到它们。
+function allClipKeys(id) {
+  const keys = [String(id)];
+  const opts = typeof VOICE_OPTIONS !== "undefined" && Array.isArray(VOICE_OPTIONS) ? VOICE_OPTIONS : [];
+  for (const o of opts) {
+    if (o && o.id) keys.push(String(id) + "@" + o.id);
+  }
+  return keys;
+}
+
 async function putAudio(id, blob) {
-  const r = await audioOp("readwrite", s => s.put(blob, id));
+  const r = await audioOp("readwrite", s => s.put(blob, clipKey(id)));
   return !r.failed;
 }
 
 async function getAudio(id) {
-  const r = await audioOp("readonly", s => s.get(id));
+  const r = await audioOp("readonly", s => s.get(clipKey(id)));
   return r.failed ? null : (r.value ?? null);
 }
 
@@ -6335,12 +6379,14 @@ async function getAudio(id) {
 // rows, and pulling ~52KB per row to draw an icon is what makes a list stutter
 // on an older phone.
 async function hasAudio(id) {
-  const r = await audioOp("readonly", s => s.count(id));
+  const r = await audioOp("readonly", s => s.count(clipKey(id)));
   return !r.failed && r.value > 0;
 }
 
 async function deleteAudio(id) {
-  await audioOp("readwrite", s => s.delete(id));
+  for (const k of allClipKeys(id)) {
+    await audioOp("readwrite", s => s.delete(k));
+  }
 }
 
 // The batch form of hasAudio(), for rendering a list in one pass instead of
@@ -6352,7 +6398,12 @@ async function whichHaveAudio(ids) {
   if (!wanted.size) return new Set();
   const r = await audioOp("readonly", s => s.getAllKeys());
   if (r.failed) return new Set();
-  return new Set((r.value || []).filter(k => wanted.has(k)));
+  // 存的键现在可能带音色后缀。只认当前这把嗓子的那一份——把旧音色的副本
+  // 当成「有声音」的话，列表上标着有，点下去却是另一把嗓子在念。
+  const have = new Set(r.value || []);
+  const out = new Set();
+  for (const id of wanted) { if (have.has(clipKey(id))) out.add(id); }
+  return out;
 }
 /* ll:audio-store:end */
 

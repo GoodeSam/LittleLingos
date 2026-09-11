@@ -316,6 +316,59 @@ check("能点的东西都够得着（≥44px）", async (ev) => {
   assert.deepEqual(small, [], `这些点起来太小：${small.join(", ")}`);
 });
 
+check("换了嗓子，同一句话重新生成；换回去时旧的那份还在", async (ev) => {
+  // 这是「时而这把、时而那把」的主因：片段原来只按句子 id 存，换了音色
+  // hasAudio 直接短路，旧声音永远发下去。这一条走真实的 IndexedDB，
+  // 只把打给 /api/tts 的请求截下来，看它到底用哪把嗓子问、问了几次。
+  const r = await ev(async () => {
+    const calls = [];
+    const real = window.fetch;
+    window.fetch = async (input, init) => {
+      const url = String(input && input.url ? input.url : input);
+      if (url.indexOf("/api/tts") !== -1) {
+        try { calls.push(JSON.parse(init.body).voice); } catch (e) { calls.push("?"); }
+        return new Response(new Blob([new Uint8Array([1, 2, 3])], { type: "audio/mpeg" }),
+          { status: 200, headers: { "Content-Type": "audio/mpeg" } });
+      }
+      return real(input, init);
+    };
+    // 从当前清单里取两把，不写死——音色列表改过一次，写死的那个已经不在了，
+    // setVoice 会正确地拒绝它，而测试会误以为是产品坏了。
+    const JENNY = DEFAULT_VOICE_ID;
+    const OTHER = (VOICE_OPTIONS.find(o => o.id !== JENNY) || {}).id;
+    if (!OTHER) return { skip: "清单里只有一把嗓子" };
+    const item = { id: "e2e_voice_probe", en: "Time for bed, sweetie." };
+    await deleteAudio(item.id);
+
+    setVoice(JENNY);
+    await provisionAudio(item, item.id);
+    const underJenny = await hasAudio(item.id);
+
+    if (!setVoice(OTHER)) return { skip: "换不过去：" + OTHER };
+    const rightAfterSwitch = await hasAudio(item.id);
+    await provisionAudio(item, item.id);
+    const underOther = await hasAudio(item.id);
+
+    setVoice(JENNY);
+    const backToJenny = await hasAudio(item.id);
+
+    await deleteAudio(item.id);
+    setVoice(OTHER);
+    const goneAfterDelete = await hasAudio(item.id);
+    setVoice(JENNY);
+    window.fetch = real;
+    return { calls, want: [JENNY, OTHER], underJenny, rightAfterSwitch, underOther, backToJenny, goneAfterDelete };
+  });
+  assert.ok(!r.skip, `这一条没跑起来：${r.skip}`);
+  assert.equal(r.underJenny, true, "第一把嗓子的片段没存下来");
+  assert.equal(r.rightAfterSwitch, false,
+    "换了嗓子之后还认为已经有片段了——这正是旧声音一直发下去的原因");
+  assert.equal(r.underOther, true, "换了嗓子之后没能重新生成");
+  assert.equal(r.backToJenny, true, "换回去时旧片段没了，等于要再花一次钱");
+  assert.deepEqual(r.calls, r.want, `打出去的音色不对：${r.calls.join(", ")}`);
+  assert.equal(r.goneAfterDelete, false, "删掉之后，别的音色那份还赖在手机里");
+});
+
 check("复习卡上「还要练」和「记住了」一样大", async (ev) => {
   const r = await ev(async () => {
     showTab("home");

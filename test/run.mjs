@@ -88,6 +88,7 @@ step("L0 · first-value path for a new parent (test/first-value-path.test.mjs)",
 step("L0 · access gate is legible before it blocks (test/access-gate-legible.test.mjs)", () => run("node", ["test/access-gate-legible.test.mjs"]));
 step("L0 · asking a parent for their own words (test/own-words.test.mjs)", () => run("node", ["test/own-words.test.mjs"]));
 step("L0 · mining a transcript for habits (test/transcript-mine.test.mjs)", () => run("node", ["test/transcript-mine.test.mjs"]));
+step("L0 · one voice, not several (test/voice-consistency.test.mjs)", () => run("node", ["test/voice-consistency.test.mjs"]));
 step("L0 · translating adult content (test/adult-translate.test.mjs)", () => run("node", ["test/adult-translate.test.mjs"]));
 step("L0 · choosing the reading voice (test/voice-choice.test.mjs)", () => run("node", ["test/voice-choice.test.mjs"]));
 step("L0 · candidate-one navigation (test/nav-candidate1.test.mjs)", () => run("node", ["test/nav-candidate1.test.mjs"]));

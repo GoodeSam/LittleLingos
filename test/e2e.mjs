@@ -369,6 +369,48 @@ check("换了嗓子，同一句话重新生成；换回去时旧的那份还在"
   assert.equal(r.goneAfterDelete, false, "删掉之后，别的音色那份还赖在手机里");
 });
 
+check("中文提示用中文那把嗓子生成，换英文音色不会把它作废", async (ev) => {
+  // 连播里每句英文之前那句中文，原来是手机自带的合成念的，音质差。改成
+  // Azure 之后要守住两件事：用的是中文那把嘴；它自成一路，家长换英文音色
+  // 不会把所有中文提示一起作废重生成——那是白花钱，中文听起来还一点没变。
+  const r = await ev(async () => {
+    const calls = [];
+    const real = window.fetch;
+    window.fetch = async (input, init) => {
+      const url = String(input && input.url ? input.url : input);
+      if (url.indexOf("/api/tts") !== -1) {
+        try { calls.push(JSON.parse(init.body).voice); } catch (e) { calls.push("?"); }
+        return new Response(new Blob([new Uint8Array([1, 2, 3])], { type: "audio/mpeg" }),
+          { status: 200, headers: { "Content-Type": "audio/mpeg" } });
+      }
+      return real(input, init);
+    };
+    const item = { id: "e2e_cue_probe", en: "Time for bed.", zh: "该睡觉了" };
+    await deleteAudio(item.id);
+    setVoice(DEFAULT_VOICE_ID);
+    await provisionCue(item);
+    const madeCue = await hasAudio("zh:" + item.id);
+    const hasUrl = !!audioUrlFor("zh:" + item.id);
+
+    const other = (VOICE_OPTIONS.find(o => o.id !== DEFAULT_VOICE_ID) || {}).id;
+    if (other) setVoice(other);
+    const survivesVoiceChange = await hasAudio("zh:" + item.id);
+
+    setVoice(DEFAULT_VOICE_ID);
+    await deleteAudio(item.id);
+    const goneAfterDelete = await hasAudio("zh:" + item.id);
+    window.fetch = real;
+    return { calls, madeCue, hasUrl, survivesVoiceChange, goneAfterDelete, cue: CUE_VOICE_ID };
+  });
+  assert.deepEqual(r.calls, [r.cue], `中文提示不是用中文那把嘴生成的：${r.calls.join(", ")}`);
+  assert.equal(r.madeCue, true, "中文提示没存下来");
+  assert.equal(r.hasUrl, true,
+    "存下来了但地址没备好——连播时还是会退回手机自带的合成");
+  assert.equal(r.survivesVoiceChange, true,
+    "换了英文音色，中文提示被作废了：白花一次钱，而中文听起来一点没变");
+  assert.equal(r.goneAfterDelete, false, "删掉这句话，它的中文提示还赖在手机里");
+});
+
 check("复习卡上「还要练」和「记住了」一样大", async (ev) => {
   const r = await ev(async () => {
     showTab("home");

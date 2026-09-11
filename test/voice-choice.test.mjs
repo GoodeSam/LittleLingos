@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
-const { default: handler, ALLOWED_VOICES, DEFAULT_VOICE } =
+const { default: handler, ALLOWED_VOICES, DEFAULT_VOICE, CUE_VOICE } =
   await import("../netlify/functions/tts.mjs");
 
 const CODE = "test-access-code-1234";
@@ -118,8 +118,16 @@ test("设置里能挑，列出来的和服务端认的是同一批", () => {
   assert.ok(Array.isArray(ctx.VOICE_OPTIONS) && ctx.VOICE_OPTIONS.length >= 2,
     "设置里至少得有两把嗓子可挑");
   const ids = ctx.VOICE_OPTIONS.map(v => v.id);
-  assert.deepEqual([...ids].sort(), [...ALLOWED_VOICES].sort(),
-    "界面上列的和服务端认的对不上——挑了会失败，而且没人会红");
+  // 2026-09-11 起服务端多认一把中文嗓子（连播里的中文提示用），它是内部用的，
+  // 不该出现在选择器里——那是给英文句子挑嗓子的地方。所以这里从「完全相等」
+  // 改成「界面列的必须都被服务端认」，并单独守住中文那把不外露。
+  // 比长度而不是 deepEqual：ids 是从沙箱里的数组派生出来的，它的原型不是
+  // 宿主那个 Array，严格深比较会因为跨 realm 而不相等，报出一个看不懂的空数组。
+  const notAllowed = ids.filter(id => !ALLOWED_VOICES.includes(id));
+  assert.equal(notAllowed.length, 0,
+    `界面上列了服务端不认的音色，挑了会失败：${notAllowed.join(", ")}`);
+  assert.ok(!ids.includes(CUE_VOICE),
+    "中文提示那把嗓子被摆进了英文音色的选择器");
   for (const v of ctx.VOICE_OPTIONS) {
     assert.ok(v.label && v.label.trim(), `${v.id} 没有给家长看的名字`);
   }
@@ -174,6 +182,38 @@ test("每一把都归了组，家长才知道哪些更接近真人", () => {
   }
   const groups = [...new Set(ctx.VOICE_OPTIONS.map(v => v.group))];
   assert.ok(groups.length >= 2, "全挤在一组里，等于没分");
+});
+
+// ══ 中文提示也走 Azure（2026-09-11）═══════════════════════════════════
+// 连播里的中文提示原来是手机自带的语音合成念的，音质差，国产浏览器和微信里
+// 尤其糟。改成 Azure 生成之后，服务端得认中文音色，而且 SSML 的语言必须跟着
+// 音色走——拿英文的 xml:lang 去念中文，出来的是一串怪音。
+
+test("中文音色在名单里", () => {
+  assert.ok(CUE_VOICE, "没有指定中文提示用哪把嗓子");
+  assert.ok(ALLOWED_VOICES.includes(CUE_VOICE),
+    `${CUE_VOICE} 不在服务端认的名单里——中文提示会一直生成失败`);
+});
+
+test("SSML 的语言跟着音色走，不是写死 en-US", async () => {
+  await withEnv(ENV_OK, () => withStub(async calls => {
+    const zh = await handler(req({ text: "宝宝，该睡觉了。", voice: CUE_VOICE }));
+    assert.equal(zh.status, 200);
+    const zhBody = String(calls[0][1].body);
+    assert.match(zhBody, /xml:lang='zh-CN'/, `中文用的还是别的语言：${zhBody.slice(0, 120)}`);
+    assert.ok(zhBody.includes(CUE_VOICE), "发出去的不是中文那把嗓子");
+
+    const en = await handler(req({ text: SENTENCE }));
+    assert.equal(en.status, 200);
+    const enBody = String(calls[1][1].body);
+    assert.match(enBody, /xml:lang='en-US'/, "英文的语言被改坏了");
+  }));
+});
+
+test("英文那句刻意的放慢没有被中文改掉", () => {
+  // rate='-20%' 是给学发音的家长用的。加中文支持时最容易顺手把它抹平。
+  const src = readFileSync(join(ROOT, "netlify/functions/tts.mjs"), "utf8");
+  assert.match(src, /rate='-20%'/, "英文的放慢没了");
 });
 
 console.log("voice choice tests");

@@ -39,6 +39,9 @@ const AZURE_TIMEOUT_MS = 10000;
 // 直接拼进去就是一个注入口。名单外的一律在打给 Azure 之前挡下——请求发出去
 // 之后才拒绝，钱一样花掉了。
 export const DEFAULT_VOICE = "en-US-JennyNeural";
+// 中文提示固定用这一把：新一代，吐字清楚，念短句稳。它不跟着家长挑的英文
+// 音色走——那是两种语言，各用各的嘴。
+export const CUE_VOICE = "zh-CN-XiaoxiaoMultilingualNeural";
 // 名单是 2026-09-10 拿这个订阅在 eastus 实测过的：每一个都用本文件这套 SSML
 // （含 <prosody rate='-20%'>）真打过一次，都回了可播的 mp3，且放慢确实生效
 // ——带 prosody 的音频一致比不带的长。名字里带冒号是 Azure 新一代音色的写法，
@@ -58,6 +61,11 @@ export const ALLOWED_VOICES = [
   "en-US-DavisMultilingualNeural",
   // 原版：2019 年那一代。Victor 点名要，和上面的新版并列着让他自己用耳朵挑。
   "en-US-ChristopherNeural",
+  // 中文提示（2026-09-11）。连播里每句英文之前先念一遍中文，让家长自己先
+  // 想一次。原来那句中文是手机自带的语音合成念的——国产浏览器和微信里音质
+  // 很差，有的干脆没有中文嗓子。2026-09-11 拿这个订阅在 eastus 实打过，
+  // 用本文件这套 SSML 返回可播的 mp3。
+  CUE_VOICE,
 ];
 
 // The same shape generate-audio.js has used for all 1204 existing clips, so a
@@ -65,12 +73,23 @@ export const ALLOWED_VOICES = [
 // Escaping is not cosmetic: this is XML, and a translation containing "Mom &
 // Dad" or a quoted phrase would otherwise break the document or be read out
 // as markup.
+// 语言必须跟着音色走。拿 en-US 的 xml:lang 去念中文，出来的是一串怪音。
+// 从音色名的前两段取，zh-CN-XiaoxiaoMultilingualNeural → zh-CN。
+function localeOf(voice) {
+  const m = String(voice || "").match(/^([a-z]{2}-[A-Z]{2})-/);
+  return m ? m[1] : "en-US";
+}
+
 function buildSSML(text, voice) {
   const safe = String(text).replace(/[<>&'"]/g, c => ({
     "<": "&lt;", ">": "&gt;", "&": "&amp;", "'": "&apos;", '"': "&quot;",
   }[c]));
-  return `<speak version='1.0' xml:lang='en-US'><voice xml:lang='en-US' name='${voice}'>`
-       + `<prosody rate='-20%' pitch='+5%'>${safe}</prosody></voice></speak>`;
+  const lang = localeOf(voice);
+  // 英文那句刻意放慢 20%、略微提高音高：家长要照着念给孩子听。中文只是一句
+  // 提示，不是要模仿的对象，放慢一点点就够，音高不动。
+  const prosody = lang === "en-US" ? `rate='-20%' pitch='+5%'` : `rate='-10%'`;
+  return `<speak version='1.0' xml:lang='${lang}'><voice xml:lang='${lang}' name='${voice}'>`
+       + `<prosody ${prosody}>${safe}</prosody></voice></speak>`;
 }
 
 export default async (req) => {

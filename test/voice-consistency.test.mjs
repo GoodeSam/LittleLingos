@@ -136,10 +136,38 @@ test("列表上的「有声音」标记也只认当前这把嗓子", () => {
   assert.doesNotMatch(fn[0], /wanted\.has\(k\)/, "还在拿原始存储键跟句子 id 直接比");
 });
 
+test("中文提示自成一路：不跟着英文音色走，也不共用一个键", () => {
+  // 连播里的中文提示是另一把嗓子（中文的）。它要是跟着家长挑的英文音色
+  // 分键，家长每换一次英文嗓子，所有中文提示就全部作废重生成——白花钱，
+  // 而且中文听起来一点没变。
+  const src = fragment("audio-store");
+  const fn = src.match(/function clipKey[\s\S]*?\n\}/);
+  assert.ok(fn, "找不到 clipKey");
+  assert.match(fn[0], /zh:/, "clipKey 没有把中文提示单独认出来");
+  assert.match(fn[0], /CUE_VOICE_ID/, "中文提示没有用它自己那把嗓子分键");
+});
+
+test("删一句话时，它的中文提示也一起删", () => {
+  const src = fragment("audio-store");
+  const fn = src.match(/function allClipKeys[\s\S]*?\n\}/);
+  assert.ok(fn, "找不到 allClipKeys");
+  assert.match(fn[0], /zh:/, "删的时候把中文提示那份落下了");
+});
+
+test("界面和服务端说的是同一把中文嘴", async () => {
+  // 两边对不上，中文提示会一直生成失败，而且没有任何东西会红。
+  const { CUE_VOICE } = await import("../netlify/functions/tts.mjs");
+  const m = html.match(/const CUE_VOICE_ID = "([^"]+)"/);
+  assert.ok(m, "客户端没有指定中文提示用哪把嗓子");
+  assert.equal(m[1], CUE_VOICE, "界面和服务端说的不是同一把中文嘴");
+});
+
 console.log("voice consistency tests");
 let passed = 0, failed = 0;
 for (const t of tests) {
-  try { t.fn(); passed++; console.log(`  ✓ ${t.name}`); }
+  // 必须 await：异步测试不 await 的话，它抛的错落在一个没人接的 promise 里，
+  // 这一条会永远显示为绿的。
+  try { await t.fn(); passed++; console.log(`  ✓ ${t.name}`); }
   catch (e) { failed++; console.error(`  ✗ ${t.name}\n    ${e.message}`); }
 }
 console.log(failed ? `\n✗ ${failed} failed, ${passed} passed` : `\n✓ all ${passed} tests passed`);

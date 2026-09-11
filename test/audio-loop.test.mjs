@@ -414,6 +414,85 @@ test("收藏页把中文提示接到了屏幕上", async () => {
 });
 
 // ── Runner ───────────────────────────────────────────────
+// ══ 中文提示：音质，和不许抢跑 ═══════════════════════════════════════
+//
+// Victor 2026-09-11 报的两件事：
+//   一、中文提示是手机自带的语音合成念的，音质差。国产浏览器和微信里
+//       尤其糟，有的干脆没有中文嗓子。
+//   二、中文还没念完英文就开始了，两个声音叠在一起听不清。
+//
+// 第二件的原因很具体：原来的 scheduleNextLoopClip() 念出中文之后，直接起了
+// 一个 4 秒的固定计时器。它量的是「从开口那一刻算起 4 秒」，而不是「念完了
+// 再等」。句子一长，或者设备语音慢，4 秒到了人还在念，英文就压上去了。
+//
+// 两件事的修法是同一个：中文也走 Azure 生成的音频，用同一个 audio 元素放，
+// 靠它的 ended 事件接续——然后停 2 秒，再放英文。
+
+test("中文提示优先用生成好的音频，不用手机自带的合成", async () => {
+  const { ctx, made, speech } = await loadModule({ withAudio: ["a", "b", "c", "zh:b"] });
+  ctx.startAudioLoop(ITEMS);
+  made[0].fire("ended");                 // 第一句英文放完，该提示第二句了
+  assert.ok(made[0].played.includes("blob:zh:b"),
+    `中文提示没有走生成好的音频：${made[0].played.join(" → ")}`);
+  assert.equal(speech.spoken.length, 0,
+    "有现成的中文音频却还是用了手机自带的合成");
+});
+
+test("中文的音频放完之后，停两秒才放英文", async () => {
+  // 「停两秒」是家长的反应时间：他要在这个缝里自己先说一遍。
+  const { ctx, made, timers, tick } = await loadModule({ withAudio: ["a", "b", "c", "zh:b"] });
+  ctx.startAudioLoop(ITEMS);
+  made[0].fire("ended");                 // → 开始放中文
+  assert.equal(made[0].played[made[0].played.length - 1], "blob:zh:b");
+  assert.equal(timers.length, 0, "中文才刚开始念，就已经在给英文倒计时了");
+
+  made[0].fire("ended");                 // → 中文念完了
+  assert.equal(timers.length, 1, "中文念完之后没有安排停顿");
+  assert.ok(timers[0].ms >= 2000, `停顿只有 ${timers[0].ms}ms，不够家长反应`);
+  tick();
+  assert.equal(made[0].played[made[0].played.length - 1], "blob:b",
+    "停顿结束后没有放英文");
+});
+
+test("没有中文音频时退回手机合成，也不按固定时间抢跑", async () => {
+  // 退回这条路上同样不能「从开口算 N 秒」。念完了要么靠 onend，要么靠一个
+  // 兜底计时——而兜底的那个必须把停顿也算进去，不能刚好卡在人还在念的时候。
+  const { ctx, made, timers, speech } = await loadModule();  // 没有 zh: 片段
+  ctx.startAudioLoop(ZH_ITEMS);
+  made[0].fire("ended");
+  assert.equal(speech.spoken.length, 1, "没有音频时该退回手机合成");
+  assert.equal(speech.spoken[0].lang, "zh-CN", "退回时没有说这是中文");
+  assert.equal(timers.length, 1, "退回这条路上该有一个兜底计时");
+  assert.ok(timers[0].ms >= 2000,
+    `兜底计时只有 ${timers[0].ms}ms——人还在念，英文就压上去了`);
+
+  // onend 来了就按它走，不等兜底
+  const u = speech.spoken[0];
+  if (typeof u.onend === "function") {
+    u.onend();
+    const last = timers[timers.length - 1];
+    assert.ok(last.ms >= 2000, `念完之后的停顿只有 ${last.ms}ms`);
+  }
+});
+
+test("中文和英文用同一个音频元素", async () => {
+  // iOS 上只有被那次点击解锁的元素能继续播。中文另起一个 new Audio()，
+  // Safari 会静默拒绝，循环会在第一句之后停住，屏幕上什么也不说。
+  const { ctx, made } = await loadModule({ withAudio: ["a", "b", "c", "zh:b"] });
+  ctx.startAudioLoop(ITEMS);
+  made[0].fire("ended");
+  assert.equal(made.length, 1, `中文提示另起了一个音频元素，一共 ${made.length} 个`);
+});
+
+test("按停止时，正在念的中文也要停", async () => {
+  const { ctx, made, speech } = await loadModule({ withAudio: ["a", "b", "c", "zh:b"] });
+  ctx.startAudioLoop(ITEMS);
+  made[0].fire("ended");                 // 中文在放
+  ctx.stopAudioLoop();
+  assert.equal(made[0].paused, true, "停止之后中文还在放");
+  assert.ok(speech.cancels >= 1, "手机合成那条路也要一起停");
+});
+
 console.log("audio-loop tests");
 let passed = 0, failed = 0;
 for (const t of tests) {

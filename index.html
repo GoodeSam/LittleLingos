@@ -5805,7 +5805,20 @@ function saveTranslatedPhrase(entry) {
 // English clip. The first phrase of a session is the exception: the tap
 // itself must start a clip (the iOS rule above), so it is heard once
 // unprompted; from then on, and on every wrap-around, every phrase is cued.
-const LOOP_RECALL_MS = 4000;
+// 2026-09-11 重做这段的时序。原来是：念出中文，然后起一个 4 秒的固定计时器。
+// 它量的是「从开口那一刻算起 4 秒」，不是「念完了再等」——句子一长，或者设备
+// 语音慢，4 秒到了人还在念，英文就压上去，两个声音叠在一起听不清。
+//
+// 现在中文也走 Azure 生成的音频，和英文共用同一个 audio 元素（iOS 只认那一个
+// 被点击解锁的元素），靠它的 ended 接续：中文念完 → 停 2 秒 → 英文。那 2 秒
+// 是家长的反应时间，他要在这个缝里自己先说一遍。
+//
+// 拿不到中文音频时仍退回手机自带的合成，但接续也改成等 onend；有的内核不发
+// onend，所以留一个兜底计时，而那个兜底把停顿也算进去了——绝不会卡在人还在
+// 念的时候开口。
+const LOOP_PAUSE_MS = 2000;          // 中文念完之后给家长的反应时间
+const LOOP_CUE_MIN_MS = 3200;        // 退回手机合成时，兜底计时的下限
+const LOOP_CUE_MAX_MS = 9000;
 
 let loopEl = null;
 let loopQueue = [];
@@ -5813,6 +5826,8 @@ let loopIndex = 0;
 let loopTimer = null;
 let loopOn = false;
 let loopOnCue = null;
+let loopPhase = "en";                // "zh" 正在念中文 | "en" 正在放英文
+let loopCueGuard = null;
 
 function audioLoopPlaying() { return loopOn; }
 
@@ -5822,7 +5837,7 @@ function audioLoopPlaying() { return loopOn; }
 function cueLoopItem(item) {
   if (typeof loopOnCue === "function") { try { loopOnCue(item); } catch {} }
 }
-function speakLoopCue(item) {
+function speakLoopCue(item, onDone) {
   const zh = item && typeof item.zh === "string" ? item.zh.trim() : "";
   if (!zh) return false;
   if (typeof speechSynthesis === "undefined" || typeof SpeechSynthesisUtterance === "undefined") return false;
@@ -5830,9 +5845,33 @@ function speakLoopCue(item) {
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(zh);
     u.lang = "zh-CN";
+    if (typeof onDone === "function") {
+      u.onend = () => onDone();
+      u.onerror = () => onDone();
+    }
     speechSynthesis.speak(u);
     return true;
   } catch { return false; }
+}
+
+// 生成好的中文提示存在哪。和英文分开一个命名空间：换英文音色不该把中文
+// 提示一起作废，它们是两把不同的嗓子。
+function loopCueId(id) { return "zh:" + id; }
+function loopCueUrl(item) {
+  if (!item || !item.id || typeof audioUrlFor !== "function") return null;
+  return audioUrlFor(loopCueId(item.id));
+}
+// 中文念多久。退回手机合成时没有可靠的「念完了」信号，只能估——而且把停顿
+// 也算进去，宁可多等一下，也不要压在人家嘴上。
+function loopCueGuardMs(item) {
+  const zh = item && typeof item.zh === "string" ? item.zh.trim() : "";
+  // 按每秒 3 个字算（比实际慢，宁可多等），再加一段开口前的启动延迟，
+  // 最后加上那 2 秒停顿。估短了就是压在人嘴上，估长了只是多等一会儿。
+  const spoken = Math.round((zh.length / 3) * 1000) + 700 + LOOP_PAUSE_MS;
+  return Math.max(LOOP_CUE_MIN_MS, Math.min(LOOP_CUE_MAX_MS, spoken));
+}
+function clearLoopCueGuard() {
+  if (loopCueGuard) { clearTimeout(loopCueGuard); loopCueGuard = null; }
 }
 function silenceLoopCue() {
   if (typeof speechSynthesis === "undefined") return;
@@ -5853,13 +5892,23 @@ function startAudioLoop(items, onCue) {
     loopEl = new Audio();
     // Bound once, on the element that lives for the session. Rebinding per
     // phrase would leave old handlers firing into a finished session.
-    loopEl.addEventListener("ended", () => { if (loopOn) scheduleNextLoopClip(); });
+    // 同一个元素先放中文再放英文，所以 ended 要看现在是哪一段。
+    loopEl.addEventListener("ended", () => {
+      if (!loopOn) return;
+      if (loopPhase === "zh") afterLoopCue(); else advanceAndCue();
+    });
     // A clip whose address was evicted from the cache must not end the
     // session — that reads as the loop stopping for no reason.
-    loopEl.addEventListener("error", () => { if (loopOn) scheduleNextLoopClip(); });
+    loopEl.addEventListener("error", () => {
+      if (!loopOn) return;
+      if (loopPhase === "zh") afterLoopCue(); else advanceAndCue();
+    });
   }
   loopIndex = 0;
   loopOn = true;
+  loopPhase = "en";
+  // 中文提示按需生成：这一轮没备好的就退回手机合成，转回来时就有了。
+  if (typeof provisionLoopCues === "function") { try { provisionLoopCues(loopQueue); } catch {} }
   cueLoopItem(loopQueue[0]);   // shown, not spoken: the English starts now
   playCurrentLoopClip();
   return true;
@@ -5879,21 +5928,52 @@ function playCurrentLoopClip() {
 // Cue the next phrase now, play its English after the pause. The pause is the
 // whole point: it is where the parent tries to say it before hearing it.
 // Without it this is background noise.
-function scheduleNextLoopClip() {
+// 一句的英文放完了：推到下一句，先念它的中文。
+function advanceAndCue() {
   if (loopTimer) clearTimeout(loopTimer);
-  const next = (loopIndex + 1) % loopQueue.length;
-  cueLoopItem(loopQueue[next]);
-  speakLoopCue(loopQueue[next]);
+  clearLoopCueGuard();
+  loopIndex = (loopIndex + 1) % loopQueue.length;
+  const item = loopQueue[loopIndex];
+  cueLoopItem(item);
+  startLoopCue(item);
+}
+
+// 念中文。有生成好的音频就用它——同一个元素，靠 ended 接续，时序是准的。
+function startLoopCue(item) {
+  clearLoopCueGuard();
+  const url = loopCueUrl(item);
+  if (url) {
+    loopPhase = "zh";
+    loopEl.src = url;
+    const p = loopEl.play();
+    if (p && typeof p.catch === "function") p.catch(() => { if (loopOn) afterLoopCue(); });
+    return;
+  }
+  // 没有中文音频：退回手机合成。onend 来了就按它走，不来就靠兜底——
+  // 兜底里含着那 2 秒停顿，所以无论走哪条都不会压在人还在念的时候。
+  loopPhase = "en";
+  const spoke = speakLoopCue(item, () => { if (loopOn) afterLoopCue(); });
+  loopCueGuard = setTimeout(() => {
+    loopCueGuard = null;
+    if (loopOn) playCurrentLoopClip();
+  }, spoke ? loopCueGuardMs(item) : LOOP_PAUSE_MS);
+}
+
+// 中文念完了。停 2 秒——这是家长自己先说一遍的时间——再放英文。
+function afterLoopCue() {
+  clearLoopCueGuard();
+  loopPhase = "en";
+  if (loopTimer) clearTimeout(loopTimer);
   loopTimer = setTimeout(() => {
     loopTimer = null;
-    if (!loopOn) return;
-    loopIndex = next;
-    playCurrentLoopClip();
-  }, LOOP_RECALL_MS);
+    if (loopOn) playCurrentLoopClip();
+  }, LOOP_PAUSE_MS);
 }
 
 function stopAudioLoop() {
   loopOn = false;
+  loopPhase = "en";
+  clearLoopCueGuard();
   if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
   // Cancelling only the schedule would leave the current phrase sounding after
   // the parent pressed stop — and a Chinese cue mid-sentence, likewise.
@@ -6122,6 +6202,38 @@ function ttsFetch(text, voice) {
   });
 }
 
+// 连播里的中文提示，按需生成一次就存在设备上。键用 "zh:" 开头，clipKey 认得
+// 这个前缀，会用中文那把嗓子分键——所以家长换英文音色不会把中文提示作废。
+//
+// 不 await：连播一开始就把整队都排上，这一轮没备好的那几句先退回手机自带的
+// 合成，转一圈回来就有了。每句只花一次钱。
+const cuePending = new Set();
+async function provisionCue(item) {
+  const zh = item && typeof item.zh === "string" ? item.zh.trim() : "";
+  if (!zh || !item || !item.id) return false;
+  const key = "zh:" + item.id;
+  if (cuePending.has(key)) return false;
+  cuePending.add(key);
+  try {
+    if (await hasAudio(key)) { await primeAudioUrl(key); return true; }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
+    if (!getAccessCode()) return false;
+    const res = await ttsFetch(zh, CUE_VOICE_ID);
+    if (!res.ok) return false;
+    const stored = await putAudio(key, await res.blob());
+    if (!stored) return false;
+    await primeAudioUrl(key);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    cuePending.delete(key);
+  }
+}
+function provisionLoopCues(items) {
+  for (const it of items || []) { provisionCue(it); }
+}
+
 async function provisionAudio(item, id) {
   try {
     // A restored backup, a re-saved phrase, a fresh page load — all of these
@@ -6192,6 +6304,11 @@ const VOICE_OPTIONS = [
   { id: "en-US-ChristopherNeural", label: "Christopher · 原版", desc: "男声 · 2019 年那一代，和上面的新版是同一把嗓子", group: "原版" },
 ];
 const DEFAULT_VOICE_ID = VOICE_OPTIONS[0].id;
+// 连播里每句英文之前先念一遍中文，让家长自己先想一次。这句中文原来是手机
+// 自带的语音合成念的——国产浏览器和微信里音质很差，有的干脆没有中文嗓子。
+// 现在也走 Azure。它是固定的，不进音色选择器：那是给英文句子挑嗓子的地方。
+// 必须和 netlify/functions/tts.mjs 的 CUE_VOICE 一字不差，测试守着这一条。
+const CUE_VOICE_ID = "zh-CN-XiaoxiaoMultilingualNeural";
 const VOICE_KEY = "ll_voice";
 
 // 手机里存着一个已经下架的音色时，退回默认——而不是从此每句话都生成失败。
@@ -6349,9 +6466,16 @@ function audioOp(mode, run) {
 // 默认那把仍然用裸 id：已经装了的家长手机上那批付过钱的片段照旧命中，不作废。
 // 换成别的音色就是另一个键——新音色会重新生成，换回去时旧片段还在，不用再花一次钱。
 function clipKey(id) {
+  const s = String(id);
+  // 连播里的中文提示是另一把嗓子（中文的），不跟着家长挑的英文音色走。
+  // 跟着走的话，他每换一次英文嗓子，所有中文提示就全部作废重生成——白花钱，
+  // 而中文听起来一点没变。
+  if (s.indexOf("zh:") === 0) {
+    return typeof CUE_VOICE_ID === "string" ? s + "@" + CUE_VOICE_ID : s;
+  }
   const fallback = typeof DEFAULT_VOICE_ID === "string" ? DEFAULT_VOICE_ID : null;
   const v = typeof getVoice === "function" ? getVoice() : fallback;
-  return (!v || v === fallback) ? String(id) : String(id) + "@" + v;
+  return (!v || v === fallback) ? s : s + "@" + v;
 }
 
 // 一句话在设备上可能有好几把嗓子的副本。删的时候要一起删，不然家长删掉一句，
@@ -6362,6 +6486,9 @@ function allClipKeys(id) {
   for (const o of opts) {
     if (o && o.id) keys.push(String(id) + "@" + o.id);
   }
+  // 这句话的中文提示是另一条路存的，删的时候不能落下。
+  keys.push("zh:" + id);
+  if (typeof CUE_VOICE_ID === "string") keys.push("zh:" + id + "@" + CUE_VOICE_ID);
   return keys;
 }
 

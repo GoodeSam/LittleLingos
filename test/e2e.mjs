@@ -177,6 +177,104 @@ check("输进像英文单词的东西，联网说明和 AI 出口才出现", asy
   assert.equal(r.ai, true, "没给「让 AI 帮你说」这个出口");
 });
 
+// 「场景」页搜索框的一键清空。2026-09-17 Victor 在「帮我说」那一版之后提的：
+// 首页这个框也只能一个字一个字删。
+//
+// 这一组测试对应的用户情境（不含函数名）：
+//
+//   家长在「场景」页的搜索框里打了几个字找句子，想换个词再找。框右边有个叉，
+//   点一下字全没了，搜索结果收起来，首页原来的内容回来，光标还在框里；
+//   刚才因为打了英文词才出现的「会联网」那句说明也跟着收起。框空的时候没有叉。
+const homeClearShown = () => {
+  const b = document.getElementById("searchClear");
+  return !!b && b.getClientRects().length > 0 && getComputedStyle(b).visibility !== "hidden";
+};
+
+check("「场景」搜索框没字时不出现清空按钮，打了字才出现，且就在框里", async (ev) => {
+  const r = await ev(`() => {
+    const shown = ${homeClearShown.toString()};
+    showTab("home");
+    const input = document.getElementById("searchInput");
+    const btn = document.getElementById("searchClear");
+    if (!btn) return { missing: true };
+    input.value = ""; input.dispatchEvent(new Event("input", { bubbles: true }));
+    const emptyShown = shown();
+    input.value = "刷牙"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    const typedShown = shown();
+    const b = btn.getBoundingClientRect(), i = input.getBoundingClientRect();
+    const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+    const onTop = document.elementFromPoint(cx, cy);
+    const out = {
+      emptyShown, typedShown, w: b.width, h: b.height,
+      inside: cx > i.left && cx < i.right && cy > i.top && cy < i.bottom,
+      rightHalf: cx > i.left + i.width / 2,
+      hittable: !!onTop && (onTop === btn || btn.contains(onTop)),
+      label: btn.getAttribute("aria-label") || "",
+    };
+    input.value = ""; input.dispatchEvent(new Event("input", { bubbles: true }));
+    return out;
+  }`);
+  assert.ok(!r.missing, "「场景」搜索框没有清空按钮");
+  assert.equal(r.emptyShown, false, "框里没字，清空按钮却亮着");
+  assert.equal(r.typedShown, true, "打了字，清空按钮没出现");
+  assert.ok(r.inside, "清空按钮不在搜索框里");
+  assert.ok(r.rightHalf, "清空按钮不在搜索框右边");
+  assert.equal(r.hittable, true, "清空按钮被别的东西盖住了，点不着");
+  assert.ok(r.w >= 44 && r.h >= 44, `清空按钮太小（${Math.round(r.w)}×${Math.round(r.h)}）`);
+  assert.ok(r.label.includes("清"), `读屏软件读不出这个按钮是干什么的（aria-label「${r.label}」）`);
+});
+
+check("点「场景」的清空：字没了、结果收起、首页内容回来、光标还在框里", async (ev) => {
+  const r = await ev(`() => {
+    const shown = ${homeClearShown.toString()};
+    showTab("home");
+    const input = document.getElementById("searchInput");
+    const btn = document.getElementById("searchClear");
+    if (!btn) return { missing: true };
+    const home = document.getElementById("homeScreen");
+    input.value = "刷牙"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    // 对照组：点之前确实在搜索状态、确实有结果
+    const before = { searching: home.classList.contains("searching"),
+                     results: document.getElementById("searchResults").children.length };
+    input.blur();
+    btn.click();
+    return {
+      before,
+      value: input.value,
+      focused: document.activeElement === input,
+      searching: home.classList.contains("searching"),
+      results: document.getElementById("searchResults").children.length,
+      btnShown: shown(),
+    };
+  }`);
+  assert.ok(!r.missing, "「场景」搜索框没有清空按钮");
+  assert.equal(r.before.searching, true, "对照失败：清空前本该处在搜索状态");
+  assert.ok(r.before.results > 0, "对照失败：清空前本该有搜索结果");
+  assert.equal(r.value, "", `点了清空，框里还剩「${r.value}」`);
+  assert.equal(r.focused, true, "清空后光标不在框里，家长得再点一下才能打字");
+  assert.equal(r.searching, false, "清空后首页还停在搜索状态，原来的内容没回来");
+  assert.equal(r.results, 0, "清空后旧的搜索结果还挂着");
+  assert.equal(r.btnShown, false, "框已经空了，清空按钮还亮着");
+});
+
+check("「场景」里打过英文词再清空，「会联网」那句说明跟着收起", async (ev) => {
+  const r = await ev(() => {
+    showTab("home");
+    const input = document.getElementById("searchInput");
+    const btn = document.getElementById("searchClear");
+    if (!btn) return { missing: true };
+    const vis = id => document.getElementById(id).getClientRects().length > 0;
+    input.value = "hug"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    const before = vis("dictPrivacyNote");   // 对照组：清空前它确实亮着
+    btn.click();
+    return { before, after: vis("dictPrivacyNote"), gate: vis("homeGateNote") };
+  });
+  assert.ok(!r.missing, "「场景」搜索框没有清空按钮");
+  assert.equal(r.before, true, "对照失败：打了英文词，联网说明本该出现");
+  assert.equal(r.after, false, "清空了，「会联网」的说明还留在首页");
+  assert.equal(r.gate, false, "清空了，邀请码提示还留在首页");
+});
+
 check("进「帮我说」，两间房是收起来的", async (ev) => {
   const r = await ev(() => {
     showTab("help");

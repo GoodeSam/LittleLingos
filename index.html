@@ -231,21 +231,21 @@
     /* .help-room 的 display:flex 是类规则，会压过浏览器自带的 [hidden]{display:none}。
        两间房靠 hidden 收起来，所以这条必须显式写出来。 */
     .help-room[hidden] { display: none; }
-    /* 「帮我说」输入框右端的一键清空。叉叠在框里，框右边让出一个按钮的宽度，
-       长句子才不会钻到叉底下。type="search" 在部分内核里自带一个小叉，
-       有的有有的没有、还小得点不着——藏掉它，只留我们这一个。 */
-    .help-input-wrap { position: relative; }
-    .help-input-wrap .search-input { padding-right: calc(var(--touch-min) + var(--space-1)); }
-    #helpInput::-webkit-search-cancel-button { -webkit-appearance: none; }
-    .help-clear {
+    /* 输入框右端的一键清空（「帮我说」和「场景」搜索框共用）。叉叠在框里，
+       框右边让出一个按钮的宽度，长句子才不会钻到叉底下。type="search" 在部分
+       内核里自带一个小叉，有的有有的没有、还小得点不着——藏掉它，只留我们这一个。 */
+    .input-clear-wrap { position: relative; flex: 1; min-width: 0; }
+    .input-clear-wrap .search-input { padding-right: calc(var(--touch-min) + var(--space-1)); }
+    .input-clear-wrap .search-input::-webkit-search-cancel-button { -webkit-appearance: none; }
+    .input-clear {
       position: absolute; top: 50%; right: 2px; transform: translateY(-50%);
       width: var(--touch-min); height: var(--touch-min);
       display: inline-flex; align-items: center; justify-content: center;
       background: transparent; border: 0; border-radius: var(--radius-full);
       color: var(--gray-600); cursor: pointer; touch-action: manipulation;
     }
-    .help-clear .ic { width: var(--icon-md); height: var(--icon-md); }
-    .help-clear[hidden] { display: none; }
+    .input-clear .ic { width: var(--icon-md); height: var(--icon-md); }
+    .input-clear[hidden] { display: none; }
     .help-room-dict { border-left: var(--accent-bar) solid var(--gray-400); }
     .help-room-ai   { border-left: var(--accent-bar) solid var(--clay-500); }
 
@@ -1829,9 +1829,14 @@
   <!-- Search: type what you want to say → jump to preset phrases -->
   <div class="search-wrap">
     <div class="search-input-row">
-      <input id="searchInput" class="search-input" type="search" autocomplete="off"
-             placeholder="中文找句子 · 英文查单词"
-             onfocus="showHint('micHint')" oninput="onSearchInput()" />
+      <div class="input-clear-wrap">
+        <input id="searchInput" class="search-input" type="search" autocomplete="off"
+               placeholder="中文找句子 · 英文查单词"
+               onfocus="showHint('micHint')" oninput="onSearchInput()" />
+        <!-- 和「帮我说」那个叉同一个做法：mousedown 不让输入框失焦 -->
+        <button class="input-clear" id="searchClear" type="button" aria-label="清空搜索" hidden
+                onmousedown="event.preventDefault()" onclick="clearSearchInput()"><span class="ic-slot" data-icon="close"></span></button>
+      </div>
     </div>
     <p class="backup-note" id="micHint" hidden style="margin:6px 0 0">
       用手机<strong>键盘上的麦克风</strong>听写就行 —— 那是手机自带的。
@@ -2024,12 +2029,12 @@
   </div>
   <div class="translate-section">
     <div>
-      <div class="help-input-wrap">
+      <div class="input-clear-wrap">
         <input id="helpInput" class="search-input" type="search" autocomplete="off"
                placeholder="输入中文一句话，或英文一个词"
                onfocus="showHint('helpMicHint')" oninput="onHelpInput()" />
         <!-- mousedown 不让输入框失焦：否则手机上键盘会先收起再弹出，闪一下 -->
-        <button class="help-clear" id="helpClear" type="button" aria-label="清空输入" hidden
+        <button class="input-clear" id="helpClear" type="button" aria-label="清空输入" hidden
                 onmousedown="event.preventDefault()" onclick="clearHelpInput()"><span class="ic-slot" data-icon="close"></span></button>
       </div>
       <p class="backup-note" id="helpMicHint" hidden style="margin-top:6px">
@@ -2816,6 +2821,19 @@ function clearHelpInput() {
   onHelpInput();
   const idle = document.getElementById("helpIdle");
   if (idle) idle.hidden = false;
+  input.focus();
+}
+// 「场景」搜索框的一键清空。onSearchInput() 收起结果、退出搜索状态、作废在途
+// 的查词；它不管那两句只在打英文词时才出现的提示（联网说明、邀请码），
+// 这里收掉，首页回到没搜之前的样子。
+function clearSearchInput() {
+  const input = document.getElementById("searchInput");
+  if (!input) return;
+  input.value = "";
+  onSearchInput();
+  ["dictPrivacyNote", "homeGateNote"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.hidden = true;
+  });
   input.focus();
 }
 function onHelpInput() {
@@ -5261,6 +5279,10 @@ function onSearchInput() {
   const panel = document.getElementById("searchResults");
   const home = document.getElementById("homeScreen");
   const dictPanel = document.getElementById("dictLookupPanel");
+  // 清空按钮只在框里有字时出现。就地写、带判空，理由同下面的联网说明：
+  // 这段会被单独抽进沙箱跑，那里没有这个按钮。
+  const clearBtn = document.getElementById("searchClear");
+  if (clearBtn) clearBtn.hidden = !document.getElementById("searchInput").value;
   panel.innerHTML = "";
   // A new/changed query invalidates any prior lookup — bump the session so a
   // response still in flight for the OLD query can never render, and clear

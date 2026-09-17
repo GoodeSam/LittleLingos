@@ -25,6 +25,7 @@
 //      不能用硬编码的清单，否则它就是下一个会被忘掉的地方。
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
+import { generateKeyPairSync } from "node:crypto";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -65,6 +66,11 @@ const DISCOVERED = readdirSync(FN_DIR)
 // only "status 200" would go green on a fallback path or a wrongly-wrapped
 // success. What the endpoints do share is the Gemini envelope around it.
 const alpha = n => "aabcdefghij".slice(1)[n % 10].repeat(1 + Math.floor(n / 10));
+const PUSH_KEYS = (() => {
+  const jwk = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ format: "jwk" });
+  const pub = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]);
+  return { VAPID_PUBLIC_KEY: pub.toString("base64url"), VAPID_PRIVATE_KEY: jwk.d };
+})();
 const BEHAVIOR = {
   translate: {
     keys: { GEMINI_API_KEY: "k" },
@@ -102,6 +108,18 @@ const BEHAVIOR = {
       assert.match(res.headers.get("Content-Type") || "", /^audio\/mpeg/,
         "a parent's phone stores this as audio — the wrong type is a file that never plays");
       assert.ok((await res.arrayBuffer()).byteLength > 0, "an empty body is a silent clip");
+    },
+  },
+  // 推送试验（ADR 0008）。不花钱，但它替调用者向外发请求，一样要挡在门后。
+  // 签名密钥每次现生成；地址唯一，理由同上。
+  "push-test": {
+    keys: PUSH_KEYS,
+    body: n => ({ subscription: { endpoint: `https://web.push.apple.com/${alpha(n)}` } }),
+    stub: () => new Response(null, { status: 201 }),
+    expect: async res => {
+      const b = await res.json();
+      assert.equal(b.sent, true, "the push service accepted it, so the parent must be told it was sent");
+      assert.equal(b.pushStatus, 201);
     },
   },
 };

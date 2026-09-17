@@ -198,7 +198,9 @@ test("the free paths do not require a code", () => {
   assert.ok(!/audio\/\$\{[^}]*\}[^)]*accessHeaders/.test(rest),
     "audio playback must not be gated");
   const calls = [...html.matchAll(/accessHeaders\(\)/g)];
-  assert.ok(calls.length <= 4,
+  // 4 → 5（2026-09-17，Victor 同意）：第 5 个是推送试验的 /api/push-test。
+  // 它不花钱，但 ADR 0008 要求它挡在邀请码后面。只存在于 spike/push-reminder。
+  assert.ok(calls.length <= 5,
     `accessHeaders() appears ${calls.length} times — it belongs only at the paid call sites`);
 });
 

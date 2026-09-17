@@ -225,6 +225,110 @@ check("输一句中文，只开 AI 那一间，且这时才说隐私", async (ev
   assert.equal(r.privacy, true, "内容要发出去了却没说");
 });
 
+// 「帮我说」的一键清空。2026-09-17 Victor 报：输进去的字只能一个一个删。
+// 家长多半是问完一句接着问下一句，长句子退格退到底很烦。
+// 这个按钮叠在输入框上，最容易坏的正是这一层看得见的东西：被输入框盖住、
+// 点不着、空框里也亮着——所以放在真浏览器里量。
+//
+// 这一组测试对应的用户情境（不含函数名）：
+//
+//   家长在「帮我说」里打了一句话，问完想换一句。输入框右边有个叉，点一下，
+//   字全没了，光标还在框里，可以直接打下一句；上一句的答案也收起来了，
+//   不会挂在新问题底下。框是空的时候，这个叉不出现。
+check("「帮我说」框里没字时不出现清空按钮，打了字才出现，且就在框里", async (ev) => {
+  const r = await ev(() => {
+    showTab("help");
+    const input = document.getElementById("helpInput");
+    const btn = document.getElementById("helpClear");
+    if (!btn) return { missing: true };
+    const shown = () => btn.getClientRects().length > 0 && getComputedStyle(btn).visibility !== "hidden";
+    input.value = ""; input.dispatchEvent(new Event("input", { bubbles: true }));
+    const emptyShown = shown();
+    input.value = "宝宝该睡觉了"; input.dispatchEvent(new Event("input", { bubbles: true }));
+    const typedShown = shown();
+    const b = btn.getBoundingClientRect(), i = input.getBoundingClientRect();
+    const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+    const onTop = document.elementFromPoint(cx, cy);
+    const out = {
+      emptyShown, typedShown,
+      w: b.width, h: b.height,
+      inside: cx > i.left && cx < i.right && cy > i.top && cy < i.bottom,
+      rightHalf: cx > i.left + i.width / 2,
+      hittable: !!onTop && (onTop === btn || btn.contains(onTop)),
+      label: btn.getAttribute("aria-label") || "",
+    };
+    input.value = ""; input.dispatchEvent(new Event("input", { bubbles: true }));
+    return out;
+  });
+  assert.ok(!r.missing, "「帮我说」没有清空按钮");
+  assert.equal(r.emptyShown, false, "框里没字，清空按钮却亮着");
+  assert.equal(r.typedShown, true, "打了字，清空按钮没出现");
+  assert.ok(r.inside, "清空按钮不在输入框里");
+  assert.ok(r.rightHalf, "清空按钮不在输入框右边");
+  assert.equal(r.hittable, true, "清空按钮被别的东西盖住了，点不着");
+  assert.ok(r.w >= 44 && r.h >= 44, `清空按钮太小（${Math.round(r.w)}×${Math.round(r.h)}）`);
+  assert.ok(r.label.includes("清"), `读屏软件读不出这个按钮是干什么的（aria-label「${r.label}」）`);
+});
+
+check("点清空：字全没了、光标还在框里、上一句的答案收起来", async (ev) => {
+  const r = await ev(async () => {
+    showTab("help");
+    const input = document.getElementById("helpInput");
+    const btn = document.getElementById("helpClear");
+    if (!btn) return { missing: true };
+    input.value = "宝宝，今天你很棒";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    helpSubmit();
+    await new Promise(res => setTimeout(res, 500));
+    const shown = id => getComputedStyle(document.getElementById(id)).display !== "none";
+    // 对照组：点之前答案确实是开着的，否则「点完收起来」什么也证明不了
+    const before = { ai: shown("helpAiRoom"), idle: shown("helpIdle") };
+    input.blur();
+    btn.click();
+    return {
+      before,
+      value: input.value,
+      focused: document.activeElement === input,
+      ai: shown("helpAiRoom"), dict: shown("helpDictRoom"), idle: shown("helpIdle"),
+      mirror: document.getElementById("dictInput").value,
+      btnShown: btn.getClientRects().length > 0 && getComputedStyle(btn).visibility !== "hidden",
+    };
+  });
+  assert.ok(!r.missing, "「帮我说」没有清空按钮");
+  assert.equal(r.before.ai, true, "对照失败：清空前 AI 那一间本该是开着的");
+  assert.equal(r.before.idle, false, "对照失败：清空前常用词本该是收起的");
+  assert.equal(r.value, "", `点了清空，框里还剩「${r.value}」`);
+  assert.equal(r.focused, true, "清空后光标不在框里，家长得再点一下才能打字");
+  assert.equal(r.ai, false, "清空后上一句的翻译还挂着");
+  assert.equal(r.dict, false, "清空后词典那一间开着");
+  assert.equal(r.idle, true, "清空后常用词没回来，这一屏是空的");
+  assert.equal(r.mirror, "", "清空后查词那边还留着旧词");
+  assert.equal(r.btnShown, false, "框已经空了，清空按钮还亮着");
+});
+
+check("从别处把一句话带进「帮我说」，清空按钮也跟着出现", async (ev) => {
+  const r = await ev(async () => {
+    const btn = document.getElementById("helpClear");
+    if (!btn) return { missing: true };
+    // 对照组：带话进来之前框是空的、按钮是收起的。没有这一格，一个永远亮着的
+    // 按钮也能让这条变绿（空壳探测时就是这样）。
+    showTab("help");
+    const input = document.getElementById("helpInput");
+    input.value = ""; input.dispatchEvent(new Event("input", { bubbles: true }));
+    const emptyShown = btn.getClientRects().length > 0 && getComputedStyle(btn).visibility !== "hidden";
+    goTranslateWithQuery("出门要穿鞋");
+    await new Promise(res => setTimeout(res, 300));
+    const out = { emptyShown, value: document.getElementById("helpInput").value,
+                  shown: btn.getClientRects().length > 0 && getComputedStyle(btn).visibility !== "hidden" };
+    btn.click();
+    return out;
+  });
+  assert.ok(!r.missing, "「帮我说」没有清空按钮");
+  assert.equal(r.emptyShown, false, "对照失败：框是空的，清空按钮却亮着");
+  assert.equal(r.value, "出门要穿鞋", "对照失败：话没带进来");
+  assert.equal(r.shown, true, "框里有字（从首页带进来的），清空按钮却没出现");
+});
+
 check("说给谁听选「成人」，按钮和免责声明跟着改口", async (ev) => {
   const r = await ev(() => {
     showTab("help");

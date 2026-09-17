@@ -231,6 +231,21 @@
     /* .help-room 的 display:flex 是类规则，会压过浏览器自带的 [hidden]{display:none}。
        两间房靠 hidden 收起来，所以这条必须显式写出来。 */
     .help-room[hidden] { display: none; }
+    /* 「帮我说」输入框右端的一键清空。叉叠在框里，框右边让出一个按钮的宽度，
+       长句子才不会钻到叉底下。type="search" 在部分内核里自带一个小叉，
+       有的有有的没有、还小得点不着——藏掉它，只留我们这一个。 */
+    .help-input-wrap { position: relative; }
+    .help-input-wrap .search-input { padding-right: calc(var(--touch-min) + var(--space-1)); }
+    #helpInput::-webkit-search-cancel-button { -webkit-appearance: none; }
+    .help-clear {
+      position: absolute; top: 50%; right: 2px; transform: translateY(-50%);
+      width: var(--touch-min); height: var(--touch-min);
+      display: inline-flex; align-items: center; justify-content: center;
+      background: transparent; border: 0; border-radius: var(--radius-full);
+      color: var(--gray-600); cursor: pointer; touch-action: manipulation;
+    }
+    .help-clear .ic { width: var(--icon-md); height: var(--icon-md); }
+    .help-clear[hidden] { display: none; }
     .help-room-dict { border-left: var(--accent-bar) solid var(--gray-400); }
     .help-room-ai   { border-left: var(--accent-bar) solid var(--clay-500); }
 
@@ -2009,9 +2024,14 @@
   </div>
   <div class="translate-section">
     <div>
-      <input id="helpInput" class="search-input" type="search" autocomplete="off"
-             placeholder="输入中文一句话，或英文一个词"
-             onfocus="showHint('helpMicHint')" oninput="onHelpInput()" />
+      <div class="help-input-wrap">
+        <input id="helpInput" class="search-input" type="search" autocomplete="off"
+               placeholder="输入中文一句话，或英文一个词"
+               onfocus="showHint('helpMicHint')" oninput="onHelpInput()" />
+        <!-- mousedown 不让输入框失焦：否则手机上键盘会先收起再弹出，闪一下 -->
+        <button class="help-clear" id="helpClear" type="button" aria-label="清空输入" hidden
+                onmousedown="event.preventDefault()" onclick="clearHelpInput()"><span class="ic-slot" data-icon="close"></span></button>
+      </div>
       <p class="backup-note" id="helpMicHint" hidden style="margin-top:6px">
         不想打字？用手机<strong>键盘上的麦克风</strong>听写就行 —— 那是手机自带的。
       </p>
@@ -2778,18 +2798,39 @@ function resetHelpScreen() {
     .forEach(id => { const el = document.getElementById(id); if (el) el.hidden = true; });
   const idle = document.getElementById("helpIdle");
   if (idle) idle.hidden = false;
+  syncHelpClear();
+}
+// 清空按钮只在框里有字时出现。框里的字不只来自打字（首页那条「让 AI 帮你说」
+// 会直接塞一句进来，不触发 input 事件），所以凡是改了框的地方都要叫它一次。
+function syncHelpClear() {
+  const btn = document.getElementById("helpClear");
+  const input = document.getElementById("helpInput");
+  if (btn && input) btn.hidden = !input.value;
+}
+// 一键清空：问完一句接着问下一句，不用退格退到底。清完光标留在框里，
+// 上一句的答案收起来，空闲区的常用词回来——和刚进这一屏时一样。
+function clearHelpInput() {
+  const input = document.getElementById("helpInput");
+  if (!input) return;
+  input.value = "";
+  onHelpInput();
+  const idle = document.getElementById("helpIdle");
+  if (idle) idle.hidden = false;
+  input.focus();
 }
 function onHelpInput() {
   // 改了输入就把上一次的结果收起来，免得新问题底下挂着旧答案。
   ["helpDictRoom", "helpAiRoom"].forEach(id => {
     const el = document.getElementById(id); if (el) el.hidden = true;
   });
+  syncHelpClear();
   // 逐键的查词反馈还归原来那个函数管，只是输入源换成了这个共用输入框。
   const mirror = document.getElementById("dictInput");
   if (mirror) mirror.value = document.getElementById("helpInput").value;
   if (typeof onDictScreenInput === "function") onDictScreenInput();
 }
 function helpSubmit() {
+  syncHelpClear();
   const q = (document.getElementById("helpInput").value || "").trim();
   if (!q) return;
   const idle = document.getElementById("helpIdle");

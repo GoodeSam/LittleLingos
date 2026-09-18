@@ -110,18 +110,6 @@ const BEHAVIOR = {
       assert.ok((await res.arrayBuffer()).byteLength > 0, "an empty body is a silent clip");
     },
   },
-  // 推送试验（ADR 0008）。不花钱，但它替调用者向外发请求，一样要挡在门后。
-  // 签名密钥每次现生成；地址唯一，理由同上。
-  "push-test": {
-    keys: PUSH_KEYS,
-    body: n => ({ subscription: { endpoint: `https://web.push.apple.com/${alpha(n)}` } }),
-    stub: () => new Response(null, { status: 201 }),
-    expect: async res => {
-      const b = await res.json();
-      assert.equal(b.sent, true, "the push service accepted it, so the parent must be told it was sent");
-      assert.equal(b.pushStatus, 201);
-    },
-  },
   // 到点提醒（ADR 0008）。它会往服务器存东西、替调用者向外推送，同样挡在门后。
   // 用「开启」这个动作来过扫描：它会推一条确认通知，所以「有码能用」这一条
   // 看得到真实的外发请求。存储换成内存替身（REMINDER_STORE=memory:…）。

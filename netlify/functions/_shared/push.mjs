@@ -1,4 +1,4 @@
-// 发一条空推送。试验（push-test）和正式的到点提醒（reminder）共用这一份。
+// 发一条空推送。到点提醒（reminder.mjs 与定时任务 reminder-cron.mjs）共用这一份。
 //
 // 为什么是空推送：带内容的推送要按 RFC 8291 加密，通常得装 web-push 库。
 // 空推送只需要 VAPID 签名（RFC 8292），Node 自带的 crypto 就够；通知写什么

@@ -13,7 +13,7 @@
 // phrase data, or a stale audio recording indefinitely even though
 // NETWORK_FIRST tries to refresh the shell/data opportunistically on every
 // online GET.
-const CACHE = 'll-704d3a0c';
+const CACHE = 'll-50ed127f';
 const SHELL = [
   './',
   './index.html',
@@ -107,10 +107,10 @@ self.addEventListener('fetch', e => {
   }
 });
 
-// ── 推送试验（ADR 0008 · 试验 E）──────────────────────────────────────
-// 推送是空的，通知写什么、点开去哪由这里决定。页面订阅时把目标（复习 / 连播）
-// 写进 push-spike 这个缓存；名字不以 ll- 开头，所以 activate 清旧缓存时不会
-// 碰它。目标只认两个值，其余一律当复习——点开的地址不能由外面决定。
+// ── 到点提醒的推送（ADR 0008）──────────────────────────────────────────
+// 推送是空的，通知写什么、点开去哪由这里决定。页面开启提醒时把目标（复习 / 连播）
+// 写进 push-spike 这个缓存（名字是试验期起的，沿用下来）；不以 ll- 开头，所以
+// activate 清旧缓存时不会碰它。目标只认两个值，其余一律当复习——点开的地址不能由外面决定。
 const PUSH_TARGET_CACHE = 'push-spike';
 const PUSH_TARGET_KEY = './__push-target';
 const PUSH_URLS = { review: './?to=review', loop: './?to=loop' };

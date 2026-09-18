@@ -427,9 +427,10 @@ check("从别处把一句话带进「帮我说」，清空按钮也跟着出现"
   assert.equal(r.shown, true, "框里有字（从首页带进来的），清空按钮却没出现");
 });
 
-// 推送试验（ADR 0008 · 试验 E）的页面一侧。推送本身在 headless 里收不到，
-// 这里验的是收到之后页面怎么接：从通知新开进来、从通知把后台的 App 叫回来、
-// 以及设置里那张试验卡片在条件不满足时说不说人话。
+// 点开推送通知之后（ADR 0008）。推送本身在 headless 里收不到，这里验的是
+// 收到之后页面怎么接：从通知新开进来、从通知把后台的 App 叫回来。
+// （2026-09-18 删掉了试验卡片那一条和试验日志的断言：试验代码已移除，
+// Victor 同意。）
 //
 // 这一组测试对应的用户情境（不含函数名）：
 //
@@ -437,9 +438,6 @@ check("从别处把一句话带进「帮我说」，清空按钮也跟着出现"
 //      参数被清掉，刷新不会又跳一次。乱写的目标不跳。
 //   2. App 本来开在后台，家长点通知把它叫回来 —— 跳到连播所在的收藏页；
 //      别的消息不理会。
-//   3. 家长在设置里点「推给我」，但通知权限没给 —— 看到一句明白话，而不是
-//      按钮没反应。
-//   4. 这些跳转都记在设置里的试验日志上，家长测完能照着念给开发者听。
 check("从通知打开 App：落在复习页，地址里的参数被清掉；乱写的目标不跳", async (ev) => {
   const r = await ev(async () => {
     if (typeof handlePushDeepLink !== "function") return { missing: true };
@@ -473,45 +471,12 @@ check("App 在后台被通知叫回来：去连播所在的收藏页；无关消
     const savedOpenBefore = document.getElementById("savedScreen").classList.contains("open");
     send({ type: "ll-push-open", to: "loop" });
     const savedOpen = document.getElementById("savedScreen").classList.contains("open");
-    await new Promise(res => setTimeout(res, 2800));   // 等连播那一段试完、记下结果
-    let log = "";
-    try { log = localStorage.getItem("ll_push_spike_log") || ""; } catch (e) {}
-    return { savedOpenBefore, savedOpen, log };
+    await new Promise(res => setTimeout(res, 2800));   // 等连播那一段试完，免得它的计时器落进下一条检查
+    return { savedOpenBefore, savedOpen };
   });
   assert.ok(!r.skip, r.skip);
   assert.equal(r.savedOpenBefore, false, "无关消息或乱写的目标也让页面跳了");
   assert.equal(r.savedOpen, true, "收到「去连播」却没打开收藏页");
-  assert.match(r.log, /连播/, "这次跳转和连播结果没记进试验日志");
-});
-
-check("设置里的推送试验：通知权限没给时，点按钮看到一句明白话", async (ev) => {
-  const r = await ev(async () => {
-    showTab("settings");
-    const card = document.getElementById("pushSpikeSection");
-    if (!card) return { missing: true };
-    const env = document.getElementById("pushSpikeEnv").textContent;
-    const buttons = card.querySelectorAll("button").length;
-    // 通知权限由浏览器决定，不受本项目控制：换成一个固定回答「拒绝」的替身。
-    const real = window.Notification && Notification.requestPermission;
-    if (window.Notification) Notification.requestPermission = async () => "denied";
-    let threw = "";
-    try { await pushSpikeSend("review"); } catch (e) { threw = String(e); }
-    if (window.Notification) Notification.requestPermission = real;
-    const status = document.getElementById("pushSpikeStatus");
-    return {
-      env, buttons, threw,
-      statusShown: !status.hidden && status.getClientRects().length > 0,
-      statusText: status.textContent,
-      logText: document.getElementById("pushSpikeLog").textContent,
-    };
-  });
-  assert.ok(!r.missing, "设置里没有推送试验卡片");
-  assert.match(r.env, /主屏幕/, `卡片没说明是不是主屏幕版：「${r.env}」`);
-  assert.ok(r.buttons >= 2, "复习和连播各该有一个按钮");
-  assert.equal(r.threw, "", `点按钮抛了错：${r.threw}`);
-  assert.equal(r.statusShown, true, "点了按钮什么都没显示——家长会以为按钮坏了");
-  assert.match(r.statusText, /权限|不支持/, `没说清为什么发不了：「${r.statusText}」`);
-  assert.match(r.logText, /复习/, "前面那次「从通知进来 → 复习」没出现在试验日志里");
 });
 
 // ── 到点提醒（ADR 0008，2026-09-18）─────────────────────────────────────

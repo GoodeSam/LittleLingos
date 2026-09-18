@@ -933,13 +933,6 @@
        要把浏览器自带的底色和字体抹掉，选中态仍由 .age-opt.active 决定。 */
     .reminder-targets { display: flex; gap: var(--space-2); margin: var(--space-2) 0 var(--space-3); }
     button.age-opt { font: inherit; font-size: 16px; background: var(--white); color: var(--text); }
-    /* 推送试验的日志：测完照着念，所以要能读，但不抢主次。 */
-    .push-spike-log {
-      margin: var(--space-2) 0 0; padding-left: 1.4em;
-      font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--gray-600);
-      overflow-wrap: anywhere;
-    }
-    .push-spike-log:empty { display: none; }
     .saved-item {
       background: var(--card);
       border-radius: 12px;
@@ -2027,19 +2020,6 @@
     <p class="backup-note" id="reminderNext" hidden></p>
   </div>
 
-  <!-- 推送试验（ADR 0008 · 试验 E）。只在 spike/push-reminder 分支上存在，
-       回答平台问题用，不是产品功能。 -->
-  <div class="backup-section" id="pushSpikeSection">
-    <div class="backup-title">推送试验（临时）</div>
-    <p class="backup-note" id="pushSpikeEnv"></p>
-    <div class="backup-actions">
-      <button class="backup-btn" type="button" onclick="pushSpikeSend('review')">8 秒后推「复习」</button>
-      <button class="backup-btn" type="button" onclick="pushSpikeSend('loop')">8 秒后推「连播」</button>
-    </div>
-    <div class="backup-status" id="pushSpikeStatus" hidden></div>
-    <ol class="push-spike-log" id="pushSpikeLog"></ol>
-  </div>
-
   <div class="backup-section">
     <div class="backup-title">备份与恢复</div>
     <p class="backup-note">
@@ -2819,7 +2799,6 @@ function showTab(tab) {
     paintStandaloneNote();
     renderVoiceOptions();
     paintReminder();
-    paintPushSpike();
   } else if (tab === "help") {
     document.getElementById("helpScreen").classList.add("open");
     // 每次进来都是干净的：两间房收起、提示收起，只留输入框和常用词。
@@ -7413,8 +7392,8 @@ function reminderTimeZone() {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (e) { return "UTC"; }
 }
 
-// 推送相关的两个接口（到点提醒、推送试验）都挡在邀请码后面，共用这一处
-// 带码的请求——带码的调用点越少，越不会有哪一处忘了带。
+// 推送相关的请求都挡在邀请码后面，走这一处带码——带码的调用点越少，
+// 越不会有哪一处忘了带。
 async function pushApiPost(path, body) {
   const res = await fetch(path, { method: "POST", headers: accessHeaders(), body: JSON.stringify(body) });
   let out = {};
@@ -7427,6 +7406,7 @@ function reminderPost(body) {
 }
 
 // Service Worker 读得到的两样：点开去哪；这一条是不是开启时的确认通知。
+// 缓存名 push-spike 是试验期起的，沿用下来：改名要同时改 sw.js 和已装手机上的旧缓存。
 async function writePushTarget(t) {
   const c = await caches.open("push-spike");
   await c.put("./__push-target", new Response(t));
@@ -7486,7 +7466,7 @@ function toggleReminder() {
 
 // 必须由点击直接调用：iOS 只在用户手势里弹通知权限框，所以第一个 await 就是它。
 async function enableReminder() {
-  if (!pushSpikeSupported()) {
+  if (!pushSupported()) {
     reminderSay("这个浏览器收不到提醒" + (isStandalone ? "" : "。iPhone 要先「添加到主屏幕」，再从主屏幕打开"));
     return;
   }
@@ -7500,7 +7480,7 @@ async function enableReminder() {
   const secret = s.secret || newDeviceSecret();
   try {
     const reg = await navigator.serviceWorker.ready;
-    const subscribe = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(PUSH_SPIKE_PUBLIC_KEY) });
+    const subscribe = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(PUSH_PUBLIC_KEY) });
     let sub = (await reg.pushManager.getSubscription()) || await subscribe();
     await writePushTarget(s.target);
     await setPushConfirmMark(true);
@@ -7579,57 +7559,22 @@ async function flushReminderReview() {
 window.addEventListener("online", () => { flushReminderReview(); });
 /* ll:reminder:end */
 
-/* ll:push-spike:start */
-// 推送试验（ADR 0008 · 试验 E）。回答四个平台问题：锁屏收不收得到空推送、
-// 点开能不能直达目标页、点开后能不能直接出声、换个浏览器/手机又如何。
+/* ll:push-open:start */
+// 推送的公共部分，给到点提醒用（ADR 0008）。
 //
-// 流程：家长在设置里点按钮 → 要通知权限 → 订阅 → 把目标（复习/连播）写进
-// push-spike 缓存 → 把订阅交给 /api/push-test，服务器等 8 秒推一条空通知，
-// 然后忘掉。Service Worker 收到后读缓存决定通知写什么、点开去哪。
+// 推送是空的：通知写什么、点开去哪由 Service Worker 决定。点开之后有两种进来
+// 的方式——App 本来关着，Service Worker 新开一个窗口，目标在地址里（?to=）；
+// App 本来开在后台，Service Worker 把它叫回前台，再发一条消息告诉它去哪。
 //
-// 每一步的结果都记进 ll_push_spike_log（只在这台手机上），测完照着念就行。
-const PUSH_SPIKE_PUBLIC_KEY = "BBPXvT-rnKQYK-iXm6x_ocKfIyx5vfpbIFQWxYmPW44NBC4g7fykk_Fhu2f0FCzjag41AtfGNKm0xosX21HHMpw";
-const PUSH_SPIKE_TARGETS = ["review", "loop"];
-const PUSH_SPIKE_LOG_KEY = "ll_push_spike_log";
-const PUSH_SPIKE_LOG_MAX = 12;
+// 公钥是公开的，可以写在这里；私钥只在 Netlify 的环境变量里。
+const PUSH_PUBLIC_KEY = "BBPXvT-rnKQYK-iXm6x_ocKfIyx5vfpbIFQWxYmPW44NBC4g7fykk_Fhu2f0FCzjag41AtfGNKm0xosX21HHMpw";
 
-function pushSpikeLog(msg) {
-  let list = [];
-  try { list = JSON.parse(localStorage.getItem(PUSH_SPIKE_LOG_KEY) || "[]"); } catch (e) {}
-  if (!Array.isArray(list)) list = [];
-  const d = new Date();
-  const t = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") +
-            ":" + String(d.getSeconds()).padStart(2, "0");
-  list.push({ t, msg: String(msg) });
-  safeSetItem(PUSH_SPIKE_LOG_KEY, JSON.stringify(list.slice(-PUSH_SPIKE_LOG_MAX)));
-  paintPushSpikeLog();
-}
+// 试验期留下的本机日志（ll_push_spike_log），正式版不再用，清掉。
+try { localStorage.removeItem("ll_push_spike_log"); } catch (e) {}
 
-function paintPushSpikeLog() {
-  const box = document.getElementById("pushSpikeLog");
-  if (!box) return;
-  let list = [];
-  try { list = JSON.parse(localStorage.getItem(PUSH_SPIKE_LOG_KEY) || "[]"); } catch (e) {}
-  box.innerHTML = "";
-  (Array.isArray(list) ? list : []).forEach(item => {
-    const li = document.createElement("li");
-    li.textContent = `${item.t}  ${item.msg}`;
-    box.appendChild(li);
-  });
-}
-
-function pushSpikeSupported() {
+function pushSupported() {
   return !!navigator.serviceWorker && typeof PushManager !== "undefined" &&
          typeof Notification !== "undefined" && typeof caches !== "undefined";
-}
-
-function paintPushSpike() {
-  const env = document.getElementById("pushSpikeEnv");
-  if (env) {
-    const perm = typeof Notification !== "undefined" ? Notification.permission : "无";
-    env.textContent = `主屏幕版：${isStandalone ? "是" : "否"} · 推送：${pushSpikeSupported() ? "支持" : "不支持"} · 通知权限：${perm}`;
-  }
-  paintPushSpikeLog();
 }
 
 function pushKeyBytes(b64u) {
@@ -7637,69 +7582,23 @@ function pushKeyBytes(b64u) {
   return Uint8Array.from(s, c => c.charCodeAt(0));
 }
 
-// 必须由点击直接调用：iOS 只在用户手势里弹通知权限框，所以第一个 await
-// 就是它，前面不能有别的等待。
-async function pushSpikeSend(to) {
-  const status = document.getElementById("pushSpikeStatus");
-  const say = msg => {
-    if (status) { status.hidden = false; status.textContent = msg; }
-    pushSpikeLog(msg);
-  };
-  if (!PUSH_SPIKE_TARGETS.includes(to)) to = "review";
-  if (!pushSpikeSupported()) {
-    say("这个浏览器不支持推送" + (isStandalone ? "" : "（iPhone 要先「添加到主屏幕」，再从主屏幕打开）"));
-    return;
-  }
-  let perm;
-  try { perm = await Notification.requestPermission(); }
-  catch (e) { say("请求通知权限时出错：" + ((e && e.message) || e)); return; }
-  paintPushSpike();
-  if (perm !== "granted") { say(`通知权限是「${perm}」，没有权限就收不到`); return; }
-  if (!getAccessCode()) { say("先在上面填邀请码"); return; }
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = (await reg.pushManager.getSubscription()) ||
-      await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(PUSH_SPIKE_PUBLIC_KEY) });
-    const c = await caches.open("push-spike");
-    await c.put("./__push-target", new Response(to));
-    say(`已订阅（${new URL(sub.endpoint).hostname}），8 秒后推「${to === "loop" ? "连播" : "复习"}」——现在可以锁屏`);
-    const { status, out } = await pushApiPost("/api/push-test", { subscription: sub.toJSON(), delaySec: 8 });
-    if (status === 403) { say("邀请码不对，服务器没发"); return; }
-    if (out.sent) { say(`推送服务已收下（${out.host} · ${out.pushStatus}）`); return; }
-    if (out.gone) {
-      try { await sub.unsubscribe(); } catch (e) {}
-      say("这台手机的推送授权已失效，已清掉；再点一次会重新订阅");
-      return;
-    }
-    say(`没发出去：${status} ${out.error || out.pushStatus || ""}`.trim());
-  } catch (e) {
-    say("出错：" + ((e && e.message) || e));
-  }
-}
-
-// 从通知进来之后。连播那一路顺带回答 C6：像家长点了按钮一样启动连播，
-// 过一会儿看声音到底响没响。响不了就停掉，免得按钮显示「停止」却一片安静。
-function openFromPush(to, via) {
-  pushSpikeLog(`从通知进来（${via}）→ ${to === "loop" ? "连播" : "复习"}`);
+// 从通知进来之后。去连播时，像家长点了按钮一样启动；App 本来关着时 iOS 不让
+// 直接出声（tech-constraints C6，2026-09-17 实测），这时停掉，告诉家长点哪里，
+// 免得按钮显示「停止」却一片安静。
+function openFromPush(to) {
   if (to !== "loop") { showTab("review"); return; }
   showTab("saved");
   // 给收藏列表一点时间把声音地址备好，和家长自己点按钮时的条件一致。
   setTimeout(() => {
     const btn = document.querySelector("#savedScreenList .loop-btn");
-    if (!btn) { pushSpikeLog("连播：收藏里没有句子，测不了自动播放"); return; }
+    if (!btn) return;
     if (!audioLoopPlaying()) btn.click();
-    if (!audioLoopPlaying()) { pushSpikeLog("连播：没有可播的声音，测不了自动播放"); return; }
+    if (!audioLoopPlaying()) return;
     setTimeout(() => {
-      const playing = !!loopEl && !loopEl.paused;
-      if (playing) {
-        pushSpikeLog("连播自动播放：✅ 响了");
-      } else {
-        pushSpikeLog("连播自动播放：❌ 被拦下，要再点一下「连续播放全部」");
-        stopAudioLoop();
-        renderSavedScreen();
-        // C6：App 关着时从通知进来，iOS 不让直接出声。告诉家长点哪里。
-        showOfflineToast("点「连续播放全部」开始播放");
-      }
+      if (loopEl && !loopEl.paused) return;
+      stopAudioLoop();
+      renderSavedScreen();
+      showOfflineToast("点「连续播放全部」开始播放");
     }, 1500);
   }, 800);
 }
@@ -7707,9 +7606,9 @@ function openFromPush(to, via) {
 // App 被通知新打开时，目标在地址里。处理完就把参数清掉，刷新不会再跳一次。
 function handlePushDeepLink(search) {
   const to = new URLSearchParams(search || "").get("to");
-  if (!PUSH_SPIKE_TARGETS.includes(to)) return false;
+  if (!REMINDER_TARGETS.includes(to)) return false;
   try { history.replaceState(null, "", location.pathname); } catch (e) {}
-  openFromPush(to, "新打开");
+  openFromPush(to);
   return true;
 }
 
@@ -7717,10 +7616,10 @@ function handlePushDeepLink(search) {
 if (navigator.serviceWorker) {
   navigator.serviceWorker.addEventListener("message", e => {
     const d = e.data || {};
-    if (d.type === "ll-push-open" && PUSH_SPIKE_TARGETS.includes(d.to)) openFromPush(d.to, "切回前台");
+    if (d.type === "ll-push-open" && REMINDER_TARGETS.includes(d.to)) openFromPush(d.to);
   });
 }
-/* ll:push-spike:end */
+/* ll:push-open:end */
 
 // ── Warm up voices on load ─────────────────────────────
 if (window.speechSynthesis) {

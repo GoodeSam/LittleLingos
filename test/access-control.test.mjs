@@ -44,10 +44,27 @@ const CODE = "test-access-code-1234";
 // named _something.mjs (it is underscore-prefixed DIRECTORIES that Netlify
 // skips). For the current layout — two flat .mjs endpoints plus _shared/ —
 // it is exact.
-const DISCOVERED = readdirSync(FN_DIR)
+const ALL_FUNCTIONS = readdirSync(FN_DIR)
   .filter(f => f.endsWith(".mjs"))
   .map(f => ({ name: f.replace(/\.mjs$/, ""), file: f }))
   .sort((a, b) => a.name.localeCompare(b.name));
+
+// 定时任务不是网址接口（2026-09-18 加，Victor 同意，ADR 0008）。
+//
+// 导出的 config 里有 schedule 的函数，由 Netlify 按时间表在内部叫醒，叫醒时
+// 不带邀请码——给它装门，它会把自己挡在外面，永远不干活。所以它不进下面
+// 「每个接口都要装门」的扫描，换成本文件末尾那条「定时任务不许写网址」。
+//
+// 这放松了原规矩一点：它相信「没写网址就调不到」。Netlify 普通函数不写网址
+// 默认也能从 /.netlify/functions/<名字> 访问；定时任务是否例外，要等正式版
+// 上线后从外面请求一次才算核实。核对结果记在 newLittleLingoes 的
+// tech-constraints 里。
+//
+// 按模块真正导出的 config 分类，不在源码文字里找关键字——后者会被注释骗。
+const CONFIGS = new Map(await Promise.all(ALL_FUNCTIONS.map(async ep =>
+  [ep.name, (await import(`../netlify/functions/${ep.file}`)).config || {}])));
+const SCHEDULED = ALL_FUNCTIONS.filter(ep => CONFIGS.get(ep.name).schedule !== undefined);
+const DISCOVERED = ALL_FUNCTIONS.filter(ep => CONFIGS.get(ep.name).schedule === undefined);
 
 // Per-endpoint bodies. Only behavioral tests need an entry; the source-level
 // checks run against everything discovered. A discovered endpoint with no
@@ -428,6 +445,33 @@ test("every discovered endpoint imports the one shared gate", () => {
     assert.ok(!/charCodeAt|function\s+timingSafeEqual/.test(src),
       `${ep.name} must not carry its own comparison routine`);
   }
+});
+
+// ══ 5. 定时任务不许有网址 ═════════════════════════════════════════════
+//
+// 上面的扫描不管定时任务（见文件开头 SCHEDULED 的说明），条件是它们没有网址。
+// 将来谁给定时任务加上 path，它就成了能被人从外面叫的接口，必须回到上面的
+// 规矩里装门——这里立刻变红。
+
+test("scheduled functions declare a schedule and no URL path", () => {
+  for (const ep of SCHEDULED) {
+    const c = CONFIGS.get(ep.name);
+    assert.equal(typeof c.schedule, "string", `${ep.name}: schedule must be a cron string`);
+    assert.ok(c.schedule.trim().length > 0, `${ep.name}: empty schedule`);
+    assert.equal(c.path, undefined,
+      `${ep.name} has both a schedule and a path — a URL makes it an endpoint, and endpoints need the gate`);
+  }
+});
+
+test("classification is by exported config: every function with a path is swept, none is waved through", () => {
+  // 对照组：有网址的函数一个都不能被归进定时任务那一堆
+  for (const ep of ALL_FUNCTIONS) {
+    const c = CONFIGS.get(ep.name);
+    if (c.path !== undefined) {
+      assert.ok(DISCOVERED.includes(ep), `${ep.name} has a URL path but escaped the gate sweep`);
+    }
+  }
+  assert.equal(SCHEDULED.length + DISCOVERED.length, ALL_FUNCTIONS.length);
 });
 
 // ── Runner ───────────────────────────────────────────────

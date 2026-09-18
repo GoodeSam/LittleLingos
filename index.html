@@ -929,6 +929,10 @@
       background: var(--warm); color: var(--text);
     }
     .backup-status.is-error { background: #FFE8E4; color: #A03325; }
+    /* 到点提醒的「点开去哪」：复用年龄段那种二选一的样子。它是 <button>，
+       要把浏览器自带的底色和字体抹掉，选中态仍由 .age-opt.active 决定。 */
+    .reminder-targets { display: flex; gap: var(--space-2); margin: var(--space-2) 0 var(--space-3); }
+    button.age-opt { font: inherit; font-size: 16px; background: var(--white); color: var(--text); }
     .saved-item {
       background: var(--card);
       border-radius: 12px;
@@ -1995,6 +1999,27 @@
     <div class="backup-status" id="voiceStatus" hidden></div>
   </div>
 
+  <!-- 到点提醒（ADR 0008）。服务器只记这台手机的推送地址、上次复习/发送时间、
+       时区和设备口令的指纹；「点开去哪」只存在手机上。 -->
+  <div class="backup-section" id="reminderSection">
+    <div class="backup-title">到点提醒</div>
+    <p class="backup-note">
+      上次复习后约 23.5 小时，手机弹一条通知，点开直接进去。夜里 22:00～7:00 不打扰。
+    </p>
+    <p class="backup-note" id="reminderPlatformNote" hidden>
+      iPhone 要从主屏幕上的图标打开这个 App，才收得到提醒。
+    </p>
+    <div class="reminder-targets" role="radiogroup" aria-label="点开通知后去哪">
+      <button type="button" class="age-opt" role="radio" data-rtarget="review" onclick="setReminderTarget('review')">点开去复习</button>
+      <button type="button" class="age-opt" role="radio" data-rtarget="loop" onclick="setReminderTarget('loop')">点开去连播</button>
+    </div>
+    <div class="backup-actions">
+      <button class="backup-btn" id="reminderToggle" type="button" onclick="toggleReminder()">开启提醒</button>
+    </div>
+    <div class="backup-status" id="reminderStatus" hidden></div>
+    <p class="backup-note" id="reminderNext" hidden></p>
+  </div>
+
   <div class="backup-section">
     <div class="backup-title">备份与恢复</div>
     <p class="backup-note">
@@ -2773,6 +2798,7 @@ function showTab(tab) {
     syncAccessCodeInput();
     paintStandaloneNote();
     renderVoiceOptions();
+    paintReminder();
   } else if (tab === "help") {
     document.getElementById("helpScreen").classList.add("open");
     // 每次进来都是干净的：两间房收起、提示收起，只留输入框和常用词。
@@ -4043,6 +4069,9 @@ function reviewAnswer(remembered) {
   const item = reviewQueue.shift();
   answerById(item.id, remembered);
   if (!remembered) reviewQueue.push(item);
+  // 到点提醒按「上次复习」算，这一下就是复习。typeof：这一段会被单独抽进
+  // 沙箱测试，那里没有提醒模块。
+  if (typeof reminderNoteReview === "function") reminderNoteReview();
   updateNavBadge();
   renderReviewStrip();
   if (reviewQueue.length) renderReviewCard();
@@ -7326,6 +7355,272 @@ function openIosSheet() {
 }
 function closeIosSheet() { document.getElementById('iosSheet').classList.remove('open'); }
 
+// ── 到点提醒与推送（ADR 0008）────────────────────────────
+// 放在 Install prompt 之后：要用那里算好的 isStandalone。
+/* ll:reminder:start */
+// 到点提醒（ADR 0008）。上次复习后约 23.5 小时，服务器推一条空通知；点开去
+// 复习或连播。
+//
+// 手机上存在 ll_reminder 里：是否开启、设备口令、推送地址、点开去哪、
+// 还没同步给服务器的那次复习时间、下一次提醒时间（只为显示）。
+// 设备口令是这台手机自己生成的随机串，服务器只存它的指纹，改、关都要出示它。
+// 「点开去哪」不发给服务器——空推送用不上它，Service Worker 从缓存里读。
+//
+// 复习后不是立刻同步：一轮复习要点很多下，攒 1.5 秒再发一次。断网就先攒着，
+// 下次打开 App 或恢复联网时补发。服务器说「没有这台手机的记录」（比如推送
+// 地址失效被删了），手机上也改成已关闭，不假装还开着。
+const REMINDER_KEY = "ll_reminder";
+const REMINDER_TARGETS = ["review", "loop"];
+const REMINDER_FLUSH_DELAY_MS = 1500;
+let reminderFlushTimer = null;
+
+function reminderState() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(REMINDER_KEY) || "null"); } catch (e) {}
+  if (!s || typeof s !== "object") s = {};
+  if (!REMINDER_TARGETS.includes(s.target)) s.target = "review";
+  return s;
+}
+function saveReminderState(s) { safeSetItem(REMINDER_KEY, JSON.stringify(s)); }
+
+function newDeviceSecret() {
+  const b = new Uint8Array(32);
+  crypto.getRandomValues(b);
+  return btoa(String.fromCharCode.apply(null, b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function reminderTimeZone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (e) { return "UTC"; }
+}
+
+// 推送相关的请求都挡在邀请码后面，走这一处带码——带码的调用点越少，
+// 越不会有哪一处忘了带。
+async function pushApiPost(path, body) {
+  const res = await fetch(path, { method: "POST", headers: accessHeaders(), body: JSON.stringify(body) });
+  let out = {};
+  try { out = await res.json(); } catch (e) {}
+  return { status: res.status, out };
+}
+
+function reminderPost(body) {
+  return pushApiPost("/api/reminder", body);
+}
+
+// Service Worker 读得到的两样：点开去哪；这一条是不是开启时的确认通知。
+// 缓存名 push-spike 是试验期起的，沿用下来：改名要同时改 sw.js 和已装手机上的旧缓存。
+async function writePushTarget(t) {
+  const c = await caches.open("push-spike");
+  await c.put("./__push-target", new Response(t));
+}
+async function setPushConfirmMark(on) {
+  try {
+    const c = await caches.open("push-spike");
+    if (on) await c.put("./__push-confirm", new Response("1"));
+    else await c.delete("./__push-confirm");
+  } catch (e) {}
+}
+
+function reminderSay(msg) {
+  const el = document.getElementById("reminderStatus");
+  if (!el) return;
+  el.hidden = !msg;
+  el.textContent = msg || "";
+}
+
+function formatReminderTime(t) {
+  const d = new Date(t);
+  const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${hm}`;
+}
+
+function paintReminder() {
+  const s = reminderState();
+  const toggle = document.getElementById("reminderToggle");
+  if (toggle) toggle.textContent = s.on ? "关闭提醒" : "开启提醒";
+  document.querySelectorAll("[data-rtarget]").forEach(btn => {
+    const on = btn.dataset.rtarget === s.target;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+  });
+  const next = document.getElementById("reminderNext");
+  if (next) {
+    const show = !!s.on && typeof s.nextAt === "number";
+    next.hidden = !show;
+    next.textContent = show ? `下一次提醒：${formatReminderTime(s.nextAt)}（复习之后会往后挪）` : "";
+  }
+  const platform = document.getElementById("reminderPlatformNote");
+  if (platform) platform.hidden = !!isStandalone;
+}
+
+function setReminderTarget(t) {
+  if (!REMINDER_TARGETS.includes(t)) return;
+  const s = reminderState();
+  s.target = t;
+  saveReminderState(s);
+  if (s.on) writePushTarget(t).catch(() => {});
+  paintReminder();
+}
+
+function toggleReminder() {
+  return reminderState().on ? disableReminder() : enableReminder();
+}
+
+// 必须由点击直接调用：iOS 只在用户手势里弹通知权限框，所以第一个 await 就是它。
+async function enableReminder() {
+  if (!pushSupported()) {
+    reminderSay("这个浏览器收不到提醒" + (isStandalone ? "" : "。iPhone 要先「添加到主屏幕」，再从主屏幕打开"));
+    return;
+  }
+  let perm;
+  try { perm = await Notification.requestPermission(); }
+  catch (e) { reminderSay("请求通知权限时出错：" + ((e && e.message) || e)); return; }
+  if (perm !== "granted") { reminderSay(`通知权限是「${perm}」。没有权限就收不到提醒`); return; }
+  if (!getAccessCode()) { reminderSay("先在上面填邀请码"); return; }
+
+  const s = reminderState();
+  const secret = s.secret || newDeviceSecret();
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const subscribe = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(PUSH_PUBLIC_KEY) });
+    let sub = (await reg.pushManager.getSubscription()) || await subscribe();
+    await writePushTarget(s.target);
+    await setPushConfirmMark(true);
+    reminderSay("正在开启……");
+    const send = () => reminderPost({ action: "enable", endpoint: sub.endpoint, secret, tz: reminderTimeZone() });
+    let r = await send();
+    if (r.status === 409) {
+      // 这个推送地址在服务器上被别的口令占着：换一个新地址重来一次
+      try { await sub.unsubscribe(); } catch (e) {}
+      sub = await subscribe();
+      r = await send();
+    }
+    if (r.status === 403) { await setPushConfirmMark(false); reminderSay("邀请码不对，没开成"); return; }
+    if (!r.out || !r.out.ok) {
+      await setPushConfirmMark(false);
+      if (r.out && r.out.gone) {
+        try { await sub.unsubscribe(); } catch (e) {}
+        reminderSay("这台手机的推送授权失效了，再点一次「开启提醒」");
+      } else {
+        reminderSay(`没开成：${r.status} ${(r.out && r.out.error) || ""}`.trim());
+      }
+      return;
+    }
+    saveReminderState({ on: true, secret, endpoint: sub.endpoint, target: s.target, pendingAt: null, nextAt: r.out.nextAt });
+    paintReminder();
+    reminderSay("已开启。刚才那条通知，就是到点时会来的样子");
+  } catch (e) {
+    await setPushConfirmMark(false);
+    reminderSay("没开成：" + ((e && e.message) || e));
+  }
+}
+
+async function disableReminder() {
+  const s = reminderState();
+  let r;
+  try { r = await reminderPost({ action: "disable", endpoint: s.endpoint, secret: s.secret }); }
+  catch (e) { reminderSay("没连上服务器，提醒还开着。联网后再点一次"); return; }
+  if (r.status !== 200) { reminderSay(`没关成：${r.status} ${(r.out && r.out.error) || ""}`.trim()); return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe();
+  } catch (e) {}
+  saveReminderState({ on: false, target: s.target });
+  paintReminder();
+  reminderSay("已关闭，服务器上这台手机的记录已删除");
+}
+
+function reminderNoteReview() {
+  const s = reminderState();
+  if (!s.on) return;
+  s.pendingAt = Date.now();
+  saveReminderState(s);
+  if (reminderFlushTimer) clearTimeout(reminderFlushTimer);
+  reminderFlushTimer = setTimeout(() => { reminderFlushTimer = null; flushReminderReview(); }, REMINDER_FLUSH_DELAY_MS);
+}
+
+async function flushReminderReview() {
+  const s = reminderState();
+  if (!s.on || !s.pendingAt) return;
+  let r;
+  try {
+    r = await reminderPost({ action: "review", endpoint: s.endpoint, secret: s.secret, at: s.pendingAt, tz: reminderTimeZone() });
+  } catch (e) { return; }   // 断网：攒着，下次再发
+  const cur = reminderState();
+  if (r.status === 200) {
+    if (cur.pendingAt === s.pendingAt) cur.pendingAt = null;
+    if (r.out && typeof r.out.nextAt === "number") cur.nextAt = r.out.nextAt;
+    saveReminderState(cur);
+  } else if (r.status === 404) {
+    saveReminderState({ on: false, target: cur.target });
+  }
+  paintReminder();
+}
+
+window.addEventListener("online", () => { flushReminderReview(); });
+/* ll:reminder:end */
+
+/* ll:push-open:start */
+// 推送的公共部分，给到点提醒用（ADR 0008）。
+//
+// 推送是空的：通知写什么、点开去哪由 Service Worker 决定。点开之后有两种进来
+// 的方式——App 本来关着，Service Worker 新开一个窗口，目标在地址里（?to=）；
+// App 本来开在后台，Service Worker 把它叫回前台，再发一条消息告诉它去哪。
+//
+// 公钥是公开的，可以写在这里；私钥只在 Netlify 的环境变量里。
+const PUSH_PUBLIC_KEY = "BBPXvT-rnKQYK-iXm6x_ocKfIyx5vfpbIFQWxYmPW44NBC4g7fykk_Fhu2f0FCzjag41AtfGNKm0xosX21HHMpw";
+
+// 试验期留下的本机日志（ll_push_spike_log），正式版不再用，清掉。
+try { localStorage.removeItem("ll_push_spike_log"); } catch (e) {}
+
+function pushSupported() {
+  return !!navigator.serviceWorker && typeof PushManager !== "undefined" &&
+         typeof Notification !== "undefined" && typeof caches !== "undefined";
+}
+
+function pushKeyBytes(b64u) {
+  const s = atob(b64u.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64u.length + 3) % 4));
+  return Uint8Array.from(s, c => c.charCodeAt(0));
+}
+
+// 从通知进来之后。去连播时，像家长点了按钮一样启动；App 本来关着时 iOS 不让
+// 直接出声（tech-constraints C6，2026-09-17 实测），这时停掉，告诉家长点哪里，
+// 免得按钮显示「停止」却一片安静。
+function openFromPush(to) {
+  if (to !== "loop") { showTab("review"); return; }
+  showTab("saved");
+  // 给收藏列表一点时间把声音地址备好，和家长自己点按钮时的条件一致。
+  setTimeout(() => {
+    const btn = document.querySelector("#savedScreenList .loop-btn");
+    if (!btn) return;
+    if (!audioLoopPlaying()) btn.click();
+    if (!audioLoopPlaying()) return;
+    setTimeout(() => {
+      if (loopEl && !loopEl.paused) return;
+      stopAudioLoop();
+      renderSavedScreen();
+      showOfflineToast("点「连续播放全部」开始播放");
+    }, 1500);
+  }, 800);
+}
+
+// App 被通知新打开时，目标在地址里。处理完就把参数清掉，刷新不会再跳一次。
+function handlePushDeepLink(search) {
+  const to = new URLSearchParams(search || "").get("to");
+  if (!REMINDER_TARGETS.includes(to)) return false;
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+  openFromPush(to);
+  return true;
+}
+
+// App 本来开在后台时，Service Worker 把它叫回前台，再用消息告诉它去哪。
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener("message", e => {
+    const d = e.data || {};
+    if (d.type === "ll-push-open" && REMINDER_TARGETS.includes(d.to)) openFromPush(d.to);
+  });
+}
+/* ll:push-open:end */
+
 // ── Warm up voices on load ─────────────────────────────
 if (window.speechSynthesis) {
   const warmUp = () => { speechSynthesis.getVoices(); };
@@ -7424,6 +7719,8 @@ function watchNavHeight() {
 
 document.addEventListener("DOMContentLoaded", () => {
   llStartApp();
+  handlePushDeepLink(location.search);
+  flushReminderReview();
   syncNavHeight();
   watchNavHeight();
 });

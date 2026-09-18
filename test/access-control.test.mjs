@@ -25,6 +25,7 @@
 //      不能用硬编码的清单，否则它就是下一个会被忘掉的地方。
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
+import { generateKeyPairSync } from "node:crypto";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -43,10 +44,27 @@ const CODE = "test-access-code-1234";
 // named _something.mjs (it is underscore-prefixed DIRECTORIES that Netlify
 // skips). For the current layout — two flat .mjs endpoints plus _shared/ —
 // it is exact.
-const DISCOVERED = readdirSync(FN_DIR)
+const ALL_FUNCTIONS = readdirSync(FN_DIR)
   .filter(f => f.endsWith(".mjs"))
   .map(f => ({ name: f.replace(/\.mjs$/, ""), file: f }))
   .sort((a, b) => a.name.localeCompare(b.name));
+
+// 定时任务不是网址接口（2026-09-18 加，Victor 同意，ADR 0008）。
+//
+// 导出的 config 里有 schedule 的函数，由 Netlify 按时间表在内部叫醒，叫醒时
+// 不带邀请码——给它装门，它会把自己挡在外面，永远不干活。所以它不进下面
+// 「每个接口都要装门」的扫描，换成本文件末尾那条「定时任务不许写网址」。
+//
+// 这放松了原规矩一点：它相信「没写网址就调不到」。Netlify 普通函数不写网址
+// 默认也能从 /.netlify/functions/<名字> 访问；定时任务是否例外，要等正式版
+// 上线后从外面请求一次才算核实。核对结果记在 newLittleLingoes 的
+// tech-constraints 里。
+//
+// 按模块真正导出的 config 分类，不在源码文字里找关键字——后者会被注释骗。
+const CONFIGS = new Map(await Promise.all(ALL_FUNCTIONS.map(async ep =>
+  [ep.name, (await import(`../netlify/functions/${ep.file}`)).config || {}])));
+const SCHEDULED = ALL_FUNCTIONS.filter(ep => CONFIGS.get(ep.name).schedule !== undefined);
+const DISCOVERED = ALL_FUNCTIONS.filter(ep => CONFIGS.get(ep.name).schedule === undefined);
 
 // Per-endpoint bodies. Only behavioral tests need an entry; the source-level
 // checks run against everything discovered. A discovered endpoint with no
@@ -65,6 +83,11 @@ const DISCOVERED = readdirSync(FN_DIR)
 // only "status 200" would go green on a fallback path or a wrongly-wrapped
 // success. What the endpoints do share is the Gemini envelope around it.
 const alpha = n => "aabcdefghij".slice(1)[n % 10].repeat(1 + Math.floor(n / 10));
+const PUSH_KEYS = (() => {
+  const jwk = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export({ format: "jwk" });
+  const pub = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, "base64url"), Buffer.from(jwk.y, "base64url")]);
+  return { VAPID_PUBLIC_KEY: pub.toString("base64url"), VAPID_PRIVATE_KEY: jwk.d };
+})();
 const BEHAVIOR = {
   translate: {
     keys: { GEMINI_API_KEY: "k" },
@@ -102,6 +125,24 @@ const BEHAVIOR = {
       assert.match(res.headers.get("Content-Type") || "", /^audio\/mpeg/,
         "a parent's phone stores this as audio — the wrong type is a file that never plays");
       assert.ok((await res.arrayBuffer()).byteLength > 0, "an empty body is a silent clip");
+    },
+  },
+  // 到点提醒（ADR 0008）。它会往服务器存东西、替调用者向外推送，同样挡在门后。
+  // 用「开启」这个动作来过扫描：它会推一条确认通知，所以「有码能用」这一条
+  // 看得到真实的外发请求。存储换成内存替身（REMINDER_STORE=memory:…）。
+  reminder: {
+    keys: { ...PUSH_KEYS, REMINDER_STORE: "memory:access-control-sweep" },
+    body: n => ({
+      action: "enable",
+      endpoint: `https://web.push.apple.com/sweep-${alpha(n)}`,
+      secret: "s".repeat(43),
+      tz: "Asia/Shanghai",
+    }),
+    stub: () => new Response(null, { status: 201 }),
+    expect: async res => {
+      const b = await res.json();
+      assert.equal(b.ok, true, "a parent with a code turned reminders on and must be told it worked");
+      assert.equal(b.confirm && b.confirm.sent, true);
     },
   },
 };
@@ -404,6 +445,33 @@ test("every discovered endpoint imports the one shared gate", () => {
     assert.ok(!/charCodeAt|function\s+timingSafeEqual/.test(src),
       `${ep.name} must not carry its own comparison routine`);
   }
+});
+
+// ══ 5. 定时任务不许有网址 ═════════════════════════════════════════════
+//
+// 上面的扫描不管定时任务（见文件开头 SCHEDULED 的说明），条件是它们没有网址。
+// 将来谁给定时任务加上 path，它就成了能被人从外面叫的接口，必须回到上面的
+// 规矩里装门——这里立刻变红。
+
+test("scheduled functions declare a schedule and no URL path", () => {
+  for (const ep of SCHEDULED) {
+    const c = CONFIGS.get(ep.name);
+    assert.equal(typeof c.schedule, "string", `${ep.name}: schedule must be a cron string`);
+    assert.ok(c.schedule.trim().length > 0, `${ep.name}: empty schedule`);
+    assert.equal(c.path, undefined,
+      `${ep.name} has both a schedule and a path — a URL makes it an endpoint, and endpoints need the gate`);
+  }
+});
+
+test("classification is by exported config: every function with a path is swept, none is waved through", () => {
+  // 对照组：有网址的函数一个都不能被归进定时任务那一堆
+  for (const ep of ALL_FUNCTIONS) {
+    const c = CONFIGS.get(ep.name);
+    if (c.path !== undefined) {
+      assert.ok(DISCOVERED.includes(ep), `${ep.name} has a URL path but escaped the gate sweep`);
+    }
+  }
+  assert.equal(SCHEDULED.length + DISCOVERED.length, ALL_FUNCTIONS.length);
 });
 
 // ── Runner ───────────────────────────────────────────────

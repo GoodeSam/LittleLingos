@@ -929,6 +929,10 @@
       background: var(--warm); color: var(--text);
     }
     .backup-status.is-error { background: #FFE8E4; color: #A03325; }
+    /* 到点提醒的「点开去哪」：复用年龄段那种二选一的样子。它是 <button>，
+       要把浏览器自带的底色和字体抹掉，选中态仍由 .age-opt.active 决定。 */
+    .reminder-targets { display: flex; gap: var(--space-2); margin: var(--space-2) 0 var(--space-3); }
+    button.age-opt { font: inherit; font-size: 16px; background: var(--white); color: var(--text); }
     /* 推送试验的日志：测完照着念，所以要能读，但不抢主次。 */
     .push-spike-log {
       margin: var(--space-2) 0 0; padding-left: 1.4em;
@@ -2002,6 +2006,27 @@
     <div class="backup-status" id="voiceStatus" hidden></div>
   </div>
 
+  <!-- 到点提醒（ADR 0008）。服务器只记这台手机的推送地址、上次复习/发送时间、
+       时区和设备口令的指纹；「点开去哪」只存在手机上。 -->
+  <div class="backup-section" id="reminderSection">
+    <div class="backup-title">到点提醒</div>
+    <p class="backup-note">
+      上次复习后约 23.5 小时，手机弹一条通知，点开直接进去。夜里 22:00～7:00 不打扰。
+    </p>
+    <p class="backup-note" id="reminderPlatformNote" hidden>
+      iPhone 要从主屏幕上的图标打开这个 App，才收得到提醒。
+    </p>
+    <div class="reminder-targets" role="radiogroup" aria-label="点开通知后去哪">
+      <button type="button" class="age-opt" role="radio" data-rtarget="review" onclick="setReminderTarget('review')">点开去复习</button>
+      <button type="button" class="age-opt" role="radio" data-rtarget="loop" onclick="setReminderTarget('loop')">点开去连播</button>
+    </div>
+    <div class="backup-actions">
+      <button class="backup-btn" id="reminderToggle" type="button" onclick="toggleReminder()">开启提醒</button>
+    </div>
+    <div class="backup-status" id="reminderStatus" hidden></div>
+    <p class="backup-note" id="reminderNext" hidden></p>
+  </div>
+
   <!-- 推送试验（ADR 0008 · 试验 E）。只在 spike/push-reminder 分支上存在，
        回答平台问题用，不是产品功能。 -->
   <div class="backup-section" id="pushSpikeSection">
@@ -2793,6 +2818,7 @@ function showTab(tab) {
     syncAccessCodeInput();
     paintStandaloneNote();
     renderVoiceOptions();
+    paintReminder();
     paintPushSpike();
   } else if (tab === "help") {
     document.getElementById("helpScreen").classList.add("open");
@@ -4064,6 +4090,9 @@ function reviewAnswer(remembered) {
   const item = reviewQueue.shift();
   answerById(item.id, remembered);
   if (!remembered) reviewQueue.push(item);
+  // 到点提醒按「上次复习」算，这一下就是复习。typeof：这一段会被单独抽进
+  // 沙箱测试，那里没有提醒模块。
+  if (typeof reminderNoteReview === "function") reminderNoteReview();
   updateNavBadge();
   renderReviewStrip();
   if (reviewQueue.length) renderReviewCard();
@@ -5593,152 +5622,6 @@ if (navigator.serviceWorker) {
     });
   });
 }
-
-/* ll:push-spike:start */
-// 推送试验（ADR 0008 · 试验 E）。回答四个平台问题：锁屏收不收得到空推送、
-// 点开能不能直达目标页、点开后能不能直接出声、换个浏览器/手机又如何。
-//
-// 流程：家长在设置里点按钮 → 要通知权限 → 订阅 → 把目标（复习/连播）写进
-// push-spike 缓存 → 把订阅交给 /api/push-test，服务器等 8 秒推一条空通知，
-// 然后忘掉。Service Worker 收到后读缓存决定通知写什么、点开去哪。
-//
-// 每一步的结果都记进 ll_push_spike_log（只在这台手机上），测完照着念就行。
-const PUSH_SPIKE_PUBLIC_KEY = "BBPXvT-rnKQYK-iXm6x_ocKfIyx5vfpbIFQWxYmPW44NBC4g7fykk_Fhu2f0FCzjag41AtfGNKm0xosX21HHMpw";
-const PUSH_SPIKE_TARGETS = ["review", "loop"];
-const PUSH_SPIKE_LOG_KEY = "ll_push_spike_log";
-const PUSH_SPIKE_LOG_MAX = 12;
-
-function pushSpikeLog(msg) {
-  let list = [];
-  try { list = JSON.parse(localStorage.getItem(PUSH_SPIKE_LOG_KEY) || "[]"); } catch (e) {}
-  if (!Array.isArray(list)) list = [];
-  const d = new Date();
-  const t = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") +
-            ":" + String(d.getSeconds()).padStart(2, "0");
-  list.push({ t, msg: String(msg) });
-  safeSetItem(PUSH_SPIKE_LOG_KEY, JSON.stringify(list.slice(-PUSH_SPIKE_LOG_MAX)));
-  paintPushSpikeLog();
-}
-
-function paintPushSpikeLog() {
-  const box = document.getElementById("pushSpikeLog");
-  if (!box) return;
-  let list = [];
-  try { list = JSON.parse(localStorage.getItem(PUSH_SPIKE_LOG_KEY) || "[]"); } catch (e) {}
-  box.innerHTML = "";
-  (Array.isArray(list) ? list : []).forEach(item => {
-    const li = document.createElement("li");
-    li.textContent = `${item.t}  ${item.msg}`;
-    box.appendChild(li);
-  });
-}
-
-function pushSpikeSupported() {
-  return !!navigator.serviceWorker && typeof PushManager !== "undefined" &&
-         typeof Notification !== "undefined" && typeof caches !== "undefined";
-}
-
-function paintPushSpike() {
-  const env = document.getElementById("pushSpikeEnv");
-  if (env) {
-    const perm = typeof Notification !== "undefined" ? Notification.permission : "无";
-    env.textContent = `主屏幕版：${isStandalone ? "是" : "否"} · 推送：${pushSpikeSupported() ? "支持" : "不支持"} · 通知权限：${perm}`;
-  }
-  paintPushSpikeLog();
-}
-
-function pushKeyBytes(b64u) {
-  const s = atob(b64u.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64u.length + 3) % 4));
-  return Uint8Array.from(s, c => c.charCodeAt(0));
-}
-
-// 必须由点击直接调用：iOS 只在用户手势里弹通知权限框，所以第一个 await
-// 就是它，前面不能有别的等待。
-async function pushSpikeSend(to) {
-  const status = document.getElementById("pushSpikeStatus");
-  const say = msg => {
-    if (status) { status.hidden = false; status.textContent = msg; }
-    pushSpikeLog(msg);
-  };
-  if (!PUSH_SPIKE_TARGETS.includes(to)) to = "review";
-  if (!pushSpikeSupported()) {
-    say("这个浏览器不支持推送" + (isStandalone ? "" : "（iPhone 要先「添加到主屏幕」，再从主屏幕打开）"));
-    return;
-  }
-  let perm;
-  try { perm = await Notification.requestPermission(); }
-  catch (e) { say("请求通知权限时出错：" + ((e && e.message) || e)); return; }
-  paintPushSpike();
-  if (perm !== "granted") { say(`通知权限是「${perm}」，没有权限就收不到`); return; }
-  if (!getAccessCode()) { say("先在上面填邀请码"); return; }
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = (await reg.pushManager.getSubscription()) ||
-      await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(PUSH_SPIKE_PUBLIC_KEY) });
-    const c = await caches.open("push-spike");
-    await c.put("./__push-target", new Response(to));
-    say(`已订阅（${new URL(sub.endpoint).hostname}），8 秒后推「${to === "loop" ? "连播" : "复习"}」——现在可以锁屏`);
-    const res = await fetch("/api/push-test", {
-      method: "POST",
-      headers: accessHeaders(),
-      body: JSON.stringify({ subscription: sub.toJSON(), delaySec: 8 }),
-    });
-    const out = await res.json().catch(() => ({}));
-    if (res.status === 403) { say("邀请码不对，服务器没发"); return; }
-    if (out.sent) { say(`推送服务已收下（${out.host} · ${out.pushStatus}）`); return; }
-    if (out.gone) {
-      try { await sub.unsubscribe(); } catch (e) {}
-      say("这台手机的推送授权已失效，已清掉；再点一次会重新订阅");
-      return;
-    }
-    say(`没发出去：${res.status} ${out.error || out.pushStatus || ""}`.trim());
-  } catch (e) {
-    say("出错：" + ((e && e.message) || e));
-  }
-}
-
-// 从通知进来之后。连播那一路顺带回答 C6：像家长点了按钮一样启动连播，
-// 过一会儿看声音到底响没响。响不了就停掉，免得按钮显示「停止」却一片安静。
-function openFromPush(to, via) {
-  pushSpikeLog(`从通知进来（${via}）→ ${to === "loop" ? "连播" : "复习"}`);
-  if (to !== "loop") { showTab("review"); return; }
-  showTab("saved");
-  // 给收藏列表一点时间把声音地址备好，和家长自己点按钮时的条件一致。
-  setTimeout(() => {
-    const btn = document.querySelector("#savedScreenList .loop-btn");
-    if (!btn) { pushSpikeLog("连播：收藏里没有句子，测不了自动播放"); return; }
-    if (!audioLoopPlaying()) btn.click();
-    if (!audioLoopPlaying()) { pushSpikeLog("连播：没有可播的声音，测不了自动播放"); return; }
-    setTimeout(() => {
-      const playing = !!loopEl && !loopEl.paused;
-      if (playing) {
-        pushSpikeLog("连播自动播放：✅ 响了");
-      } else {
-        pushSpikeLog("连播自动播放：❌ 被拦下，要再点一下「连续播放全部」");
-        stopAudioLoop();
-        renderSavedScreen();
-      }
-    }, 1500);
-  }, 800);
-}
-
-// App 被通知新打开时，目标在地址里。处理完就把参数清掉，刷新不会再跳一次。
-function handlePushDeepLink(search) {
-  const to = new URLSearchParams(search || "").get("to");
-  if (!PUSH_SPIKE_TARGETS.includes(to)) return false;
-  try { history.replaceState(null, "", location.pathname); } catch (e) {}
-  openFromPush(to, "新打开");
-  return true;
-}
-
-// App 本来开在后台时，Service Worker 把它叫回前台，再用消息告诉它去哪。
-if (navigator.serviceWorker) {
-  navigator.serviceWorker.addEventListener("message", e => {
-    const d = e.data || {};
-    if (d.type === "ll-push-open" && PUSH_SPIKE_TARGETS.includes(d.to)) openFromPush(d.to, "切回前台");
-  });
-}
-/* ll:push-spike:end */
 
 // ── Offline / Online toast ─────────────────────────────
 function showOfflineToast(msg) {
@@ -7493,6 +7376,352 @@ function openIosSheet() {
 }
 function closeIosSheet() { document.getElementById('iosSheet').classList.remove('open'); }
 
+// ── 到点提醒与推送（ADR 0008）────────────────────────────
+// 放在 Install prompt 之后：要用那里算好的 isStandalone。
+/* ll:reminder:start */
+// 到点提醒（ADR 0008）。上次复习后约 23.5 小时，服务器推一条空通知；点开去
+// 复习或连播。
+//
+// 手机上存在 ll_reminder 里：是否开启、设备口令、推送地址、点开去哪、
+// 还没同步给服务器的那次复习时间、下一次提醒时间（只为显示）。
+// 设备口令是这台手机自己生成的随机串，服务器只存它的指纹，改、关都要出示它。
+// 「点开去哪」不发给服务器——空推送用不上它，Service Worker 从缓存里读。
+//
+// 复习后不是立刻同步：一轮复习要点很多下，攒 1.5 秒再发一次。断网就先攒着，
+// 下次打开 App 或恢复联网时补发。服务器说「没有这台手机的记录」（比如推送
+// 地址失效被删了），手机上也改成已关闭，不假装还开着。
+const REMINDER_KEY = "ll_reminder";
+const REMINDER_TARGETS = ["review", "loop"];
+const REMINDER_FLUSH_DELAY_MS = 1500;
+let reminderFlushTimer = null;
+
+function reminderState() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(REMINDER_KEY) || "null"); } catch (e) {}
+  if (!s || typeof s !== "object") s = {};
+  if (!REMINDER_TARGETS.includes(s.target)) s.target = "review";
+  return s;
+}
+function saveReminderState(s) { safeSetItem(REMINDER_KEY, JSON.stringify(s)); }
+
+function newDeviceSecret() {
+  const b = new Uint8Array(32);
+  crypto.getRandomValues(b);
+  return btoa(String.fromCharCode.apply(null, b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function reminderTimeZone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (e) { return "UTC"; }
+}
+
+// 推送相关的两个接口（到点提醒、推送试验）都挡在邀请码后面，共用这一处
+// 带码的请求——带码的调用点越少，越不会有哪一处忘了带。
+async function pushApiPost(path, body) {
+  const res = await fetch(path, { method: "POST", headers: accessHeaders(), body: JSON.stringify(body) });
+  let out = {};
+  try { out = await res.json(); } catch (e) {}
+  return { status: res.status, out };
+}
+
+function reminderPost(body) {
+  return pushApiPost("/api/reminder", body);
+}
+
+// Service Worker 读得到的两样：点开去哪；这一条是不是开启时的确认通知。
+async function writePushTarget(t) {
+  const c = await caches.open("push-spike");
+  await c.put("./__push-target", new Response(t));
+}
+async function setPushConfirmMark(on) {
+  try {
+    const c = await caches.open("push-spike");
+    if (on) await c.put("./__push-confirm", new Response("1"));
+    else await c.delete("./__push-confirm");
+  } catch (e) {}
+}
+
+function reminderSay(msg) {
+  const el = document.getElementById("reminderStatus");
+  if (!el) return;
+  el.hidden = !msg;
+  el.textContent = msg || "";
+}
+
+function formatReminderTime(t) {
+  const d = new Date(t);
+  const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${hm}`;
+}
+
+function paintReminder() {
+  const s = reminderState();
+  const toggle = document.getElementById("reminderToggle");
+  if (toggle) toggle.textContent = s.on ? "关闭提醒" : "开启提醒";
+  document.querySelectorAll("[data-rtarget]").forEach(btn => {
+    const on = btn.dataset.rtarget === s.target;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+  });
+  const next = document.getElementById("reminderNext");
+  if (next) {
+    const show = !!s.on && typeof s.nextAt === "number";
+    next.hidden = !show;
+    next.textContent = show ? `下一次提醒：${formatReminderTime(s.nextAt)}（复习之后会往后挪）` : "";
+  }
+  const platform = document.getElementById("reminderPlatformNote");
+  if (platform) platform.hidden = !!isStandalone;
+}
+
+function setReminderTarget(t) {
+  if (!REMINDER_TARGETS.includes(t)) return;
+  const s = reminderState();
+  s.target = t;
+  saveReminderState(s);
+  if (s.on) writePushTarget(t).catch(() => {});
+  paintReminder();
+}
+
+function toggleReminder() {
+  return reminderState().on ? disableReminder() : enableReminder();
+}
+
+// 必须由点击直接调用：iOS 只在用户手势里弹通知权限框，所以第一个 await 就是它。
+async function enableReminder() {
+  if (!pushSpikeSupported()) {
+    reminderSay("这个浏览器收不到提醒" + (isStandalone ? "" : "。iPhone 要先「添加到主屏幕」，再从主屏幕打开"));
+    return;
+  }
+  let perm;
+  try { perm = await Notification.requestPermission(); }
+  catch (e) { reminderSay("请求通知权限时出错：" + ((e && e.message) || e)); return; }
+  if (perm !== "granted") { reminderSay(`通知权限是「${perm}」。没有权限就收不到提醒`); return; }
+  if (!getAccessCode()) { reminderSay("先在上面填邀请码"); return; }
+
+  const s = reminderState();
+  const secret = s.secret || newDeviceSecret();
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const subscribe = () => reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(PUSH_SPIKE_PUBLIC_KEY) });
+    let sub = (await reg.pushManager.getSubscription()) || await subscribe();
+    await writePushTarget(s.target);
+    await setPushConfirmMark(true);
+    reminderSay("正在开启……");
+    const send = () => reminderPost({ action: "enable", endpoint: sub.endpoint, secret, tz: reminderTimeZone() });
+    let r = await send();
+    if (r.status === 409) {
+      // 这个推送地址在服务器上被别的口令占着：换一个新地址重来一次
+      try { await sub.unsubscribe(); } catch (e) {}
+      sub = await subscribe();
+      r = await send();
+    }
+    if (r.status === 403) { await setPushConfirmMark(false); reminderSay("邀请码不对，没开成"); return; }
+    if (!r.out || !r.out.ok) {
+      await setPushConfirmMark(false);
+      if (r.out && r.out.gone) {
+        try { await sub.unsubscribe(); } catch (e) {}
+        reminderSay("这台手机的推送授权失效了，再点一次「开启提醒」");
+      } else {
+        reminderSay(`没开成：${r.status} ${(r.out && r.out.error) || ""}`.trim());
+      }
+      return;
+    }
+    saveReminderState({ on: true, secret, endpoint: sub.endpoint, target: s.target, pendingAt: null, nextAt: r.out.nextAt });
+    paintReminder();
+    reminderSay("已开启。刚才那条通知，就是到点时会来的样子");
+  } catch (e) {
+    await setPushConfirmMark(false);
+    reminderSay("没开成：" + ((e && e.message) || e));
+  }
+}
+
+async function disableReminder() {
+  const s = reminderState();
+  let r;
+  try { r = await reminderPost({ action: "disable", endpoint: s.endpoint, secret: s.secret }); }
+  catch (e) { reminderSay("没连上服务器，提醒还开着。联网后再点一次"); return; }
+  if (r.status !== 200) { reminderSay(`没关成：${r.status} ${(r.out && r.out.error) || ""}`.trim()); return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe();
+  } catch (e) {}
+  saveReminderState({ on: false, target: s.target });
+  paintReminder();
+  reminderSay("已关闭，服务器上这台手机的记录已删除");
+}
+
+function reminderNoteReview() {
+  const s = reminderState();
+  if (!s.on) return;
+  s.pendingAt = Date.now();
+  saveReminderState(s);
+  if (reminderFlushTimer) clearTimeout(reminderFlushTimer);
+  reminderFlushTimer = setTimeout(() => { reminderFlushTimer = null; flushReminderReview(); }, REMINDER_FLUSH_DELAY_MS);
+}
+
+async function flushReminderReview() {
+  const s = reminderState();
+  if (!s.on || !s.pendingAt) return;
+  let r;
+  try {
+    r = await reminderPost({ action: "review", endpoint: s.endpoint, secret: s.secret, at: s.pendingAt, tz: reminderTimeZone() });
+  } catch (e) { return; }   // 断网：攒着，下次再发
+  const cur = reminderState();
+  if (r.status === 200) {
+    if (cur.pendingAt === s.pendingAt) cur.pendingAt = null;
+    if (r.out && typeof r.out.nextAt === "number") cur.nextAt = r.out.nextAt;
+    saveReminderState(cur);
+  } else if (r.status === 404) {
+    saveReminderState({ on: false, target: cur.target });
+  }
+  paintReminder();
+}
+
+window.addEventListener("online", () => { flushReminderReview(); });
+/* ll:reminder:end */
+
+/* ll:push-spike:start */
+// 推送试验（ADR 0008 · 试验 E）。回答四个平台问题：锁屏收不收得到空推送、
+// 点开能不能直达目标页、点开后能不能直接出声、换个浏览器/手机又如何。
+//
+// 流程：家长在设置里点按钮 → 要通知权限 → 订阅 → 把目标（复习/连播）写进
+// push-spike 缓存 → 把订阅交给 /api/push-test，服务器等 8 秒推一条空通知，
+// 然后忘掉。Service Worker 收到后读缓存决定通知写什么、点开去哪。
+//
+// 每一步的结果都记进 ll_push_spike_log（只在这台手机上），测完照着念就行。
+const PUSH_SPIKE_PUBLIC_KEY = "BBPXvT-rnKQYK-iXm6x_ocKfIyx5vfpbIFQWxYmPW44NBC4g7fykk_Fhu2f0FCzjag41AtfGNKm0xosX21HHMpw";
+const PUSH_SPIKE_TARGETS = ["review", "loop"];
+const PUSH_SPIKE_LOG_KEY = "ll_push_spike_log";
+const PUSH_SPIKE_LOG_MAX = 12;
+
+function pushSpikeLog(msg) {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(PUSH_SPIKE_LOG_KEY) || "[]"); } catch (e) {}
+  if (!Array.isArray(list)) list = [];
+  const d = new Date();
+  const t = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") +
+            ":" + String(d.getSeconds()).padStart(2, "0");
+  list.push({ t, msg: String(msg) });
+  safeSetItem(PUSH_SPIKE_LOG_KEY, JSON.stringify(list.slice(-PUSH_SPIKE_LOG_MAX)));
+  paintPushSpikeLog();
+}
+
+function paintPushSpikeLog() {
+  const box = document.getElementById("pushSpikeLog");
+  if (!box) return;
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(PUSH_SPIKE_LOG_KEY) || "[]"); } catch (e) {}
+  box.innerHTML = "";
+  (Array.isArray(list) ? list : []).forEach(item => {
+    const li = document.createElement("li");
+    li.textContent = `${item.t}  ${item.msg}`;
+    box.appendChild(li);
+  });
+}
+
+function pushSpikeSupported() {
+  return !!navigator.serviceWorker && typeof PushManager !== "undefined" &&
+         typeof Notification !== "undefined" && typeof caches !== "undefined";
+}
+
+function paintPushSpike() {
+  const env = document.getElementById("pushSpikeEnv");
+  if (env) {
+    const perm = typeof Notification !== "undefined" ? Notification.permission : "无";
+    env.textContent = `主屏幕版：${isStandalone ? "是" : "否"} · 推送：${pushSpikeSupported() ? "支持" : "不支持"} · 通知权限：${perm}`;
+  }
+  paintPushSpikeLog();
+}
+
+function pushKeyBytes(b64u) {
+  const s = atob(b64u.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64u.length + 3) % 4));
+  return Uint8Array.from(s, c => c.charCodeAt(0));
+}
+
+// 必须由点击直接调用：iOS 只在用户手势里弹通知权限框，所以第一个 await
+// 就是它，前面不能有别的等待。
+async function pushSpikeSend(to) {
+  const status = document.getElementById("pushSpikeStatus");
+  const say = msg => {
+    if (status) { status.hidden = false; status.textContent = msg; }
+    pushSpikeLog(msg);
+  };
+  if (!PUSH_SPIKE_TARGETS.includes(to)) to = "review";
+  if (!pushSpikeSupported()) {
+    say("这个浏览器不支持推送" + (isStandalone ? "" : "（iPhone 要先「添加到主屏幕」，再从主屏幕打开）"));
+    return;
+  }
+  let perm;
+  try { perm = await Notification.requestPermission(); }
+  catch (e) { say("请求通知权限时出错：" + ((e && e.message) || e)); return; }
+  paintPushSpike();
+  if (perm !== "granted") { say(`通知权限是「${perm}」，没有权限就收不到`); return; }
+  if (!getAccessCode()) { say("先在上面填邀请码"); return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) ||
+      await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(PUSH_SPIKE_PUBLIC_KEY) });
+    const c = await caches.open("push-spike");
+    await c.put("./__push-target", new Response(to));
+    say(`已订阅（${new URL(sub.endpoint).hostname}），8 秒后推「${to === "loop" ? "连播" : "复习"}」——现在可以锁屏`);
+    const { status, out } = await pushApiPost("/api/push-test", { subscription: sub.toJSON(), delaySec: 8 });
+    if (status === 403) { say("邀请码不对，服务器没发"); return; }
+    if (out.sent) { say(`推送服务已收下（${out.host} · ${out.pushStatus}）`); return; }
+    if (out.gone) {
+      try { await sub.unsubscribe(); } catch (e) {}
+      say("这台手机的推送授权已失效，已清掉；再点一次会重新订阅");
+      return;
+    }
+    say(`没发出去：${status} ${out.error || out.pushStatus || ""}`.trim());
+  } catch (e) {
+    say("出错：" + ((e && e.message) || e));
+  }
+}
+
+// 从通知进来之后。连播那一路顺带回答 C6：像家长点了按钮一样启动连播，
+// 过一会儿看声音到底响没响。响不了就停掉，免得按钮显示「停止」却一片安静。
+function openFromPush(to, via) {
+  pushSpikeLog(`从通知进来（${via}）→ ${to === "loop" ? "连播" : "复习"}`);
+  if (to !== "loop") { showTab("review"); return; }
+  showTab("saved");
+  // 给收藏列表一点时间把声音地址备好，和家长自己点按钮时的条件一致。
+  setTimeout(() => {
+    const btn = document.querySelector("#savedScreenList .loop-btn");
+    if (!btn) { pushSpikeLog("连播：收藏里没有句子，测不了自动播放"); return; }
+    if (!audioLoopPlaying()) btn.click();
+    if (!audioLoopPlaying()) { pushSpikeLog("连播：没有可播的声音，测不了自动播放"); return; }
+    setTimeout(() => {
+      const playing = !!loopEl && !loopEl.paused;
+      if (playing) {
+        pushSpikeLog("连播自动播放：✅ 响了");
+      } else {
+        pushSpikeLog("连播自动播放：❌ 被拦下，要再点一下「连续播放全部」");
+        stopAudioLoop();
+        renderSavedScreen();
+        // C6：App 关着时从通知进来，iOS 不让直接出声。告诉家长点哪里。
+        showOfflineToast("点「连续播放全部」开始播放");
+      }
+    }, 1500);
+  }, 800);
+}
+
+// App 被通知新打开时，目标在地址里。处理完就把参数清掉，刷新不会再跳一次。
+function handlePushDeepLink(search) {
+  const to = new URLSearchParams(search || "").get("to");
+  if (!PUSH_SPIKE_TARGETS.includes(to)) return false;
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+  openFromPush(to, "新打开");
+  return true;
+}
+
+// App 本来开在后台时，Service Worker 把它叫回前台，再用消息告诉它去哪。
+if (navigator.serviceWorker) {
+  navigator.serviceWorker.addEventListener("message", e => {
+    const d = e.data || {};
+    if (d.type === "ll-push-open" && PUSH_SPIKE_TARGETS.includes(d.to)) openFromPush(d.to, "切回前台");
+  });
+}
+/* ll:push-spike:end */
+
 // ── Warm up voices on load ─────────────────────────────
 if (window.speechSynthesis) {
   const warmUp = () => { speechSynthesis.getVoices(); };
@@ -7592,6 +7821,7 @@ function watchNavHeight() {
 document.addEventListener("DOMContentLoaded", () => {
   llStartApp();
   handlePushDeepLink(location.search);
+  flushReminderReview();
   syncNavHeight();
   watchNavHeight();
 });

@@ -61,6 +61,7 @@ function makeSW({ target, cacheBroken = false, windows = [] } = {}) {
           addAll: async () => {},
           put: async (k, v) => { s.set(k, v); },
           match: async (k) => (s.has(k) ? { text: async () => s.get(k) } : undefined),
+          delete: async (k) => s.delete(k),
         };
       },
       keys: async () => [...stores.keys()],
@@ -190,6 +191,34 @@ test("App 更新清旧缓存时，记录目标的缓存不会被删", async () =
   await dispatch(sw.listeners.activate).settled();
   assert.ok(!sw.stores.has("ll-old"), "对照失败：旧的 ll- 缓存本该被删");
   assert.ok(sw.stores.has("push-spike"), "记录推送目标的缓存被一起删了——下次推送就不知道去哪");
+});
+
+// ── 到点提醒（2026-09-18）──────────────────────────────────────────────
+// 家长开启提醒时，服务器马上推一条确认通知。它和到点的提醒是同一种空推送，
+// 分不出来——所以页面在开启前先留一个「这次是确认」的记号，Service Worker
+// 收到时读到它就换一句话，并且把记号擦掉，只管这一次。
+//
+//   家长点「开启提醒」—— 手机上马上出现「到点提醒已开启」，而不是一句莫名
+//   其妙的「到点了」；明天真到点时，看到的是正常的提醒。
+
+test("开启时的确认通知：说「已开启」，只说这一次", async () => {
+  const sw = makeSW({ target: "review" });
+  sw.stores.get("push-spike").set("./__push-confirm", "1");
+  await dispatch(sw.listeners.push).settled();
+  assert.match(sw.shown[0].opts.body, /已开启/, `确认通知写的是「${sw.shown[0].opts.body}」`);
+  assert.ok(!sw.stores.get("push-spike").has("./__push-confirm"), "记号没擦掉——明天的提醒也会说「已开启」");
+  await dispatch(sw.listeners.push).settled();
+  assert.doesNotMatch(sw.shown[1].opts.body, /已开启/, "第二条推送还在说「已开启」");
+  assert.match(sw.shown[1].opts.body, /复习/, "对照失败：正常提醒该提到复习");
+});
+
+test("没有确认记号时：照常是到点提醒；缓存坏了也照常弹", async () => {
+  const sw = makeSW({ target: "loop" });
+  await dispatch(sw.listeners.push).settled();
+  assert.doesNotMatch(sw.shown[0].opts.body, /已开启/);
+  const broken = makeSW({ cacheBroken: true });
+  await dispatch(broken.listeners.push).settled();
+  assert.equal(broken.shown.length, 1, "缓存打不开时没弹通知");
 });
 
 console.log("service-worker push tests");

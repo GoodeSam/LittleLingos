@@ -1,0 +1,19 @@
+{
+  "name": "littlelingos-push",
+  "version": "1.0.0",
+  "description": "A bilingual PWA that teaches Chinese-speaking parents the English a native parent would actually say to a 0–6 year-old in real daily-life moments. 30 scenarios × 4 age bands (`0-1`, `1-2`, `2-3`, `3-6`), ~600 phrases, each with native-parent English, aligned Chinese, an action tip, and generated audio. Live at <https://littlelingos.netlify.app>.",
+  "main": "dictionary-words.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@netlify/blobs": "11.1.0"
+  }
+}

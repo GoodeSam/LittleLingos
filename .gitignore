@@ -13,3 +13,6 @@ __pycache__/
 
 # VMark local state (per-machine; matches .vmark/ at any depth)
 .vmark/
+
+# npm (@netlify/blobs, ADR 0008)
+node_modules/

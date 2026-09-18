@@ -514,6 +514,248 @@ check("设置里的推送试验：通知权限没给时，点按钮看到一句�
   assert.match(r.logText, /复习/, "前面那次「从通知进来 → 复习」没出现在试验日志里");
 });
 
+// ── 到点提醒（ADR 0008，2026-09-18）─────────────────────────────────────
+// 推送订阅、通知权限、网络请求都是浏览器或外部提供的，在页面里换成替身；
+// 提醒本身的逻辑——什么时候登记、复习后怎么同步、断网时攒着、服务器说没有
+// 记录了怎么办——全是真代码。
+//
+// 这一组测试对应的用户情境（不含函数名）：
+//
+//   1. 家长打开设置里的「到点提醒」—— 一眼看懂规则（复习后约 23.5 小时、
+//      夜里不打扰），默认点开去复习，没开时不显示「下一次」。
+//   2. 家长点「开启提醒」—— 要通知权限、订阅、在服务器登记；手机上记下口令
+//      和目标页，目标页不发给服务器；按钮变成「关闭提醒」，显示下一次时间。
+//   3. 没给通知权限 —— 不开，说清为什么。
+//   4. 家长复习了一轮 —— 过一会儿告诉服务器；断网时先攒着，联网后补上。
+//   5. 服务器说这台手机的记录没了 —— 手机上也显示为已关闭，不假装还开着。
+//   6. 家长点「关闭提醒」—— 告诉服务器删记录、退订、清掉手机上的口令。
+//   7. 这台手机的推送地址在服务器上被别的口令占着 —— 换一个新地址重来一次。
+function REMINDER_FAKES() {
+  const rem = window.__rem = { posts: [], unsub: 0, subCount: 0, sub: null, reply: {} };
+  const makeSub = i => ({
+    endpoint: "https://web.push.apple.com/e2e-" + i,
+    toJSON() { return { endpoint: this.endpoint }; },
+    unsubscribe: async () => { rem.unsub++; rem.sub = null; return true; },
+  });
+  const reg = { pushManager: {
+    getSubscription: async () => rem.sub,
+    subscribe: async () => { rem.sub = makeSub(++rem.subCount); return rem.sub; },
+  } };
+  if (!window.__remSaved) {
+    window.__remSaved = { perm: Notification.requestPermission, fetch: window.fetch };
+  }
+  Object.defineProperty(navigator.serviceWorker, "ready", { value: Promise.resolve(reg), configurable: true });
+  Notification.requestPermission = async () => "granted";
+  const prev = window.__remSaved.fetch;
+  window.fetch = async (input, init) => {
+    const url = String(input && input.url ? input.url : input);
+    if (url.indexOf("/api/reminder") === -1) return prev(input, init);
+    const body = JSON.parse(init.body);
+    rem.posts.push(body);
+    const r = rem.reply[body.action];
+    const got = typeof r === "function" ? r(body) : r;
+    if (got === "offline") throw new TypeError("Failed to fetch");
+    const next = Date.now() + 23.5 * 3600 * 1000;
+    const [status, json] = got || [200, body.action === "enable"
+      ? { ok: true, nextAt: next, confirm: { sent: true } } : { ok: true, nextAt: next }];
+    return new Response(JSON.stringify(json), { status, headers: { "Content-Type": "application/json" } });
+  };
+  try { localStorage.removeItem("ll_reminder"); localStorage.setItem("ll_access", "e2e"); } catch (e) {}
+  return true;
+}
+function REMINDER_UNFAKE() {
+  delete navigator.serviceWorker.ready;
+  if (window.__remSaved) {
+    Notification.requestPermission = window.__remSaved.perm;
+    window.fetch = window.__remSaved.fetch;
+    delete window.__remSaved;
+  }
+  try { localStorage.removeItem("ll_reminder"); } catch (e) {}
+  return true;
+}
+const readReminder = () => { try { return JSON.parse(localStorage.getItem("ll_reminder") || "{}"); } catch (e) { return {}; } };
+
+check("到点提醒卡片：说清规则，默认去复习，没开时不显示下一次", async (ev) => {
+  await ev(REMINDER_FAKES);
+  const r = await ev(() => {
+    showTab("settings");
+    const card = document.getElementById("reminderSection");
+    if (!card) return { missing: true };
+    const shown = id => { const e = document.getElementById(id); return !!e && !e.hidden && e.getClientRects().length > 0; };
+    const review = card.querySelector('[data-rtarget="review"]');
+    return {
+      text: card.textContent,
+      reviewOn: !!review && review.getAttribute("aria-checked") === "true",
+      loopExists: !!card.querySelector('[data-rtarget="loop"]'),
+      toggle: document.getElementById("reminderToggle").textContent,
+      next: shown("reminderNext"),
+      platform: shown("reminderPlatformNote"),
+    };
+  });
+  await ev(REMINDER_UNFAKE);
+  assert.ok(!r.missing, "设置里没有到点提醒");
+  assert.match(r.text, /23\.5/, "没说复习后多久提醒");
+  assert.match(r.text, /22:00/, "没说夜里不打扰");
+  assert.equal(r.reviewOn, true, "默认不是去复习");
+  assert.equal(r.loopExists, true, "没有「去连播」可选");
+  assert.match(r.toggle, /开启/);
+  assert.equal(r.next, false, "还没开就显示了下一次时间");
+  assert.equal(r.platform, true, "不是主屏幕版打开时，没提醒家长 iPhone 要从主屏幕打开");
+});
+
+check("开启提醒：要权限、订阅、登记；口令和目标页记在手机上，目标页不发给服务器", async (ev) => {
+  await ev(REMINDER_FAKES);
+  const r = await ev(`(async () => {
+    const readReminder = ${readReminder.toString()};
+    showTab("settings");
+    document.querySelector('[data-rtarget="loop"]').click();
+    document.getElementById("reminderToggle").click();
+    await new Promise(res => setTimeout(res, 500));
+    const c = await caches.open("push-spike");
+    const target = await c.match("./__push-target");
+    const confirm = await c.match("./__push-confirm");
+    return {
+      posts: window.__rem.posts,
+      state: readReminder(),
+      target: target ? await target.text() : null,
+      confirm: !!confirm,
+      toggle: document.getElementById("reminderToggle").textContent,
+      next: !document.getElementById("reminderNext").hidden,
+      loopOn: document.querySelector('[data-rtarget="loop"]').getAttribute("aria-checked"),
+    };
+  })`.replace(/^\(|\)$/g, ""));
+  await ev(REMINDER_UNFAKE);
+  assert.equal(r.posts.length, 1, `登记请求发了 ${r.posts.length} 次`);
+  const p = r.posts[0];
+  assert.equal(p.action, "enable");
+  assert.equal(p.endpoint, "https://web.push.apple.com/e2e-1");
+  assert.match(p.secret || "", /^[A-Za-z0-9_-]{43}$/, "设备口令不是 32 字节随机数的样子");
+  assert.ok(p.tz && p.tz.length > 0, "没告诉服务器时区");
+  assert.ok(!("target" in p), "目标页发给了服务器——同意的五样里没有它");
+  assert.equal(r.state.on, true, "手机上没记下「已开启」");
+  assert.equal(r.state.secret, p.secret, "手机上记的口令和发给服务器的不一样");
+  assert.equal(r.state.target, "loop");
+  assert.equal(r.target, "loop", "Service Worker 读不到目标页");
+  assert.equal(r.confirm, true, "没留确认记号——确认通知会说成「到点了」");
+  assert.match(r.toggle, /关闭/);
+  assert.equal(r.next, true, "开了却没显示下一次时间");
+  assert.equal(r.loopOn, "true");
+});
+
+check("没给通知权限：不开，说清为什么", async (ev) => {
+  await ev(REMINDER_FAKES);
+  const r = await ev(`(async () => {
+    const readReminder = ${readReminder.toString()};
+    Notification.requestPermission = async () => "denied";
+    showTab("settings");
+    document.getElementById("reminderToggle").click();
+    await new Promise(res => setTimeout(res, 300));
+    const s = document.getElementById("reminderStatus");
+    return { posts: window.__rem.posts.length, state: readReminder(),
+             status: !s.hidden ? s.textContent : "", toggle: document.getElementById("reminderToggle").textContent };
+  })`.replace(/^\(|\)$/g, ""));
+  await ev(REMINDER_UNFAKE);
+  assert.equal(r.posts, 0, "没有权限还去服务器登记了");
+  assert.notEqual(r.state.on, true);
+  assert.match(r.status, /权限/, `没说清为什么：「${r.status}」`);
+  assert.match(r.toggle, /开启/);
+});
+
+check("复习一轮后同步给服务器；断网时攒着，联网后补上", async (ev) => {
+  await ev(REMINDER_FAKES);
+  const r = await ev(`(async () => {
+    const readReminder = ${readReminder.toString()};
+    showTab("settings");
+    document.getElementById("reminderToggle").click();
+    await new Promise(res => setTimeout(res, 400));
+    // 真走一遍复习卡的「记住了」
+    const item = { id: "e2e_rem_1", en: "Time for bed.", zh: "该睡觉了", rv: { s: 0, due: Date.now() - 1000 } };
+    savedPhrases.push(item);
+    window.__rem.reply.review = "offline";
+    __primeReviewQueueForTest([item]);
+    const before = Date.now();
+    reviewAnswer(true);
+    await new Promise(res => setTimeout(res, 2200));
+    const offline = { tried: window.__rem.posts.filter(p => p.action === "review").length, state: readReminder() };
+    delete window.__rem.reply.review;
+    await flushReminderReview();
+    const after = { review: window.__rem.posts.filter(p => p.action === "review").pop(), state: readReminder() };
+    const i = savedPhrases.indexOf(item); if (i >= 0) savedPhrases.splice(i, 1);
+    safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+    return { before, offline, after };
+  })`.replace(/^\(|\)$/g, ""));
+  await ev(REMINDER_UNFAKE);
+  assert.ok(r.offline.tried >= 1, "复习之后没去同步");
+  assert.ok(r.offline.state.pendingAt >= r.before, "断网时没把这次复习攒下来");
+  assert.equal(r.after.review.at, r.offline.state.pendingAt, "联网后补发的不是攒下的那个时间");
+  assert.equal(r.after.review.secret, r.after.state.secret);
+  assert.equal(r.after.state.pendingAt, null, "补发成功了还攒着");
+});
+
+check("服务器说这台手机没记录了：手机上显示已关闭", async (ev) => {
+  await ev(REMINDER_FAKES);
+  const r = await ev(`(async () => {
+    const readReminder = ${readReminder.toString()};
+    showTab("settings");
+    document.getElementById("reminderToggle").click();
+    await new Promise(res => setTimeout(res, 400));
+    // 对照组：先确认真的开起来了，否则「变成关闭」什么也证明不了
+    const wasOn = readReminder().on === true;
+    window.__rem.reply.review = [404, { error: "no reminder for this device" }];
+    reminderNoteReview();
+    await flushReminderReview();
+    showTab("settings");
+    return { wasOn, state: readReminder(), toggle: document.getElementById("reminderToggle").textContent };
+  })`.replace(/^\(|\)$/g, ""));
+  await ev(REMINDER_UNFAKE);
+  assert.equal(r.wasOn, true, "对照失败：提醒本该先开起来");
+  assert.notEqual(r.state.on, true, "服务器已经没有记录，手机还当它开着");
+  assert.match(r.toggle, /开启/);
+});
+
+check("关闭提醒：服务器删记录、退订、清掉手机上的口令", async (ev) => {
+  await ev(REMINDER_FAKES);
+  const r = await ev(`(async () => {
+    const readReminder = ${readReminder.toString()};
+    showTab("settings");
+    document.getElementById("reminderToggle").click();
+    await new Promise(res => setTimeout(res, 400));
+    const secret = readReminder().secret;
+    document.getElementById("reminderToggle").click();
+    await new Promise(res => setTimeout(res, 400));
+    return { secret, last: window.__rem.posts[window.__rem.posts.length - 1], unsub: window.__rem.unsub,
+             state: readReminder(), toggle: document.getElementById("reminderToggle").textContent,
+             next: !document.getElementById("reminderNext").hidden };
+  })`.replace(/^\(|\)$/g, ""));
+  await ev(REMINDER_UNFAKE);
+  assert.equal(r.last.action, "disable", "关闭时没告诉服务器");
+  assert.equal(r.last.secret, r.secret);
+  assert.equal(r.unsub, 1, "没退订");
+  assert.notEqual(r.state.on, true);
+  assert.ok(!r.state.secret, "关了还留着口令");
+  assert.match(r.toggle, /开启/);
+  assert.equal(r.next, false, "关了还显示下一次时间");
+});
+
+check("推送地址被别的口令占着：换一个新地址重来一次", async (ev) => {
+  await ev(REMINDER_FAKES);
+  const r = await ev(`(async () => {
+    const readReminder = ${readReminder.toString()};
+    let n = 0;
+    window.__rem.reply.enable = () => (++n === 1 ? [409, { error: "different secret" }] : undefined);
+    showTab("settings");
+    document.getElementById("reminderToggle").click();
+    await new Promise(res => setTimeout(res, 600));
+    return { posts: window.__rem.posts.map(p => p.endpoint), unsub: window.__rem.unsub, state: readReminder() };
+  })`.replace(/^\(|\)$/g, ""));
+  await ev(REMINDER_UNFAKE);
+  assert.deepEqual(r.posts, ["https://web.push.apple.com/e2e-1", "https://web.push.apple.com/e2e-2"],
+    `登记用的地址：${r.posts.join(", ")}`);
+  assert.equal(r.unsub, 1, "没先退掉被占的那个");
+  assert.equal(r.state.on, true);
+  assert.equal(r.state.endpoint, "https://web.push.apple.com/e2e-2");
+});
+
 check("说给谁听选「成人」，按钮和免责声明跟着改口", async (ev) => {
   const r = await ev(() => {
     showTab("help");

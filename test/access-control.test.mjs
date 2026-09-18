@@ -122,6 +122,24 @@ const BEHAVIOR = {
       assert.equal(b.pushStatus, 201);
     },
   },
+  // 到点提醒（ADR 0008）。它会往服务器存东西、替调用者向外推送，同样挡在门后。
+  // 用「开启」这个动作来过扫描：它会推一条确认通知，所以「有码能用」这一条
+  // 看得到真实的外发请求。存储换成内存替身（REMINDER_STORE=memory:…）。
+  reminder: {
+    keys: { ...PUSH_KEYS, REMINDER_STORE: "memory:access-control-sweep" },
+    body: n => ({
+      action: "enable",
+      endpoint: `https://web.push.apple.com/sweep-${alpha(n)}`,
+      secret: "s".repeat(43),
+      tz: "Asia/Shanghai",
+    }),
+    stub: () => new Response(null, { status: 201 }),
+    expect: async res => {
+      const b = await res.json();
+      assert.equal(b.ok, true, "a parent with a code turned reminders on and must be told it worked");
+      assert.equal(b.confirm && b.confirm.sent, true);
+    },
+  },
 };
 
 let seq = 0;

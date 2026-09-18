@@ -13,7 +13,7 @@
 // phrase data, or a stale audio recording indefinitely even though
 // NETWORK_FIRST tries to refresh the shell/data opportunistically on every
 // online GET.
-const CACHE = 'll-32d332dd';
+const CACHE = 'll-704d3a0c';
 const SHELL = [
   './',
   './index.html',
@@ -124,12 +124,23 @@ function readPushTarget() {
     .catch(() => 'review');
 }
 
+// 开启到点提醒时，服务器马上推一条确认通知。它和到点的提醒是同一种空推送，
+// 分不出来，所以页面在开启前先留一个记号。读到就换一句话，并且擦掉，只管这一次。
+const PUSH_CONFIRM_KEY = './__push-confirm';
+
+function takeConfirmMark() {
+  return caches.open(PUSH_TARGET_CACHE)
+    .then(c => c.match(PUSH_CONFIRM_KEY).then(r => (r ? c.delete(PUSH_CONFIRM_KEY).then(() => true) : false)))
+    .catch(() => false);
+}
+
 // iOS：收到推送却不弹出可见通知，订阅会被吊销。所以无论目标读没读到都要弹，
 // 并且整段包在 waitUntil 里，弹完之前不许后台被停掉。
 self.addEventListener('push', e => {
-  e.waitUntil(readPushTarget().then(to =>
+  e.waitUntil(Promise.all([readPushTarget(), takeConfirmMark()]).then(([to, confirm]) =>
     self.registration.showNotification('LittleLingos', {
-      body: to === 'loop' ? '到点了，点开就连续播放' : '到点了，点开复习几句',
+      body: confirm ? '到点提醒已开启。到时候就会像这样来一条'
+        : to === 'loop' ? '到点了，点开就连续播放' : '到点了，点开复习几句',
       tag: 'll-reminder',
       data: { to },
     })

@@ -97,6 +97,8 @@ step("L0 · no capability built and left unwired (test/no-orphan-modules.test.mj
 step("L0 · service-worker behavior (test/sw.test.mjs)", () => run("node", ["test/sw.test.mjs"]));
 step("L0 · push spike: endpoint (test/push-test-api.test.mjs)", () => run("node", ["test/push-test-api.test.mjs"]));
 step("L0 · push spike: service worker (test/sw-push.test.mjs)", () => run("node", ["test/sw-push.test.mjs"]));
+step("L0 · reminder: when to remind (test/reminder-rule.test.mjs)", () => run("node", ["test/reminder-rule.test.mjs"]));
+step("L0 · reminder: endpoint (test/reminder-api.test.mjs)", () => run("node", ["test/reminder-api.test.mjs"]));
 step("L0 · dictionary API behavior (test/dictionary-api.test.mjs)", () => run("node", ["test/dictionary-api.test.mjs"]));
 step("L0 · dictionary/review client correctness (test/dictionary-review.test.mjs)", () => run("node", ["test/dictionary-review.test.mjs"]));
 step("L0 · dictionary-lookup CTA + form index (test/dictionary-lookup.test.mjs)", () => run("node", ["test/dictionary-lookup.test.mjs"]));

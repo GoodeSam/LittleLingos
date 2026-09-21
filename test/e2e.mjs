@@ -786,6 +786,74 @@ check("齿轮进设置，每一块的标题都没被页头压住", async (ev) =>
   assert.ok(r.voiceRows >= 10, `朗读声音只列出了 ${r.voiceRows} 把`);
 });
 
+check("设置最底下的使用说明：平时全收着，点开一条才看得到字，最后一条不被底部导航挡住", async (ev) => {
+  const r = await ev(async () => {
+    showTab("settings");
+    const sec = document.getElementById("guideSection");
+    if (!sec) return { missing: true };
+    const topics = Array.from(sec.querySelectorAll("details"));
+    // 不能靠量尺寸判断「看不看得见」。新版 Chrome 藏 <details> 里的内容用的是
+    // content-visibility:hidden——盒子还在、量得出宽高，只是不画。第一次写这条
+    // 就栽在这里：九条正文「全露着」，而整块其实只有 641px 高。问浏览器自己。
+    const vis = el => (typeof el.checkVisibility === "function")
+      ? el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true })
+      : el.getClientRects().length > 0;
+    const out = {
+      topics: topics.length,
+      openAtStart: topics.filter(d => d.open).length,
+      bodiesVisibleAtStart: topics.filter(d => vis(d.querySelector(".guide-body"))).length,
+      // 能点的那一行够不够得着
+      minSummaryH: Math.min(...topics.map(d => d.querySelector("summary").getBoundingClientRect().height)),
+      // 收着的时候这一整块有多高——撑太长就违背了「不挡路」
+      collapsedH: Math.round(sec.getBoundingClientRect().height),
+      screenH: window.innerHeight,
+    };
+    // 真的点一下第一条的标题
+    topics[0].querySelector("summary").click();
+    await new Promise(res => setTimeout(res, 100));
+    const body0 = topics[0].querySelector(".guide-body");
+    out.openedAfterTap = topics[0].open;
+    out.body0Visible = vis(body0);
+    out.body0Chars = body0.innerText.trim().length;
+    out.othersStillClosed = topics.slice(1).every(d => !d.open);
+    // 横向不许溢出：长句子、图标两列，都可能把卡片撑破
+    const w = document.documentElement.clientWidth;
+    out.overflow = Array.from(sec.querySelectorAll("*")).filter(el => {
+      const b = el.getBoundingClientRect();
+      return b.width > 0 && (b.right > w + 1 || b.left < -1);
+    }).length;
+    // 点开最后一条，滚到底：它的最后一行不能躲在底部导航后面
+    const last = topics[topics.length - 1];
+    last.querySelector("summary").click();
+    await new Promise(res => setTimeout(res, 100));
+    const scroller = document.getElementById("settingsScreen");
+    scroller.scrollTop = scroller.scrollHeight;
+    window.scrollTo(0, document.body.scrollHeight);
+    await new Promise(res => setTimeout(res, 100));
+    const tail = last.querySelector(".guide-body").lastElementChild.getBoundingClientRect();
+    const nav = document.querySelector(".bottom-nav").getBoundingClientRect();
+    out.tailBottom = Math.round(tail.bottom);
+    out.navTop = Math.round(nav.top);
+    // 收拾
+    topics.forEach(d => { d.open = false; });
+    showTab("home");
+    return out;
+  });
+  assert.ok(!r.missing, "设置里没有使用说明");
+  assert.ok(r.topics >= 6, `只有 ${r.topics} 条`);
+  assert.equal(r.openAtStart, 0, `一进设置就有 ${r.openAtStart} 条是展开的`);
+  assert.equal(r.bodiesVisibleAtStart, 0, `收着的时候还有 ${r.bodiesVisibleAtStart} 条的正文露在外面`);
+  assert.ok(r.minSummaryH >= 44, `有一条的标题只有 ${Math.round(r.minSummaryH)}px 高，手指点不准`);
+  assert.ok(r.collapsedH < r.screenH, `收着的时候就占了 ${r.collapsedH}px，比一屏（${r.screenH}px）还长`);
+  assert.equal(r.openedAfterTap, true, "点了标题没展开");
+  assert.equal(r.body0Visible, true, "展开了，正文却看不见");
+  assert.ok(r.body0Chars >= 40, `展开后只有 ${r.body0Chars} 个字`);
+  assert.equal(r.othersStillClosed, true, "点开一条，别的也跟着开了");
+  assert.equal(r.overflow, 0, `有 ${r.overflow} 个元素横向超出了屏幕`);
+  assert.ok(r.tailBottom <= r.navTop + 1,
+    `滚到底之后，最后一条的末行（底边 ${r.tailBottom}）还压在底部导航（顶边 ${r.navTop}）后面，读不到`);
+});
+
 check("整页没有重复的 id", async (ev) => {
   const dupes = await ev(() => {
     const seen = new Map();
@@ -1211,6 +1279,31 @@ hostile("窄屏 320px（老安卓机最常见的宽度）", "", async (ev) => {
   assert.deepEqual(r.over, [], `这些元素超出了屏幕：${r.over.join(", ")}`);
 });
 
+hostile("窄屏 320px 下把使用说明一条条全点开，没有一处横向撑破", "", async (ev) => {
+  const r = await ev(async () => {
+    showTab("settings");
+    const sec = document.getElementById("guideSection");
+    const topics = Array.from(sec.querySelectorAll("details"));
+    topics.forEach(d => { d.open = true; });
+    await new Promise(res => setTimeout(res, 150));
+    const w = document.documentElement.clientWidth;
+    const over = [];
+    for (const el of sec.querySelectorAll("*")) {
+      const b = el.getBoundingClientRect();
+      if (b.width === 0 && b.height === 0) continue;
+      if (b.right > w + 1 || b.left < -1) over.push(el.tagName + ":" + Math.round(b.left) + "→" + Math.round(b.right));
+    }
+    const out = { width: w, scrollW: document.documentElement.scrollWidth, opened: topics.filter(d => d.open).length,
+                  over: Array.from(new Set(over)).slice(0, 6) };
+    topics.forEach(d => { d.open = false; });
+    showTab("home");
+    return out;
+  });
+  assert.ok(r.opened >= 6, `只点开了 ${r.opened} 条`);
+  assert.ok(r.scrollW <= r.width + 1, `整页可以横向滚动（${r.scrollW} > ${r.width}）`);
+  assert.deepEqual(r.over, [], `这些元素超出了屏幕：${r.over.join(", ")}`);
+});
+
 hostile("一句很长的话，不该把卡片撑破", "", async (ev) => {
   const r = await ev(async () => {
     const w = document.documentElement.clientWidth;
@@ -1306,7 +1399,7 @@ try {
 
   // ── 恶劣环境：每一条都换一张干净的页面重来 ──────────────
   console.log("\ne2e · 手机上没有主流浏览器时");
-  const NARROW = ["窄屏 320px（老安卓机最常见的宽度）", "一句很长的话，不该把卡片撑破"];
+  const NARROW = ["窄屏 320px（老安卓机最常见的宽度）", "一句很长的话，不该把卡片撑破", "窄屏 320px 下把使用说明一条条全点开，没有一处横向撑破"];
   for (const h of hostiles) {
     let handle = null;
     try {

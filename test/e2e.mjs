@@ -1049,6 +1049,146 @@ hostile("没有语音合成（有些内置浏览器没有）", `
   assert.ok(r.label.length > 0, "朗读按钮上的字没了——家长不知道发生了什么");
 });
 
+// 付费端点全挂。2026-08 `/api/translate` 真的挂过 15 天，没人发现，当时也没人
+// 知道免费那一半有没有被拖下水。这一条守的是：**花钱的功能坏了，不花钱的
+// 功能一个都不许跟着坏**（文档仓库 docs/requirements.md 的 R04）。
+//
+// 两种挂法都要试，它们走的是不同的代码路径：网络直接断（fetch 抛 TypeError）
+// 和服务端在、但一律回 500。
+//
+// 每一步都自带对照组：先证明「真的挂了」，再验免费路径。否则 runner 装的那份
+// 有求必应的假 fetch 还在答话，下面所有断言都会是假绿。
+function paidEndpointsDown(mode) {
+  return async (ev) => {
+    const r = await ev(async (mode) => {
+      const out = { paidCalls: [], freeCalls: [] };
+      let bucket = out.paidCalls;
+      const prev = window.fetch;
+      window.fetch = async (input, init) => {
+        const url = String(input && input.url ? input.url : input);
+        if (url.indexOf("/api/") === -1) return prev(input, init);
+        bucket.push(url.replace(/^.*(\/api\/[a-z-]+).*$/, "$1"));
+        if (mode === "network") throw new TypeError("Failed to fetch");
+        return new Response("upstream down", { status: 500 });
+      };
+      const tick = (ms) => new Promise(res => setTimeout(res, ms));
+
+      // ── 对照组：此刻付费端点必须真的不通 ──
+      out.control = [];
+      for (const ep of ["/api/translate", "/api/dictionary", "/api/tts"]) {
+        let dead = false;
+        try { const p = await fetch(ep, { method: "POST", body: "{}" }); dead = !p.ok; }
+        catch (e) { dead = true; }
+        out.control.push(ep + ":" + (dead ? "dead" : "ALIVE"));
+      }
+
+      // ── 家长真去用一次付费功能：可以失败，但不许抛、不许把按钮卡死 ──
+      showTab("help");
+      document.getElementById("zhInput").value = "我们去洗澡吧";
+      out.translateThrew = "";
+      try { await doTranslate(); } catch (e) { out.translateThrew = String(e && e.message || e); }
+      const tbtn = document.querySelector(".translate-btn");
+      out.translateBtnStuck = !!tbtn && tbtn.disabled;
+      out.translateShown = document.getElementById("translateResult").classList.contains("show");
+      out.translateNote = (document.getElementById("aiDisclaimer").textContent || "").trim();
+
+      // 「帮我说」出结果后会在后台给那句话补声音（/api/tts），那是付费功能自己
+      // 的尾巴。等它落定再换桶，不然它会晚到、被记到免费路径头上。
+      // 不按固定时长等：等到连续 600ms 没有新的付费请求为止，最多 6 秒。
+      for (let quiet = 0, seen = out.paidCalls.length, waited = 0; quiet < 600 && waited < 6000; waited += 100) {
+        await tick(100);
+        if (out.paidCalls.length !== seen) { seen = out.paidCalls.length; quiet = 0; } else quiet += 100;
+      }
+
+      // 从这里往下全是免费路径，一次 /api/ 都不该碰
+      bucket = out.freeCalls;
+
+      // ── 免费路径 1：首页和场景还在 ──
+      showTab("home");
+      const home = document.getElementById("homeScreen");
+      out.homeVisible = !!home && home.getClientRects().length > 0;
+      out.scenarioCards = document.querySelectorAll("#scenarioGrid .scenario-card").length;
+
+      // ── 免费路径 2：进场景，短句在，预录音频拿得到 ──
+      openScenario("bath");
+      await tick(200);
+      const band = scenarios.bath.phrases[currentAge] ? currentAge : "1-2";
+      const p = scenarios.bath.phrases[band][0];
+      out.phraseRows = document.querySelectorAll("#phraseList .play-btn").length;
+      out.audioUrl = playableUrlFor(Object.assign({}, p, { scenario: "bath" }));
+      out.audioOk = false;
+      try { const a = await fetch(out.audioUrl); out.audioOk = a.ok; } catch (e) {}
+      const pbtn = document.querySelector("#phraseList .play-btn");
+      out.playThrew = "";
+      if (pbtn) { try { pbtn.click(); } catch (e) { out.playThrew = String(e && e.message || e); } }
+      await tick(200);
+
+      // ── 免费路径 3：收藏 ──
+      if (savedPhrases.some(x => x.id === p.id)) toggleSave(p.id);
+      const before = savedPhrases.length;
+      out.saveThrew = "";
+      try { toggleSave(p.id); } catch (e) { out.saveThrew = String(e && e.message || e); }
+      await tick(200);
+      out.saved = savedPhrases.length - before;
+      out.persisted = (JSON.parse(localStorage.getItem("ll_saved") || "[]")).some(x => x.id === p.id);
+
+      // ── 免费路径 4：收藏页画得出这一句 ──
+      showTab("saved");
+      await tick(200);
+      out.savedRowShown = document.getElementById("savedScreen").innerText.indexOf(p.zh) !== -1;
+
+      // ── 免费路径 5：复习卡出得来，答一次排期真的往后挪 ──
+      showTab("review");
+      await tick(200);
+      out.reviewCard = document.querySelectorAll("#reviewArea .review-card").length;
+      const head = reviewQueue[0];
+      // 先把数抄下来：队列里的条目和收藏里的是同一个对象，答完再读就成了自己比自己
+      const headId = head ? head.id : null;
+      const stageBefore = head ? (head.rv.s || 0) : -1;
+      out.reviewThrew = "";
+      try { if (head) reviewAnswer(true); } catch (e) { out.reviewThrew = String(e && e.message || e); }
+      const after = headId ? savedPhrases.find(x => x.id === headId) : null;
+      out.rescheduled = !!after && after.rv.s === stageBefore + 1 && after.rv.due > Date.now() + 3600000;
+
+      // 收拾：别把这一句留给后面的环境
+      if (savedPhrases.some(x => x.id === p.id)) { currentScenario = "bath"; toggleSave(p.id); }
+      showTab("home");
+      return out;
+    }, mode);
+
+    // 对照组先过，后面的断言才有意义
+    assert.deepEqual(r.control, ["/api/translate:dead", "/api/dictionary:dead", "/api/tts:dead"],
+      `对照组没立住——付费端点其实还通着，下面全是假绿：${r.control.join(" ")}`);
+    assert.ok(r.paidCalls.includes("/api/translate"),
+      "「帮我说」这一步根本没去碰 /api/translate——这条测试没测到它以为在测的东西");
+
+    assert.equal(r.translateThrew, "", `付费功能挂了，错一路抛到了页面上：${r.translateThrew}`);
+    assert.equal(r.translateBtnStuck, false, "翻译失败之后按钮还卡在「正在生成…」，家长再也点不了");
+    assert.equal(r.translateShown, true, "翻译失败之后什么都没显示——家长不知道发生了什么");
+    assert.ok(r.translateNote.length > 0, "翻译失败了，却一个字的说明都没有");
+
+    assert.equal(r.homeVisible, true, "付费端点一挂，首页没了");
+    assert.ok(r.scenarioCards > 0, "付费端点一挂，场景一个都没渲染出来");
+    assert.ok(r.phraseRows > 0, "付费端点一挂，场景里的短句没了");
+    assert.ok(/^\.\/audio\/.+_normal\.mp3$/.test(String(r.audioUrl)),
+      `预设短语的声音不该绕道服务端：${r.audioUrl}`);
+    assert.equal(r.audioOk, true, "预录音频拿不到了");
+    assert.equal(r.playThrew, "", `点朗读抛了错：${r.playThrew}`);
+    assert.equal(r.saveThrew, "", `收藏时抛了错：${r.saveThrew}`);
+    assert.equal(r.saved, 1, "付费端点一挂，连收藏都做不成了");
+    assert.equal(r.persisted, true, "收藏只活在内存里，没写进手机");
+    assert.equal(r.savedRowShown, true, "收藏页画不出刚收的这一句");
+    assert.equal(r.reviewCard, 1, "付费端点一挂，复习卡出不来了");
+    assert.equal(r.reviewThrew, "", `答复习题抛了错：${r.reviewThrew}`);
+    assert.equal(r.rescheduled, true, "答了「记住了」，排期却没往后挪");
+    assert.deepEqual(r.freeCalls, [],
+      `免费路径不该碰任何付费端点，却碰了：${r.freeCalls.join(" ")}`);
+  };
+}
+
+hostile("付费端点全挂 · 网络直接断：免费的功能一个都不许跟着坏", "", paidEndpointsDown("network"));
+hostile("付费端点全挂 · 服务端一律回 500：免费的功能一个都不许跟着坏", "", paidEndpointsDown("http500"));
+
 hostile("窄屏 320px（老安卓机最常见的宽度）", "", async (ev) => {
   const r = await ev(() => {
     const out = { over: [] };

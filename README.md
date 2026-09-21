@@ -8,15 +8,54 @@ audio. Live at <https://littlelingos.netlify.app>.
 
 ## Architecture
 
-Static, dependency-free frontend:
+Static frontend; one runtime dependency on the server side (`@netlify/blobs`, for the reminder store).
 
 | File | Role |
 |---|---|
-| `index.html` | The whole app UI + logic (single file, inline script) |
+| `index.html` | The whole app UI + logic (single file, inline script, ~5,500 lines of script) |
 | `scenarios.js` | The product data: 30 scenarios of phrase objects (see `.claude/rules/03-phrase-schema.md`) |
-| `sw.js` | Service worker: precached shell, cache-first audio, network-first shell/data. `CACHE` is mechanically stamped — never hand-edit (see below) |
+| `dictionary-words.js` | The curated word list the dictionary answers from before it ever asks the server |
+| `sw.js` | Service worker: precached shell, cache-first audio, network-first shell/data, push handling. `CACHE` is mechanically stamped — never hand-edit (see below) |
 | `audio/` | Azure Neural TTS mp3s, named `<id>_normal.mp3` / `<id>_slow_wbw.mp3` |
-| `netlify/` | The `/api/translate` serverless function (AI child-English translation) |
+| `netlify/functions/` | Four HTTP functions and one scheduled one — see below |
+
+### Server side
+
+All four HTTP functions sit behind the invite code; refusal happens **before** any paid upstream call.
+
+| Function | Route | Upstream | What it does |
+|---|---|---|---|
+| `translate.mjs` | `POST /api/translate` | Gemini, OpenAI fallback | Chinese → what a native parent would say, per age band (or adult register) |
+| `dictionary.mjs` | `POST /api/dictionary` | Gemini | English word → lemma + senses, only for words the curated list lacks |
+| `tts.mjs` | `POST /api/tts` | Azure Speech | One sentence → mp3 bytes, stored on the device by the client |
+| `reminder.mjs` | `POST /api/reminder` | Web Push services | Enable / note-a-review / disable the scheduled reminder |
+| `reminder-cron.mjs` | scheduled (every 5 min, production only) | — | Wakes `reminder.mjs` to send what is due |
+| `_shared/` | — | — | `access.mjs` (invite-code check), `push.mjs` (signing a push), `reminder-rule.mjs` (when a reminder is due), `reminder-store.mjs` (the Blobs store) |
+
+The request/response shapes between `index.html` and the first three are pinned by
+`test/api-contract.test.mjs`, which runs the page's real request through the real
+function and hands the real response back to the page's real parser.
+
+### Inside `index.html`
+
+About half the script lives in 19 marker blocks — `/* ll:<name>:start */ … /* ll:<name>:end */` —
+and 29 test files lift those blocks out by their markers and run them in a `node:vm` sandbox.
+Move or rename a marker and those tests stop finding their module.
+
+What that does **not** give you:
+
+- The sandbox only catches a missing collaborator on a path a test actually executes.
+- Several blocks reach outside themselves through `typeof x === "function"` guards
+  (13 at last count); those dependencies are invisible to the sandbox.
+- One block is nested inside another (`ll:voice` within `ll:audio-provision`).
+- **The other half of the script is in no block at all** — screen switching, the scenario
+  screen, saving, the saved list, review, and the translate screen. It is organised by
+  section comments and position, not by anything a test can isolate. The highest-coupling
+  spot is the saved list, which coordinates the loop, stored-clip addresses, audio marks
+  and rendering in one place.
+
+No plan to split the file for its length. The rule used here: carve out a block when a piece
+changes **for a different reason** than its neighbours, and give it a sandbox test when you do.
 
 ## Development setup
 

@@ -1042,6 +1042,94 @@ check("场景里的预设句子：点一个词，释义在那句英文底下、�
   assert.equal(r.callsAfter, 0, "重画后点精选词也联网了");
 });
 
+check("复习卡：翻开英文后点一个词，释义在英文那一行底下；没翻开之前那些词是看不见的", async (ev) => {
+  await ev(WORD_TAP_FETCH);
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    // 收藏一句带精选词的预设句（0-1 档「Bath time!」），它一收就到期，复习卡会出它
+    openScenario("bath"); switchAge("0-1"); await tick();
+    const p = scenarios.bath.phrases["0-1"][0];
+    if (!savedPhrases.some(x => x.id === p.id)) toggleSave(p.id);
+    const mine = savedPhrases.find(x => x.id === p.id); mine.rv = { s: 0, due: Date.now() - 1000 };
+    __primeReviewQueueForTest([mine]);
+    showTab("review"); await tick();
+    // 队列可能被 renderReviewArea 重算；把我们这句放到队首再画一次
+    __primeReviewQueueForTest([mine]); renderReviewCard(); await tick();
+    const card = document.querySelector("#reviewArea .review-card");
+    const en = card && card.querySelector(".review-en");
+    const out = { hasCard: !!card, enText: en ? en.innerText.trim() : "" };
+    if (!en) return out;
+    const vis = el => el.checkVisibility ? el.checkVisibility() : el.getClientRects().length > 0;
+    const bath = Array.from(en.querySelectorAll(".tap-word")).find(w => w.dataset.word === "bath");
+    out.wordsBeforeReveal = en.querySelectorAll(".tap-word").length;
+    out.hiddenBeforeReveal = !!bath && !vis(bath);
+    card.querySelector(".review-btn-reveal").click(); await tick();
+    out.visibleAfterReveal = !!bath && vis(bath);
+    if (typeof stopAllAudio === "function") stopAllAudio();   // 翻开会自动朗读，先停掉
+    if (bath) { bath.click(); await tick(); }
+    const panel = document.getElementById("wordLookupPanel");
+    out.panelInCard = !!panel && card.contains(panel);
+    out.panelBelowEn = !!panel && panel.getBoundingClientRect().top >= en.getBoundingClientRect().bottom - 1;
+    out.panelAboveActions = !!panel && panel.getBoundingClientRect().bottom <= card.querySelector(".review-actions").getBoundingClientRect().top + 1;
+    out.panelText = panel ? panel.innerText.trim().slice(0, 30) : "";
+    out.calls = window.__dictCalls.length;
+    // 评分按钮还够得着、没被面板挤矮
+    out.buttonsOk = [".review-btn-again", ".review-btn-good"].every(sel => card.querySelector(sel).getBoundingClientRect().height >= 44);
+    if (typeof collapseWordLookup === "function") collapseWordLookup();
+    toggleSave(p.id); showTab("home");
+    return out;
+  });
+  assert.ok(r.hasCard, "复习卡没画出来");
+  assert.ok(r.wordsBeforeReveal >= 2, `英文行里没切出词：「${r.enText}」`);
+  assert.equal(r.hiddenBeforeReveal, true, "还没点「显示英文」，词就露出来了——答案泄露");
+  assert.equal(r.visibleAfterReveal, true, "翻开之后词还是看不见");
+  assert.equal(r.panelInCard, true, "面板没落在复习卡里");
+  assert.equal(r.panelBelowEn, true, "面板不在英文那一行底下");
+  assert.equal(r.panelAboveActions, true, "面板跑到评分按钮下面去了");
+  assert.ok(r.panelText.length > 0, "面板是空的");
+  assert.equal(r.calls, 0, `bath 在精选词库里，却联了 ${r.calls} 次网`);
+  assert.equal(r.buttonsOk, true, "评分按钮被面板挤矮了");
+});
+
+check("收藏列表：点「显示英文」之后，英文里的词能点，释义在那一行底下；别的行不受影响", async (ev) => {
+  await ev(WORD_TAP_FETCH);
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    openScenario("bath"); switchAge("0-1"); await tick();
+    const p = scenarios.bath.phrases["0-1"][0];
+    if (!savedPhrases.some(x => x.id === p.id)) toggleSave(p.id);
+    showTab("saved"); await tick();
+    const rows = Array.from(document.querySelectorAll("#savedScreen .saved-item"));
+    const row = rows.find(rw => rw.querySelector(".saved-item-zh") && rw.querySelector(".saved-item-zh").innerText.includes(p.zh));
+    const out = { rows: rows.length, hasRow: !!row };
+    if (!row) return out;
+    out.wordsBeforeReveal = row.querySelectorAll(".tap-word").length;
+    row.querySelector(".saved-item-reveal").click(); await tick();
+    const en = row.querySelector(".saved-item-en");
+    out.enText = en ? en.innerText.trim() : "";
+    const bath = en && Array.from(en.querySelectorAll(".tap-word")).find(w => w.dataset.word === "bath");
+    if (bath) { bath.click(); await tick(); }
+    const panel = document.getElementById("wordLookupPanel");
+    out.panelInRow = !!panel && row.contains(panel);
+    out.panelBelowEn = !!panel && en && panel.getBoundingClientRect().top >= en.getBoundingClientRect().bottom - 1;
+    out.panelText = panel ? panel.innerText.trim().slice(0, 30) : "";
+    out.calls = window.__dictCalls.length;
+    // 别的行还遮着
+    out.othersStillMasked = rows.filter(rw => rw !== row).every(rw => !rw.querySelector(".saved-item-en"));
+    if (typeof collapseWordLookup === "function") collapseWordLookup();
+    toggleSave(p.id); showTab("home");
+    return out;
+  });
+  assert.ok(r.hasRow, `收藏列表里找不到那一行（共 ${r.rows} 行）`);
+  assert.equal(r.wordsBeforeReveal, 0, "还没点「显示英文」，词就在 DOM 里了——答案泄露");
+  assert.ok(r.enText.length > 0, "点了「显示英文」，英文没出来");
+  assert.equal(r.panelInRow, true, "面板没落在那一行里");
+  assert.equal(r.panelBelowEn, true, "面板不在英文底下");
+  assert.ok(r.panelText.length > 0, "面板是空的");
+  assert.equal(r.calls, 0, `bath 在精选词库里，却联了 ${r.calls} 次网`);
+  assert.equal(r.othersStillMasked, true, "点了一行，别的行的英文也露出来了");
+});
+
 check("整页没有重复的 id", async (ev) => {
   const dupes = await ev(() => {
     const seen = new Map();

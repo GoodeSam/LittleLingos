@@ -76,6 +76,7 @@ step("L0 · the usage guide in settings says what the app really does (test/sett
 step("L0 · page ↔ server speak the same language (test/api-contract.test.mjs)", () => run("node", ["test/api-contract.test.mjs"]));
 step("L0 · on-device audio store (test/audio-store.test.mjs)", () => run("node", ["test/audio-store.test.mjs"]));
 step("L0 · audio provisioning on save (test/audio-provision.test.mjs)", () => run("node", ["test/audio-provision.test.mjs"]));
+step("L0 · review play button pauses, not restarts (test/review-play-pause.test.mjs)", () => run("node", ["test/review-play-pause.test.mjs"]));
 step("L0 · stored-clip playback (test/audio-playback.test.mjs)", () => run("node", ["test/audio-playback.test.mjs"]));
 step("L0 · audio mark on a saved row (test/audio-marks.test.mjs)", () => run("node", ["test/audio-marks.test.mjs"]));
 step("L0 · play from a saved row (test/saved-row-play.test.mjs)", () => run("node", ["test/saved-row-play.test.mjs"]));

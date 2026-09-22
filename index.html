@@ -4400,6 +4400,9 @@ function renderReviewCard() {
 }
 
 function playReviewAudio(item, btn) {
+  // 同一个按钮正在放 → 暂停；刚暂停的那段还在 → 接着放。两种都在下面那个
+  // 函数里处理；处理了就到此为止，不许再往下走到「新造一段从头放」。
+  if (reviewPlaybackToggle(item, btn)) return;
   stopAllAudio();
   // Same session pattern as speakPhrase(): captured after the bump in
   // stopAllAudio(), so a stale ended/error/rejected-play from a superseded
@@ -4419,6 +4422,7 @@ function playReviewAudio(item, btn) {
   const url = playableUrlFor(item);
   if (url) {
     const mp3 = new Audio(url);
+    mp3.__btn = btn;          // 暂停/接着放要认得「是这个按钮的那段」
     currentAudio = mp3;
     mp3.addEventListener("ended", () => {
       if (!isCurrent()) return;
@@ -4434,6 +4438,38 @@ function playReviewAudio(item, btn) {
   } else {
     speakText(item.en, undefined, btn, session);
   }
+}
+
+// 复习卡播放键的「暂停 / 接着放」。按钮上画的是 ⏸，做的就得是暂停——2026-09-22
+// 真机报上来：放到一半点 ⏸，声音从头重放，因为 playReviewAudio 原来第一句就是
+// stopAllAudio() 然后新造一段。
+// 返回 true = 这一下已经处理完（暂停了或接上了），调用方不要再往下播。
+// 有录音（Audio 元素）的能真暂停、之后从停的地方接着放；退回手机自带朗读的那种
+// 没有可靠的 pause/resume（iOS 上 resume 常常不响），第二下当「停」，再点从头念。
+function reviewPlaybackToggle(item, btn) {
+  if (!btn) return false;
+  if (btn.classList.contains("playing")) {
+    if (currentAudio && currentAudio.__btn === btn && !currentAudio.ended) {
+      currentAudio.pause();
+      currentAudio.__pausedByUser = true;
+      resetPlayBtnState(btn);
+    } else {
+      stopAllAudio();
+    }
+    return true;
+  }
+  if (currentAudio && currentAudio.__btn === btn && currentAudio.__pausedByUser && !currentAudio.ended) {
+    const resumed = currentAudio;
+    resumed.__pausedByUser = false;
+    setPlayBtnPlaying(btn);
+    resumed.play().catch(() => {
+      if (currentAudio !== resumed) return;
+      currentAudio = null;
+      speakText(item.en, undefined, btn, playbackSession);
+    });
+    return true;
+  }
+  return false;
 }
 
 // ── Translate ──────────────────────────────────────────

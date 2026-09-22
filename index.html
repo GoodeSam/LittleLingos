@@ -871,6 +871,23 @@
       box-shadow: var(--shadow-1);
     }
     .backup-section:last-child { margin-bottom: calc(var(--nav-h) + var(--space-8)); }
+    /* 使用说明。折叠块沿用 .transcript 那一套（有边界、看得出能点、≥44px），
+       这里只管展开之后的正文：和 .backup-note 同一档字号与灰度，读起来是
+       「设置页里的一段话」，不是另起一种版式。 */
+    .guide-topic + .guide-topic { margin-top: var(--space-2); }
+    .guide-body {
+      font-size: var(--text-sm); line-height: var(--lh-sm); color: var(--gray-600);
+      padding-top: var(--space-1);
+    }
+    .guide-body p { margin: 0 0 var(--space-2); }
+    .guide-body ol, .guide-body ul { margin: 0 0 var(--space-2); padding-left: 1.4em; }
+    .guide-body li { margin-bottom: var(--space-1); }
+    .guide-body li:last-child, .guide-body p:last-child { margin-bottom: 0; }
+    .guide-body strong { color: var(--gray-900); font-weight: var(--w-semibold); }
+    /* 图标和它的意思排成两列：图标那一列等宽，四行的字才对得齐。 */
+    .guide-marks { list-style: none; padding-left: 0; }
+    .guide-marks li { display: flex; gap: var(--space-2); }
+    .guide-marks .m { flex: 0 0 1.6em; text-align: center; }
     .voice-options { display: flex; flex-direction: column; gap: var(--space-2); }
     .voice-group {
       font-size: var(--text-sm); line-height: var(--lh-sm);
@@ -2037,6 +2054,146 @@
            onchange="importUserData(this)">
     <div class="backup-status" id="backupStatus" hidden></div>
   </div>
+
+  <!-- 使用说明。排在最底下、默认全部收起：被一条报错送来填邀请码的家长，
+       不该先划过一整篇说明书。
+       这里每一个会变的事实——标签名、声音图标、复习间隔、【按钮上的字】——
+       都被 test/settings-guide.test.mjs 钉在界面真用的那一份上。改了界面而
+       没改这里，那边会红。【】里的字必须和按钮上的一模一样。 -->
+  <div class="backup-section" id="guideSection">
+    <div class="backup-title">使用说明</div>
+    <p class="backup-note">点开想看的那一条。不看也能用——这里写的是「为什么这样设计」和「卡住时怎么办」。</p>
+
+    <details class="transcript guide-topic">
+      <summary class="transcript-summary">这个软件怎么用：三步</summary>
+      <div class="guide-body">
+        <ol>
+          <li><strong>先自己学会一句。</strong>在「场景」里挑一个今天会遇到的时刻（洗澡、吃饭、出门），点开，听【▶ 朗读】，跟着说几遍。句子下面的动作提示告诉你说的时候手上做什么。</li>
+          <li><strong>当天就对孩子说出口。</strong>不用等发音完美。配上动作，孩子听不懂字也看得懂意思。他用中文回你、或者不回，都正常——这个软件要的是他<strong>听懂</strong>，不是他开口。</li>
+          <li><strong>复习。</strong>把想留下的句子点 ☆ 收藏，它会自己排进「复习」——新收的句子当天就会出现，之后间隔越拉越长。目标是练到不用想就能说出来。</li>
+        </ol>
+        <p>一次学一两句就够。真正在用的，往往就是那几句已经顺口的短话。</p>
+      </div>
+    </details>
+
+    <details class="transcript guide-topic">
+      <summary class="transcript-summary">底下四个标签各管什么</summary>
+      <div class="guide-body">
+        <ul>
+          <li><strong>「场景」</strong>：现成的话。30 个日常时刻，按孩子年龄分档，每句都有提前录好的声音，不联网也能听。想要的时刻没有，点【新建场景】自己建一个。</li>
+          <li><strong>「帮我说」</strong>：现成的里没有的话。打一句中文，给你一句适合对孩子说的英文；打一个英文单词，查它的意思。翻译、以及查精选词库里没有的词，需要联网和邀请码；词库里有的词直接查，不联网。</li>
+          <li><strong>「复习」</strong>：到期的句子一张一张出。先自己在心里说一遍，再翻开看答案。</li>
+          <li><strong>「收藏」</strong>：你存下的所有句子。英文默认遮着，点一下才显示——先想、再看，比直接看记得牢。</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="transcript guide-topic">
+      <summary class="transcript-summary">装到手机主屏幕（建议做）</summary>
+      <div class="guide-body">
+        <p>装到主屏幕、并且<strong>联网打开过一次之后</strong>：没有网也能打开；场景里的预录声音，<strong>联网时听过的那些</strong>离线也能听，没听过的要有网才能第一次加载。翻译、查新词、生成声音和提醒设置需要联网；备份导出和恢复不需要。另外 iPhone 上<strong>只有从主屏幕图标打开，才收得到到点提醒</strong>。</p>
+        <ol>
+          <li><strong>iPhone：</strong>必须用 Safari 打开。点底部的分享按钮「□↑」→ 向下滚动，选「添加到主屏幕」→ 点右上角「添加」。以后从主屏幕上的图标进来。</li>
+          <li><strong>在微信里打开的：</strong>微信自带的浏览器装不到主屏幕，也收不到提醒。点右上角「···」，选「在浏览器打开」（iPhone 上叫「在Safari中打开」），再按上面做。</li>
+        </ol>
+        <p>注意：主屏幕上打开的和浏览器里打开的，是<strong>两个互不相通的空间</strong>。收藏不会互相带过去，邀请码也要各填一次。这是 iPhone 的设定，不是出错了。</p>
+      </div>
+    </details>
+
+    <details class="transcript guide-topic">
+      <summary class="transcript-summary">声音：四种小标记是什么意思</summary>
+      <div class="guide-body">
+        <p>「场景」里的句子声音是提前录好的，随时能听。你自己存下的句子没有现成录音，会<strong>联网生成一段</strong>存在这台手机上，之后不联网也能听。生成的时机分三种：翻译出来的那一句，<strong>结果一出来就生成，不等你收藏</strong>；查词来的和自建场景里的，收藏或保存之后才生成。收藏列表每一行右边的标记说的就是这件事：</p>
+        <ul class="guide-marks">
+          <li><span class="m">🔊</span><span>声音已经在这台手机上。点一下听这一句；万一文件临时读不到，会改用手机自带的声音念。</span></li>
+          <li><span class="m">⏳</span><span>正在生成，等几秒。这时再点不会更快。</span></li>
+          <li><span class="m">⚠</span><span>没生成出来（多半是当时没网）。<strong>点一下重试</strong>。句子本身已经收好了，不受影响。</span></li>
+          <li><span class="m">🔈</span><span>还没有声音。常见于从备份恢复回来的句子——备份里不带声音。点一下去生成。</span></li>
+        </ul>
+        <p>没有生成好的句子，会先用手机自带的声音念，音色会不一样，屏幕上会提示一次。</p>
+        <p>收藏页顶上的【连续播放全部】会把收藏里<strong>已经有声音的</strong>句子一句接一句放（还没生成出声音的会跳过）：第一句直接放英文，之后每句先念中文提示，停几秒让你自己试着说，再放英文。适合做饭、洗碗、开车时听。</p>
+      </div>
+    </details>
+
+    <details class="transcript guide-topic">
+      <summary class="transcript-summary">复习是怎么排的</summary>
+      <div class="guide-body">
+        <p>每张卡先只露中文，点【显示英文】翻开答案（翻开后还能点 ▶ 听）。然后按你<strong>真实的情况</strong>在两个按钮里选一个，没有对错：</p>
+        <ul>
+          <li>【记住了】：这句往后排。间隔依次是 1、3、7、14、30 天，一次比一次久。</li>
+          <li>【还要练】：回到起点，今天这一轮里还会再出现。</li>
+        </ul>
+        <p>两个按钮特意做得一样大，不暗示你该点哪个。老点【还要练】不丢人——那正说明这句值得留在复习里。</p>
+        <p>底部「复习」上的红色数字，是今天到期的句数。</p>
+      </div>
+    </details>
+
+    <details class="transcript guide-topic">
+      <summary class="transcript-summary">到点提醒</summary>
+      <div class="guide-body">
+        <p>复习最难的不是内容，是<strong>想起来去做</strong>。开了提醒之后，上次复习后约 23.5 小时，手机会弹一条通知；如果没复习，上一条提醒后约 24 小时会再提醒一次，不多也不少。晚上 22:00 到早上 7:00 不打扰，落在这段的顺延到早上。点开通知去复习还是去连播，在上面那一块里自己选。</p>
+        <ul>
+          <li>iPhone 要先装到主屏幕，并从主屏幕的图标打开，才收得到。</li>
+          <li>需要先填好邀请码，再点【开启提醒】。手机会问你要不要允许通知，选允许。</li>
+          <li>安卓和微信里能不能收到，我们还没验证过，不敢保证。</li>
+        </ul>
+        <p><strong>开了提醒，我们的服务器上会存几样东西：</strong>让这台手机收得到提醒的地址、你上次复习的时间、上次发提醒的时间、你手机所在地区的时间设置，以及一个用来确认「是这台手机」的加密标记。<strong>不存</strong>你收藏了什么、复习了什么。</p>
+        <p><strong>不打算再用之前，先联网，回到上面点【关闭提醒】</strong>，看到「服务器上这台手机的记录已删除」再删图标或换手机。要是直接删了图标、换了手机，服务器不知道你走了，那条记录会留一阵子——等下次发提醒发不出去时才会清掉，目前没有承诺最长留多久。</p>
+      </div>
+    </details>
+
+    <details class="transcript guide-topic">
+      <summary class="transcript-summary">邀请码管哪些功能</summary>
+      <div class="guide-body">
+        <p>下面<strong>四件事</strong>需要邀请码：<strong>把中文翻成英文</strong>、<strong>查精选词库里没有的新单词</strong>、<strong>给你存下的句子生成声音</strong>、<strong>开启或更新到点提醒</strong>。前三件要花钱调用外部服务，第四件要用到我们的服务器。</p>
+        <p>其余都不需要：「场景」里的全部句子和录音、词库里已有的单词、收藏、复习、备份。没有邀请码，这些照常用。</p>
+        <p>在上面「邀请码」那一块粘贴进去，点【保存】。填错了，用到的时候会告诉你是邀请码的问题。</p>
+      </div>
+    </details>
+
+    <details class="transcript guide-topic">
+      <summary class="transcript-summary">备份，以及换手机之前要做的事</summary>
+      <div class="guide-body">
+        <p>你的收藏和复习进度<strong>只存在这台手机上</strong>，我们的服务器上没有，所以我们也<strong>没办法替你找回</strong>。删掉主屏幕图标、清理浏览器数据、换手机，都会让它们消失。</p>
+        <ol>
+          <li>隔一段时间，到上面「备份与恢复」点【↓ 导出备份】，把下载的文件存到微信「文件传输助手」或网盘里。</li>
+          <li>换了手机、或者数据没了：在新手机上打开这个软件，点【↑ 恢复备份】，选那个文件。</li>
+        </ol>
+        <p>导出的 <strong>.json</strong> 和 <strong>.csv</strong> 两个文件都能用来恢复，收藏、复习进度、自建场景都在里面。恢复是<strong>把备份里有、手机上没有的加进来</strong>，不会覆盖这台手机上已有的收藏和复习进度。在 iPhone 主屏幕版上，点一次只会下载 .json 这一个——这是正常的，有它就够了。.csv 可以用表格软件打开来看，但<strong>编辑过再保存的 .csv 可能有些行读不回来</strong>，要恢复请用没动过的那份。</p>
+        <p>备份里不带声音。恢复之后，自己存的句子会显示 🔈，点一下重新生成即可。</p>
+      </div>
+    </details>
+
+    <details class="transcript guide-topic">
+      <summary class="transcript-summary">几个容易错过的按钮</summary>
+      <div class="guide-body">
+        <ul>
+          <li><strong>换年龄档：</strong>「场景」首页顶上点年龄，0–1、1–2、2–3、3–6 岁四档，句子跟着换。</li>
+          <li><strong>【慢速】：</strong>只在 0-1 岁档的句子旁边有，一个词一个词慢放，学发音用它。</li>
+          <li><strong>【成人】档：</strong>在「帮我说」里选。给老师请假、跟同事回话这类不是对孩子说的话，选它才不会被翻成幼儿语。</li>
+          <li><strong>换朗读声音：</strong>在上面「朗读声音」那一块挑。只影响<strong>之后新生成</strong>的、你自己存的英文声音；场景里预录的和已经生成过的不变。</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="transcript guide-topic">
+      <summary class="transcript-summary">哪些东西会离开你的手机</summary>
+      <div class="guide-body">
+        <p>只有你<strong>主动</strong>翻译、查新词、生成声音、开提醒的时候，才有东西离开手机。看场景、听预录声音不联网。收藏和复习本身也不联网，但有两个例外：收藏一句自己的话时会去<strong>生成声音</strong>（见下）；开了到点提醒之后，每复习一轮会把<strong>复习的时间</strong>发给我们的服务器，好算下一次什么时候提醒。</p>
+        <ul>
+          <li><strong>本软件不会请求麦克风权限，也不会录音。</strong>你点手机键盘上的听写时，声音由手机或输入法自己处理，不传给 LittleLingos；它们怎么处理，看你手机或输入法的说明。</li>
+          <li><strong>翻译时：</strong>你打的那句中文、你选的档位（1–2 岁、成人这类）和邀请码会一起发到我们的服务器，服务器再把中文发给 Google 的 Gemini 生成建议；Gemini 不通时改发给 OpenAI。<strong>所以别把孩子的名字、学校、住址打进去</strong>，用「宝宝」「他」代替就行。</li>
+          <li><strong>生成声音时：</strong>翻译结果一出来，那句英文就会发给微软 Azure 生成声音，不等你收藏。用【连续播放全部】时，收藏里每句话的<strong>中文也会发给 Azure</strong>，用来生成那句中文提示音。在设置里试听某把嗓子时，发出去的是一句<strong>固定的英文样句</strong>，不是你的内容。</li>
+          <li><strong>查新单词时：</strong>精选词库里有的词在手机上查，不联网；没收录的词才会连同邀请码发到我们的服务器，再由 Google Gemini 查询。</li>
+          <li><strong>收藏和复习进度：</strong>都只留在这台手机上，不上传。</li>
+          <li><strong>到点提醒：</strong>见上面「到点提醒」一条。</li>
+        </ul>
+        <p>上面这几家服务都在<strong>境外</strong>运行。我们自己的代码不会把你输入的句子写进日志；但请求会经过托管平台和这几家服务，它们可能按各自的规则保留一段时间的技术记录，我们给不出确切的期限。</p>
+        <p>AI 翻译是即时生成的，没有人工逐句审核。觉得哪句不自然，就别用它。</p>
+      </div>
+    </details>
+  </div>
+  <!-- /guideSection -->
 </div>
 
 <!-- ════════════════════════════════════════════════════

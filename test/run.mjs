@@ -71,6 +71,7 @@ step("L0 · adding a phrase to a scenario (test/scenario-add-phrase.test.mjs)", 
 step("L0 · access code on the client (test/access-code-client.test.mjs)", () => run("node", ["test/access-code-client.test.mjs"]));
 step("L0 · access control on paid endpoints (test/access-control.test.mjs)", () => run("node", ["test/access-control.test.mjs"]));
 step("L0 · TTS endpoint behavior (test/tts-api.test.mjs)", () => run("node", ["test/tts-api.test.mjs"]));
+step("L0 · the usage guide in settings says what the app really does (test/settings-guide.test.mjs)", () => run("node", ["test/settings-guide.test.mjs"]));
 step("L0 · page ↔ server speak the same language (test/api-contract.test.mjs)", () => run("node", ["test/api-contract.test.mjs"]));
 step("L0 · on-device audio store (test/audio-store.test.mjs)", () => run("node", ["test/audio-store.test.mjs"]));
 step("L0 · audio provisioning on save (test/audio-provision.test.mjs)", () => run("node", ["test/audio-provision.test.mjs"]));

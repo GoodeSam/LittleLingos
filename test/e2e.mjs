@@ -795,9 +795,11 @@ check("设置最底下的使用说明：平时全收着，点开一条才看得�
     // 不能靠量尺寸判断「看不看得见」。新版 Chrome 藏 <details> 里的内容用的是
     // content-visibility:hidden——盒子还在、量得出宽高，只是不画。第一次写这条
     // 就栽在这里：九条正文「全露着」，而整块其实只有 641px 高。问浏览器自己。
+    // 没有 checkVisibility 的旧浏览器：先看它是不是躲在一个收起的 <details> 里——
+    // 那正是「量得出尺寸却没画」的情况，量尺寸的兜底不能重蹈这个坑。
     const vis = el => (typeof el.checkVisibility === "function")
       ? el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true })
-      : el.getClientRects().length > 0;
+      : !el.closest("details:not([open])") && el.getClientRects().length > 0;
     const out = {
       topics: topics.length,
       openAtStart: topics.filter(d => d.open).length,
@@ -808,9 +810,14 @@ check("设置最底下的使用说明：平时全收着，点开一条才看得�
       collapsedH: Math.round(sec.getBoundingClientRect().height),
       screenH: window.innerHeight,
     };
+    // 等布局真正过一帧，而不是猜一个毫秒数
+    const settled = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const scroller = document.getElementById("settingsScreen");
+    const before = { scrollTop: scroller.scrollTop };
+    try {
     // 真的点一下第一条的标题
     topics[0].querySelector("summary").click();
-    await new Promise(res => setTimeout(res, 100));
+    await settled();
     const body0 = topics[0].querySelector(".guide-body");
     out.openedAfterTap = topics[0].open;
     out.body0Visible = vis(body0);
@@ -822,22 +829,27 @@ check("设置最底下的使用说明：平时全收着，点开一条才看得�
       const b = el.getBoundingClientRect();
       return b.width > 0 && (b.right > w + 1 || b.left < -1);
     }).length;
-    // 点开最后一条，滚到底：它的最后一行不能躲在底部导航后面
+    // 点开最后一条，滚到底：它的最后一行既不能躲在底部导航后面，也不能滚出屏幕上方
     const last = topics[topics.length - 1];
     last.querySelector("summary").click();
-    await new Promise(res => setTimeout(res, 100));
-    const scroller = document.getElementById("settingsScreen");
+    await settled();
+    // #settingsScreen 是 position:fixed 的滚动容器，滚它；滚 window 只会动它背后那张页
     scroller.scrollTop = scroller.scrollHeight;
-    window.scrollTo(0, document.body.scrollHeight);
-    await new Promise(res => setTimeout(res, 100));
+    await settled();
     const tail = last.querySelector(".guide-body").lastElementChild.getBoundingClientRect();
     const nav = document.querySelector(".bottom-nav").getBoundingClientRect();
+    const head = document.querySelector("#settingsScreen .screen-header").getBoundingClientRect();
+    out.tailTop = Math.round(tail.top);
     out.tailBottom = Math.round(tail.bottom);
+    out.headBottom = Math.round(head.bottom);
     out.navTop = Math.round(nav.top);
-    // 收拾
-    topics.forEach(d => { d.open = false; });
-    showTab("home");
     return out;
+    } finally {
+      // 不管上面哪一步抛了，都把页面还回去：主题收起、滚动位置复原、回首页
+      topics.forEach(d => { d.open = false; });
+      scroller.scrollTop = before.scrollTop;
+      showTab("home");
+    }
   });
   assert.ok(!r.missing, "设置里没有使用说明");
   assert.ok(r.topics >= 6, `只有 ${r.topics} 条`);
@@ -852,6 +864,8 @@ check("设置最底下的使用说明：平时全收着，点开一条才看得�
   assert.equal(r.overflow, 0, `有 ${r.overflow} 个元素横向超出了屏幕`);
   assert.ok(r.tailBottom <= r.navTop + 1,
     `滚到底之后，最后一条的末行（底边 ${r.tailBottom}）还压在底部导航（顶边 ${r.navTop}）后面，读不到`);
+  assert.ok(r.tailTop >= r.headBottom - 1,
+    `滚到底之后，最后一条的末行（顶边 ${r.tailTop}）跑到页头（底边 ${r.headBottom}）上面去了——也读不到`);
 });
 
 check("整页没有重复的 id", async (ev) => {
@@ -1013,7 +1027,8 @@ check("复习卡上「还要练」和「记住了」一样大", async (ev) => {
 // 这些不是「功能还在不在」，是「页面还在不在」——一个没保护的存储读取，
 // 家长看到的不是收藏丢了，是一片白。
 const hostiles = [];
-function hostile(name, sabotage, fn) { hostiles.push({ name, sabotage, fn }); }
+// viewport：这条要在多大的屏上跑。挂在定义上，而不是在跑道里按名字对——改个名就悄悄回到默认宽度，那是假绿。
+function hostile(name, sabotage, fn, { viewport = null } = {}) { hostiles.push({ name, sabotage, fn, viewport }); }
 
 const ALIVE = () => {
   const home = document.getElementById("homeScreen");
@@ -1277,15 +1292,16 @@ hostile("窄屏 320px（老安卓机最常见的宽度）", "", async (ev) => {
   assert.ok(r.scrollW <= r.width + 1,
     `整页可以横向滚动（${r.scrollW} > ${r.width}）——在小屏上会左右晃`);
   assert.deepEqual(r.over, [], `这些元素超出了屏幕：${r.over.join(", ")}`);
-});
+}, { viewport: { width: 320, height: 640 } });
 
 hostile("窄屏 320px 下把使用说明一条条全点开，没有一处横向撑破", "", async (ev) => {
   const r = await ev(async () => {
     showTab("settings");
     const sec = document.getElementById("guideSection");
+    const scroller = document.getElementById("settingsScreen");
     const topics = Array.from(sec.querySelectorAll("details"));
     topics.forEach(d => { d.open = true; });
-    await new Promise(res => setTimeout(res, 150));
+    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
     const w = document.documentElement.clientWidth;
     const over = [];
     for (const el of sec.querySelectorAll("*")) {
@@ -1293,16 +1309,18 @@ hostile("窄屏 320px 下把使用说明一条条全点开，没有一处横向�
       if (b.width === 0 && b.height === 0) continue;
       if (b.right > w + 1 || b.left < -1) over.push(el.tagName + ":" + Math.round(b.left) + "→" + Math.round(b.right));
     }
-    const out = { width: w, scrollW: document.documentElement.scrollWidth, opened: topics.filter(d => d.open).length,
+    // #settingsScreen 自己是滚动容器（overflow-y:auto 顺带也能横向滚）：
+    // 内容把它撑宽了，根元素的 scrollWidth 一动不动——所以量它，不量 document。
+    const out = { width: scroller.clientWidth, scrollW: scroller.scrollWidth, opened: topics.filter(d => d.open).length,
                   over: Array.from(new Set(over)).slice(0, 6) };
     topics.forEach(d => { d.open = false; });
     showTab("home");
     return out;
   });
   assert.ok(r.opened >= 6, `只点开了 ${r.opened} 条`);
-  assert.ok(r.scrollW <= r.width + 1, `整页可以横向滚动（${r.scrollW} > ${r.width}）`);
+  assert.ok(r.scrollW <= r.width + 1, `设置页可以横向滚动（${r.scrollW} > ${r.width}）`);
   assert.deepEqual(r.over, [], `这些元素超出了屏幕：${r.over.join(", ")}`);
-});
+}, { viewport: { width: 320, height: 640 } });
 
 hostile("一句很长的话，不该把卡片撑破", "", async (ev) => {
   const r = await ev(async () => {
@@ -1323,7 +1341,7 @@ hostile("一句很长的话，不该把卡片撑破", "", async (ev) => {
   });
   assert.ok(r.scrollW <= r.width + 1, `长句子把页面撑得能横向滚（${r.scrollW} > ${r.width}）`);
   assert.deepEqual(r.over, [], `这些元素被长句子撑出了屏幕：${r.over.join(", ")}`);
-});
+}, { viewport: { width: 320, height: 640 } });
 
 let srv, chrome, profile, client;
 let passed = 0, failed = 0;
@@ -1399,7 +1417,6 @@ try {
 
   // ── 恶劣环境：每一条都换一张干净的页面重来 ──────────────
   console.log("\ne2e · 手机上没有主流浏览器时");
-  const NARROW = ["窄屏 320px（老安卓机最常见的宽度）", "一句很长的话，不该把卡片撑破", "窄屏 320px 下把使用说明一条条全点开，没有一处横向撑破"];
   for (const h of hostiles) {
     let handle = null;
     try {
@@ -1407,9 +1424,9 @@ try {
         const r = await client.send("Page.addScriptToEvaluateOnNewDocument", { source: h.sabotage });
         handle = r.identifier;
       }
-      if (NARROW.includes(h.name)) {
+      if (h.viewport) {
         await client.send("Emulation.setDeviceMetricsOverride",
-          { width: 320, height: 640, deviceScaleFactor: 2, mobile: true });
+          { width: h.viewport.width, height: h.viewport.height, deviceScaleFactor: 2, mobile: true });
       }
       await client.send("Page.navigate", { url: `http://127.0.0.1:${s.port}/index.html` });
       await new Promise(r => setTimeout(r, 400));
@@ -1424,7 +1441,7 @@ try {
       if (handle) {
         try { await client.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: handle }); } catch {}
       }
-      if (NARROW.includes(h.name)) {
+      if (h.viewport) {
         try { await client.send("Emulation.clearDeviceMetricsOverride"); } catch {}
       }
     }

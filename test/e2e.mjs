@@ -868,6 +868,124 @@ check("设置最底下的使用说明：平时全收着，点开一条才看得�
     `滚到底之后，最后一条的末行（顶边 ${r.tailTop}）跑到页头（底边 ${r.headBottom}）上面去了——也读不到`);
 });
 
+// ── 翻译里点词就查 ────────────────────────────────────────
+// 这两条不走 STUB_FETCH 里那份词典假响应（它的形状早就和真函数对不上了，
+// 页面会判成「格式不对」），自己在页面里装一层：记下每次去查什么，回一份
+// 真函数会回的形状。精选词库里的词根本不该到这一层。
+function WORD_TAP_FETCH() {
+  const prev = window.fetch;
+  window.__dictCalls = [];
+  window.fetch = async (input, init) => {
+    const url = String(input && input.url ? input.url : input);
+    if (url.indexOf("/api/dictionary") === -1) return prev(input, init);
+    let body = {}; try { body = JSON.parse(init && init.body || "{}"); } catch (e) {}
+    window.__dictCalls.push({ word: body.word, hasCode: !!(init && init.headers && init.headers["X-LL-Access"]) });
+    return new Response(JSON.stringify({ lemma: body.word, senses: [{ pos: "n.", definition: "（测试释义）" }] }),
+      { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  return true;
+}
+
+check("翻译里点一个精选词：释义在这句话底下展开，翻译还在，一次网都没联", async (ev) => {
+  // 先装计数器：不装的话 __dictCalls 根本不存在，「零次联网」那条断言就是空的——变异探测抓出来的。
+  await ev(WORD_TAP_FETCH);
+  const r = await ev(async () => {
+    showTab("help");
+    // 真用户是打一句中文让 helpSubmit 开的翻译房；这里直接摆结果，得自己把房间打开
+    document.getElementById("helpIdle").hidden = true;
+    document.getElementById("helpAiRoom").hidden = false;
+    // 直接摆一份翻译结果，句子里有精选词库的 hug；和真翻译到达时走的是同一个渲染函数
+    showTranslateResult({ en: "Give me a hug, sweetie!", zh: "抱抱我，宝贝！", tip: "张开双臂。",
+      related: [{ en: "Come here, sweetie.", zh: "过来，宝贝。" }] }, "");
+    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const en = document.getElementById("resultEn");
+    const ws = Array.from(en.querySelectorAll(".tap-word"));
+    const hug = ws.find(w => w.dataset.word === "hug");
+    const out = { words: ws.map(w => w.dataset.word), hasHug: !!hug };
+    if (!hug) return out;
+    // 每个词的命中区要够手指点：视觉上它是一行里的一个词，命中区靠 padding 撑到 44
+    out.hitH = (() => { const b = hug.getBoundingClientRect(); return b.height; })();
+    out.lineH = parseFloat(getComputedStyle(en).lineHeight);
+    hug.click();
+    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const panel = document.getElementById("resultDictPanel");
+    out.panelVisible = panel.checkVisibility ? panel.checkVisibility() : panel.getClientRects().length > 0;
+    out.panelText = panel.innerText.trim().slice(0, 40);
+    out.panelBelowEn = panel.getBoundingClientRect().top >= en.getBoundingClientRect().bottom - 1;
+    out.panelAboveZh = panel.getBoundingClientRect().bottom <= document.getElementById("resultZh").getBoundingClientRect().top + 1;
+    out.enStillThere = en.innerText.trim() === "Give me a hug, sweetie!";
+    out.active = hug.classList.contains("is-active");
+    out.dictCalls = window.__dictCalls.length;   // 计数器必须在；不在就让它抛，别默默当 0
+    out.privacyShown = !document.getElementById("resultDictPrivacyNote").hidden;
+    // 再点同一个词：收起
+    hug.click();
+    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    out.collapsed = panel.hidden;
+    showTab("home");
+    return out;
+  });
+  assert.ok(r.hasHug, `句子里没切出 hug 这个词：${JSON.stringify(r.words)}`);
+  assert.ok(r.hitH >= 44, `词的命中区只有 ${Math.round(r.hitH)}px 高，手指点不准`);
+  assert.equal(r.panelVisible, true, "点了词，释义面板没出现");
+  assert.ok(r.panelText.length > 0, "面板是空的");
+  assert.equal(r.panelBelowEn, true, "面板不在主句底下");
+  assert.equal(r.panelAboveZh, true, "面板跑到中文底下去了——应该在英文和中文之间");
+  assert.equal(r.enStillThere, true, "翻译那句话不见了或变了");
+  assert.equal(r.active, true, "被点的词没有高亮");
+  assert.equal(r.dictCalls, 0, `精选词库里的词也去联网了（${r.dictCalls} 次）`);
+  assert.equal(r.privacyShown, false, "精选词不联网，隐私提示不该亮");
+  assert.equal(r.collapsed, true, "再点同一个词，面板没收起");
+});
+
+check("翻译里点一个没收录的词：只联一次网、带邀请码、亮一次隐私提示；点相关说法里的词，面板跟到那一行底下", async (ev) => {
+  await ev(WORD_TAP_FETCH);
+  const r = await ev(async () => {
+    showTab("help");
+    document.getElementById("helpIdle").hidden = true;
+    document.getElementById("helpAiRoom").hidden = false;
+    showTranslateResult({ en: "Give me a hug, sweetie!", zh: "抱抱我，宝贝！", tip: "张开双臂。",
+      related: [{ en: "Come here, darling.", zh: "过来，亲爱的。" }] }, "");
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    await tick();
+    const en = document.getElementById("resultEn");
+    const sweetie = Array.from(en.querySelectorAll(".tap-word")).find(w => w.dataset.word === "sweetie");
+    sweetie.click();
+    await new Promise(res => setTimeout(res, 150));   // 等假 fetch 的 promise 落定
+    const panel = document.getElementById("resultDictPanel");
+    const out = {
+      calls: window.__dictCalls.slice(),
+      panelHasSense: panel.innerText.includes("（测试释义）"),
+      privacyShown: !document.getElementById("resultDictPrivacyNote").hidden,
+    };
+    // 连点两次同一个词（收起再打开）：服务端有缓存，但这里数的是页面发了几次
+    sweetie.click(); await tick(); sweetie.click(); await new Promise(res => setTimeout(res, 150));
+    out.callsAfterReopen = window.__dictCalls.length;
+    // 相关说法里的词
+    const rel = document.querySelector("#resultRelated .result-related-en");
+    const darling = Array.from(rel.querySelectorAll(".tap-word")).find(w => w.dataset.word === "darling");
+    out.relHasWords = !!darling;
+    if (darling) {
+      darling.click();
+      await new Promise(res => setTimeout(res, 150));
+      const pb = panel.getBoundingClientRect(), rb = rel.getBoundingClientRect();
+      out.panelUnderRel = pb.top >= rb.bottom - 1 && pb.top < document.getElementById("aiDisclaimer").getBoundingClientRect().top;
+      out.diag = { panelTop: Math.round(pb.top), relBottom: Math.round(rb.bottom), panelParent: panel.parentElement && panel.parentElement.className, panelHidden: panel.hidden, panelH: Math.round(pb.height) };
+      out.mainWordStillActive = Array.from(en.querySelectorAll(".tap-word")).some(w => w.classList.contains("is-active"));
+    }
+    showTab("home");
+    return out;
+  });
+  assert.equal(r.calls.length, 1, `点一个没收录的词应联网恰好一次，实际 ${r.calls.length} 次`);
+  assert.equal(r.calls[0].word, "sweetie", `发出去的词不对：${JSON.stringify(r.calls[0])}`);
+  assert.equal(r.calls[0].hasCode, true, "查词请求没带邀请码");
+  assert.equal(r.panelHasSense, true, "服务器回了释义，面板里没显示出来");
+  assert.equal(r.privacyShown, true, "联网查了，隐私提示没亮");
+  assert.ok(r.callsAfterReopen <= 2, `收起再打开同一个词，页面又发了 ${r.callsAfterReopen - 1} 次`);
+  assert.equal(r.relHasWords, true, "「还可以这样说」里的词点不了");
+  assert.equal(r.panelUnderRel, true, `点相关说法里的词，面板没跟到那一行底下：${JSON.stringify(r.diag)}`);
+  assert.equal(r.mainWordStillActive, false, "点了相关说法里的词，主句里的词还亮着");
+});
+
 check("整页没有重复的 id", async (ev) => {
   const dupes = await ev(() => {
     const seen = new Map();

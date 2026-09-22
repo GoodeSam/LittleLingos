@@ -108,19 +108,101 @@ test("说明里叫得出名字的按钮，界面上真有，字一模一样", ()
   }
 });
 
-test("讲清什么会离开手机：翻译发的是你打的字，配声音只发英文，从不录音", () => {
+// ── 隐私那一条不许「先写结论、再用测试钉住」 ──
+// 第一稿就是这么翻车的：说明写「只有英文出门」，测试拿正则钉住「只……英文」，
+// 而连播的中文提示其实也走 /api/tts。测试把假话锁成了真相。
+// 所以这里反过来：先从代码里数出到底有哪些文字会被送去生成声音，
+// 再要求说明把每一种都讲到。代码多一条外发路径，这条就红。
+function ttsCallSites() {
+  const S = "/* ll:audio-provision:start */", E = "/* ll:audio-provision:end */";
+  const mod = html.slice(html.indexOf(S), html.indexOf(E));
+  // 排除 `function ttsFetch(text, voice)` 这行定义本身，只要调用点。
+  return [...mod.matchAll(/(?<!function )ttsFetch\(([^,]+),/g)].map(m => m[1].trim());
+}
+
+test("送去生成声音的文字，代码里有几种，说明就得讲几种——不许说「只有英文」", () => {
+  const sites = ttsCallSites();
+  assert.ok(sites.length >= 2, `只找到 ${sites.length} 处生成声音的调用，读法可能坏了：${sites}`);
+  // 白名单：每一处送去生成声音的参数，都必须是说明里讲过的那几种之一。
+  // 出现一个不认识的（比如哪天有人把 tip 也送去了），这里先红，逼着说明跟上。
+  const KNOWN = [/\bzh\b/, /\.en\b/, /VOICE_SAMPLE/];
+  const strangers = sites.filter(a => !KNOWN.some(re => re.test(a)));
+  assert.deepEqual(strangers, [],
+    `代码里多了说明没讲过的外发文字：${strangers.join(" · ")}——先补说明，再把它加进白名单`);
+  const sendsChinese = sites.some(a => /\bzh\b/.test(a));
+  const sendsEnglish = sites.some(a => /\.en\b/.test(a));
+  assert.ok(sendsEnglish, "代码里居然没有把英文送去生成声音的地方");
   const t = text(guide().src);
-  assert.ok(/不录音|从不录音|不会录音/.test(t), "没说清这个软件不录音");
-  assert.ok(/键盘/.test(t) && /麦克风|听写/.test(t), "没说清语音输入用的是手机键盘自带的，不是这个软件");
-  assert.ok(/只.{0,8}英文/.test(t), "没说清生成声音时只有英文出门");
-  assert.ok(/孩子.{0,6}(名字|姓名)/.test(t), "没提醒别把孩子的名字打进去");
-  assert.ok(/收藏.{0,20}(只|都).{0,10}(这台|本机|手机)/.test(t), "没说清收藏和复习进度留在手机上");
+  assert.ok(/英文.{0,30}(发|送).{0,20}(Azure|生成)/.test(t), "没说英文会被送去生成声音");
+  if (sendsChinese) {
+    assert.ok(/中文.{0,30}(也|同样).{0,12}(发|送)/.test(t),
+      "代码会把中文提示送去生成声音（连播），说明里却没讲——这正是第一稿的假话");
+    assert.ok(!/中文不出门|只.{0,4}英文.{0,6}出门|只有.{0,4}英文/.test(t),
+      "说明还在说「只有英文出门」，可代码会送中文");
+  }
+});
+
+test("翻译时发出去的每一样，说明都点到了：中文、档位、邀请码", () => {
+  // 客户端真发的字段，从 translateChinese 里读；说明不能少讲一样。
+  const m = html.match(/fetch\("\/api\/translate",[\s\S]*?body: JSON\.stringify\(\{([^}]+)\}\)/);
+  assert.ok(m, "找不到翻译请求的 body");
+  const fields = m[1].split(",").map(f => f.trim().split(":")[0].trim());
+  const t = text(guide().src);
+  const say = { zh: /中文/, age: /档位|档/, clean: /中文/ };
+  for (const f of fields) {
+    const re = say[f];
+    assert.ok(re, `翻译请求多了一个我不认识的字段「${f}」——说明和这条测试都要跟着改`);
+    assert.ok(re.test(t), `翻译会把「${f}」发出去，说明里没讲`);
+  }
+  assert.ok(/邀请码.{0,20}(一起|也|随|会).{0,8}(发|送)|(发|送).{0,20}邀请码/.test(t), "邀请码会随请求一起发出去，说明里没讲");
+});
+
+test("说了发给谁：翻译走 Google，声音走微软，而且都在境外", () => {
+  const t = text(guide().src);
+  assert.ok(/Google|谷歌/.test(t), "没说翻译发给了 Google");
+  assert.ok(/微软|Azure/.test(t), "没说声音发给了微软");
+  assert.ok(/OpenAI/.test(t), "没说翻译不通时会改发 OpenAI");
+  assert.ok(/境外/.test(t), "没说这些服务在境外");
+});
+
+test("不录音这一句，只承诺代码能兑现的：不请求麦克风、不录音；键盘听写归手机管", () => {
+  const t = text(guide().src);
+  assert.ok(/不(会)?(请求|要)麦克风/.test(t) && /不(会)?录音/.test(t), "没说清不请求麦克风、不录音");
+  assert.ok(/键盘/.test(t) && /(手机|输入法).{0,12}(处理|管)/.test(t), "没说清键盘听写是手机/输入法在处理");
+  assert.ok(!/声音不经过我们|不经过我们/.test(t), "「声音不经过我们」承诺过头了——我们保证不了系统键盘怎么处理");
+});
+
+test("提醒关不掉、直接删图标、换手机——这三种情况服务器上会留东西，说明得讲", () => {
+  const t = text(guide().src);
+  assert.ok(/先.{0,10}关.{0,4}提醒/.test(t), "没教家长「不用之前先关提醒」");
+  assert.ok(/删.{0,4}图标|换手机/.test(t) && /留|保留/.test(t), "没说直接删图标/换手机的话记录会留在服务器上");
+  assert.ok(/联网/.test(t), "没说关提醒要联网才删得掉");
+});
+
+test("说明里的复习「再提醒」间隔，和服务端的规则是同一个数", () => {
+  const rule = readFileSync(join(ROOT, "netlify/functions/_shared/reminder-rule.mjs"), "utf8");
+  const retry = rule.match(/DEFAULT_RETRY_MIN = ([\d.]+) \* 60/);
+  assert.ok(retry, "找不到「没复习时再提醒」的间隔");
+  const hours = retry[1];
+  const t = text(guide().src);
+  assert.ok(new RegExp(`(没|未)复习.{0,30}${hours} ?小时`).test(t) || new RegExp(`${hours} ?小时.{0,20}(再|又)提醒`).test(t),
+    `服务端「没复习时 ${hours} 小时再提醒」这条规则，说明里没写或数字不对`);
+});
+
+test("哪一档才有「慢速」，说明写的和代码里的条件一致", () => {
+  const m = html.match(/const slowBtn = currentAge === "([^"]+)"/);
+  assert.ok(m, "找不到慢速按钮的出现条件");
+  const t = text(guide().src);
+  assert.ok(t.includes("慢速"), "没提「慢速」这个按钮");
+  assert.ok(t.includes(m[1]), `慢速只在 ${m[1]} 档出现，说明里没写清是哪一档`);
 });
 
 test("讲到点提醒时，说了服务器上会存东西——不能只挑好听的讲", () => {
   const t = text(guide().src);
   assert.ok(/服务器/.test(t), "到点提醒会在服务器上存几样东西，说明里一个字没提");
-  assert.ok(/关.{0,6}提醒.{0,12}(删|清)/.test(t), "没说关掉提醒之后那些东西会删掉");
+  // 窗口从 12 字放宽到 60 字：修订后的文案把「关闭提醒」和「记录已删除」之间
+  // 隔了一句操作指引。验的事没变——关提醒会删服务器记录。
+  assert.ok(/关.{0,6}提醒.{0,60}(删|清)/.test(t), "没说关掉提醒之后那些东西会删掉");
 });
 
 test("讲备份时不说瞎话：能拿来恢复的文件，和恢复按钮真收的文件是同一批", () => {

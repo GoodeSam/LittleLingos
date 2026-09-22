@@ -1165,18 +1165,29 @@
        suggestion (typography sweep, 2026-07-18). */
     .result-label { font-size: 16px; color: var(--muted); margin-bottom: 8px; }
     .result-en { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 8px; }
-    /* 翻译里能点的词。它是行内元素，视觉上就是一行里的一个词，做不到 44px 高——
+    /* 能点的词。它是行内元素，视觉上就是一行里的一个词，做不到 44px 高——
        所以用竖向 padding 把命中区撑到 44 以上：行内元素的竖向 padding 不参与
        行高计算，行距一点不变，只是手指能点到的范围变大。这是对「能点的东西
-       ≥44px」那条规矩的一次有意变通，e2e 里直接量命中区高度。 */
+       ≥44px」那条规矩的一次有意变通，e2e 里直接量命中区高度。
+       命中区 = 字形高度 + 上下 padding，而字形高度随字体变：Mac 系统字体 18px
+       约 25px，Linux CI 的替代字体只有 20px。padding 10px 在本机 45、在 CI 40，
+       第一次推上去就红了。13px 两边都过（46 / 51）。
+       background-clip: content-box——底色只画在文字上，不画在撑出来的 padding 上，
+       否则高亮会溢到上下两行。代价：相邻两行的命中区有重叠，落在两行之间的手指
+       归后一行（后画的在上面）。44px 的命中区落在 25px 的行距上，这个重叠躲不掉。 */
     .tap-word {
       cursor: pointer; border-radius: var(--radius-sm);
-      padding: 10px 2px; margin: 0 -2px;
+      padding: 13px 2px; margin: 0 -2px;
+      background-clip: content-box;
       touch-action: manipulation; -webkit-tap-highlight-color: transparent;
       transition: background-color .12s;
     }
-    .tap-word:hover { background: var(--clay-100); }
-    .tap-word.is-active { background: var(--clay-100); box-shadow: 0 0 0 var(--border-w-strong) var(--clay-400); }
+    .tap-word:hover { background-color: var(--clay-100); }
+    .tap-word.is-active {
+      background-color: var(--clay-100);
+      text-decoration: underline; text-decoration-color: var(--clay-500);
+      text-decoration-thickness: var(--border-w-strong); text-underline-offset: var(--space-1);
+    }
     /* 点词查出来的释义：点的时候临时造、插在那一行底下，收起就删。翻译结果、
        相关说法、场景句子卡——哪里的词都能用同一个。 */
     .word-lookup { margin: var(--space-2) 0 var(--space-3); }

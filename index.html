@@ -1177,9 +1177,10 @@
     }
     .tap-word:hover { background: var(--clay-100); }
     .tap-word.is-active { background: var(--clay-100); box-shadow: 0 0 0 var(--border-w-strong) var(--clay-400); }
-    /* 释义面板落在句子底下时，和上下的字留一点距离；它也可能被挪到「还可以这样说」的某一行底下。 */
-    .result-dict-panel { margin: var(--space-2) 0 var(--space-3); }
-    .result-dict-panel[hidden] { display: none; }
+    /* 点词查出来的释义：点的时候临时造、插在那一行底下，收起就删。翻译结果、
+       相关说法、场景句子卡——哪里的词都能用同一个。 */
+    .word-lookup { margin: var(--space-2) 0 var(--space-3); }
+    .word-lookup .privacy-note { margin-top: var(--space-2); }
     /* zh is primary parent-facing content. Previously 16px/600 — SMALLER and
        LIGHTER than .result-en's 18px/700, violating the zh>=en hierarchy
        rule in both axes at once (Vera visual critique, 2026-07-18 typography
@@ -2095,8 +2096,8 @@
       <summary class="transcript-summary">底下四个标签各管什么</summary>
       <div class="guide-body">
         <ul>
-          <li><strong>「场景」</strong>：现成的话。30 个日常时刻，按孩子年龄分档，每句都有提前录好的声音，不联网也能听。想要的时刻没有，点【新建场景】自己建一个。</li>
-          <li><strong>「帮我说」</strong>：现成的里没有的话。打一句中文，给你一句适合对孩子说的英文；打一个英文单词，查它的意思。翻译、以及查精选词库里没有的词，需要联网和邀请码；词库里有的词直接查，不联网。<strong>翻译结果里的英文，哪个词不认识就点哪个</strong>，释义就在那句话底下展开，不用回到输入框再打一遍；再点一下收起。</li>
+          <li><strong>「场景」</strong>：现成的话。30 个日常时刻，按孩子年龄分档，每句都有提前录好的声音，不联网也能听。<strong>句子里哪个词不认识就点哪个</strong>，释义在那句话底下展开。想要的时刻没有，点【新建场景】自己建一个。</li>
+          <li><strong>「帮我说」</strong>：现成的里没有的话。打一句中文，给你一句适合对孩子说的英文；打一个英文单词，查它的意思。翻译、以及查精选词库里没有的词，需要联网和邀请码；词库里有的词直接查，不联网。<strong>翻译结果里的英文也一样，哪个词不认识就点哪个</strong>，释义就在那句话底下展开，不用回到输入框再打一遍；再点一下收起。</li>
           <li><strong>「复习」</strong>：到期的句子一张一张出。先自己在心里说一遍，再翻开看答案。</li>
           <li><strong>「收藏」</strong>：你存下的所有句子。英文默认遮着，点一下才显示——先想、再看，比直接看记得牢。</li>
         </ul>
@@ -2284,9 +2285,6 @@
     <div class="translate-result" id="translateResult">
       <div class="result-label" id="translateResultLabel">建议这样对宝宝说：</div>
       <div class="result-en" id="resultEn"></div>
-      <!-- 点词查出来的释义落在这里；点相关说法里的词时它会被挪到那一行底下。 -->
-      <div class="dict-lookup-panel result-dict-panel" id="resultDictPanel" hidden></div>
-      <div class="privacy-note dict-privacy-note" id="resultDictPrivacyNote" hidden>🔒 点句子里的词也是查词：已收录的词不联网；没收录的词会发送到在线词典服务。</div>
       <div class="result-zh" id="resultZh"></div>
       <div class="result-tip" id="resultTip"></div>
       <div class="result-actions">
@@ -3260,6 +3258,8 @@ function renderPhrases() {
       <div class="audio-bar" id="bar-${p.id}"><div class="audio-fill" id="fill-${p.id}"></div></div>
       ${coachingHtml}
     `;
+    // 英文那一行里的词都能点。typeof：这段可能被别的沙箱测试单独切出去跑。
+    if (typeof renderTappableEnglish === "function") renderTappableEnglish(card.querySelector(".phrase-en"), p.en);
 
     // Set text content safely after inserting structure.
     // Pre-existing bug fix (found during v2 handoff verification, present in
@@ -4592,11 +4592,18 @@ function renderRelatedExpressions(related) {
 }
 
 /* ll:tap-word:start */
-// 翻译结果里的英文，一个词一个词都能点，点了就查——不用再去输入框打一遍。
+// 英文句子里一个词一个词都能点，点了就查——不用再去输入框打一遍。
+// 翻译结果、「还可以这样说」、场景里的预设句子卡，都走这一套。
 // 依赖模块外的 performDictLookup（ll:dictionary-lookup）和 getDictLookupIndex；
 // 查词、渲染释义、收藏进复习，全走原来那条路，这里只负责「哪个词、面板放哪」。
-const TAP_WORD_PANEL_ID = "resultDictPanel";
-const TAP_WORD_NOTE_ID = "resultDictPrivacyNote";
+//
+// 面板是点的时候临时造、插在被点的那一行底下，收起就整个删掉。不做固定占位：
+// 场景列表换年龄档会整体重画，占位元素挪进卡片后一重画就被销毁，之后再点词
+// 就没反应——第一版就是这么坏的。临时造的话，重画多少次都无所谓。
+const TAP_WORD_PANEL_ID = "wordLookupPanel";
+const TAP_WORD_BODY_ID = "wordLookupBody";
+const TAP_WORD_NOTE_ID = "wordLookupPrivacyNote";
+const TAP_WORD_NOTE_TEXT = "🔒 点句子里的词也是查词：已收录的词不联网；没收录的词会发送到在线词典服务。";
 // 首尾要剥掉的标点。词内的撇号（don't、let's）和连字符留着。
 const TAP_WORD_TRIM_RE = /^[^A-Za-z0-9']+|[^A-Za-z0-9']+$/g;
 
@@ -4634,32 +4641,46 @@ function renderTappableEnglish(el, text) {
   }
 }
 
-// 收起释义面板、清掉高亮。新翻译结果到达时也调它——上一句的面板不该留给下一句。
+// 收起：删掉面板、清掉所有高亮。新翻译结果到达时也调它——上一句的面板不该留给下一句。
 function collapseWordLookup() {
   const panel = document.getElementById(TAP_WORD_PANEL_ID);
-  if (panel) { panel.hidden = true; panel.innerHTML = ""; }
-  const root = document.getElementById("translateResult");
-  if (root) root.querySelectorAll(".tap-word").forEach(w => w.classList.remove("is-active"));
+  if (panel) panel.remove();
+  document.querySelectorAll(".tap-word.is-active").forEach(w => w.classList.remove("is-active"));
+}
+
+// 造一个新面板：释义的 body + 隐私提示（默认藏着，只在真会联网时亮）。
+function buildWordLookupPanel() {
+  const panel = document.createElement("div");
+  panel.className = "word-lookup";
+  panel.id = TAP_WORD_PANEL_ID;
+  const body = document.createElement("div");
+  body.className = "dict-lookup-panel";
+  body.id = TAP_WORD_BODY_ID;
+  const note = document.createElement("div");
+  note.className = "privacy-note dict-privacy-note";
+  note.id = TAP_WORD_NOTE_ID;
+  note.textContent = TAP_WORD_NOTE_TEXT;
+  note.hidden = true;
+  panel.appendChild(body);
+  panel.appendChild(note);
+  return { panel, note };
 }
 
 function onTapWord(span) {
   if (!span || !span.dataset || !span.dataset.word) return;
   const word = span.dataset.word;
-  const panel = document.getElementById(TAP_WORD_PANEL_ID);
-  if (!panel) return;
   // 再点同一个词：收起。
   if (span.classList.contains("is-active")) { collapseWordLookup(); return; }
   collapseWordLookup();
   span.classList.add("is-active");
-  // 面板跟着被点的那一行走：主句底下，或「还可以这样说」的那一行底下。
-  // 挪是幂等的：已经在那一行底下再挪一次也没事，不用先判断。
   const line = span.parentElement;
-  if (line) line.insertAdjacentElement("afterend", panel);
-  panel.hidden = false;
+  if (!line) return;
+  const { panel, note } = buildWordLookupPanel();
+  line.insertAdjacentElement("afterend", panel);
   // 精选词库命中的不联网，隐私提示只在真会联网时亮——和打字查词的提示口径一致。
   const curated = typeof getDictLookupIndex === "function" && getDictLookupIndex().get(word);
-  if (!curated) { const note = document.getElementById(TAP_WORD_NOTE_ID); if (note) note.hidden = false; }
-  performDictLookup(word, TAP_WORD_PANEL_ID);
+  if (!curated) note.hidden = false;
+  performDictLookup(word, TAP_WORD_BODY_ID);
 }
 /* ll:tap-word:end */
 

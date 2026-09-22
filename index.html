@@ -1165,6 +1165,22 @@
        suggestion (typography sweep, 2026-07-18). */
     .result-label { font-size: 16px; color: var(--muted); margin-bottom: 8px; }
     .result-en { font-size: 18px; font-weight: 700; line-height: 1.4; margin-bottom: 8px; }
+    /* 翻译里能点的词。它是行内元素，视觉上就是一行里的一个词，做不到 44px 高——
+       所以用竖向 padding 把命中区撑到 44 以上：行内元素的竖向 padding 不参与
+       行高计算，行距一点不变，只是手指能点到的范围变大。这是对「能点的东西
+       ≥44px」那条规矩的一次有意变通，e2e 里直接量命中区高度。 */
+    .tap-word {
+      cursor: pointer; border-radius: var(--radius-sm);
+      padding: 10px 2px; margin: 0 -2px;
+      touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+      transition: background-color .12s;
+    }
+    .tap-word:hover { background: var(--clay-100); }
+    .tap-word.is-active { background: var(--clay-100); box-shadow: 0 0 0 var(--border-w-strong) var(--clay-400); }
+    /* 点词查出来的释义：点的时候临时造、插在那一行底下，收起就删。翻译结果、
+       相关说法、场景句子卡——哪里的词都能用同一个。 */
+    .word-lookup { margin: var(--space-2) 0 var(--space-3); }
+    .word-lookup .privacy-note { margin-top: var(--space-2); }
     /* zh is primary parent-facing content. Previously 16px/600 — SMALLER and
        LIGHTER than .result-en's 18px/700, violating the zh>=en hierarchy
        rule in both axes at once (Vera visual critique, 2026-07-18 typography
@@ -2080,8 +2096,8 @@
       <summary class="transcript-summary">底下四个标签各管什么</summary>
       <div class="guide-body">
         <ul>
-          <li><strong>「场景」</strong>：现成的话。30 个日常时刻，按孩子年龄分档，每句都有提前录好的声音，不联网也能听。想要的时刻没有，点【新建场景】自己建一个。</li>
-          <li><strong>「帮我说」</strong>：现成的里没有的话。打一句中文，给你一句适合对孩子说的英文；打一个英文单词，查它的意思。翻译、以及查精选词库里没有的词，需要联网和邀请码；词库里有的词直接查，不联网。</li>
+          <li><strong>「场景」</strong>：现成的话。30 个日常时刻，按孩子年龄分档，每句都有提前录好的声音，不联网也能听。<strong>句子里哪个词不认识就点哪个</strong>，释义在那句话底下展开。想要的时刻没有，点【新建场景】自己建一个。</li>
+          <li><strong>「帮我说」</strong>：现成的里没有的话。打一句中文，给你一句适合对孩子说的英文；打一个英文单词，查它的意思。翻译、以及查精选词库里没有的词，需要联网和邀请码；词库里有的词直接查，不联网。<strong>翻译结果里的英文也一样，哪个词不认识就点哪个</strong>，释义就在那句话底下展开，不用回到输入框再打一遍；再点一下收起。</li>
           <li><strong>「复习」</strong>：到期的句子一张一张出。先自己在心里说一遍，再翻开看答案。</li>
           <li><strong>「收藏」</strong>：你存下的所有句子。英文默认遮着，点一下才显示——先想、再看，比直接看记得牢。</li>
         </ul>
@@ -2184,7 +2200,7 @@
           <li><strong>本软件不会请求麦克风权限，也不会录音。</strong>你点手机键盘上的听写时，声音由手机或输入法自己处理，不传给 LittleLingos；它们怎么处理，看你手机或输入法的说明。</li>
           <li><strong>翻译时：</strong>你打的那句中文、你选的档位（1–2 岁、成人这类）和邀请码会一起发到我们的服务器，服务器再把中文发给 Google 的 Gemini 生成建议；Gemini 不通时改发给 OpenAI。<strong>所以别把孩子的名字、学校、住址打进去</strong>，用「宝宝」「他」代替就行。</li>
           <li><strong>生成声音时：</strong>翻译结果一出来，那句英文就会发给微软 Azure 生成声音，不等你收藏。用【连续播放全部】时，收藏里每句话的<strong>中文也会发给 Azure</strong>，用来生成那句中文提示音。在设置里试听某把嗓子时，发出去的是一句<strong>固定的英文样句</strong>，不是你的内容。</li>
-          <li><strong>查新单词时：</strong>精选词库里有的词在手机上查，不联网；没收录的词才会连同邀请码发到我们的服务器，再由 Google Gemini 查询。</li>
+          <li><strong>查新单词时：</strong>精选词库里有的词在手机上查，不联网；没收录的词才会连同邀请码发到我们的服务器，再由 Google Gemini 查询。<strong>点翻译里的词也是查词</strong>，规则一样。</li>
           <li><strong>收藏和复习进度：</strong>都只留在这台手机上，不上传。</li>
           <li><strong>到点提醒：</strong>见上面「到点提醒」一条。</li>
         </ul>
@@ -3242,6 +3258,8 @@ function renderPhrases() {
       <div class="audio-bar" id="bar-${p.id}"><div class="audio-fill" id="fill-${p.id}"></div></div>
       ${coachingHtml}
     `;
+    // 英文那一行里的词都能点。typeof：这段可能被别的沙箱测试单独切出去跑。
+    if (typeof renderTappableEnglish === "function") renderTappableEnglish(card.querySelector(".phrase-en"), p.en);
 
     // Set text content safely after inserting structure.
     // Pre-existing bug fix (found during v2 handoff verification, present in
@@ -4498,7 +4516,9 @@ function renderRelatedExpressions(related) {
     item.className = "result-related-item";
     const en = document.createElement("div");
     en.className = "result-related-en";
-    en.textContent = r.en;
+    // 相关说法里的词也能点。typeof：这段会被 related-expressions 等沙箱测试单独切出去跑。
+    if (typeof renderTappableEnglish === "function") renderTappableEnglish(en, r.en);
+    else en.textContent = r.en;
     item.appendChild(en);
     if (r.zh) {
       const zh = document.createElement("div");
@@ -4571,13 +4591,107 @@ function renderRelatedExpressions(related) {
   box.classList.add("show");
 }
 
+/* ll:tap-word:start */
+// 英文句子里一个词一个词都能点，点了就查——不用再去输入框打一遍。
+// 翻译结果、「还可以这样说」、场景里的预设句子卡，都走这一套。
+// 依赖模块外的 performDictLookup（ll:dictionary-lookup）和 getDictLookupIndex；
+// 查词、渲染释义、收藏进复习，全走原来那条路，这里只负责「哪个词、面板放哪」。
+//
+// 面板是点的时候临时造、插在被点的那一行底下，收起就整个删掉。不做固定占位：
+// 场景列表换年龄档会整体重画，占位元素挪进卡片后一重画就被销毁，之后再点词
+// 就没反应——第一版就是这么坏的。临时造的话，重画多少次都无所谓。
+const TAP_WORD_PANEL_ID = "wordLookupPanel";
+const TAP_WORD_BODY_ID = "wordLookupBody";
+const TAP_WORD_NOTE_ID = "wordLookupPrivacyNote";
+const TAP_WORD_NOTE_TEXT = "🔒 点句子里的词也是查词：已收录的词不联网；没收录的词会发送到在线词典服务。";
+// 首尾要剥掉的标点。词内的撇号（don't、let's）和连字符留着。
+const TAP_WORD_TRIM_RE = /^[^A-Za-z0-9']+|[^A-Za-z0-9']+$/g;
+
+// 把一句英文切成 [{ text, word }]：text 是屏幕上原样显示的（带标点），
+// word 是去掉首尾标点、转小写后拿去查的；纯标点的 token 没有 word。空白也是 token，
+// 这样整句拼回去一个字不差。
+function tokenizeForLookup(text) {
+  if (typeof text !== "string" || !text) return [];
+  const out = [];
+  for (const m of text.matchAll(/\s+|\S+/g)) {
+    const t = m[0];
+    if (/^\s+$/.test(t)) { out.push({ text: t, word: null }); continue; }
+    const core = t.replace(TAP_WORD_TRIM_RE, "").toLowerCase();
+    out.push({ text: t, word: /[a-z]/.test(core) ? core : null });
+  }
+  return out;
+}
+
+// 把 el 里的内容换成一串能点的词。
+function renderTappableEnglish(el, text) {
+  if (!el) return;
+  el.innerHTML = "";
+  for (const tok of tokenizeForLookup(text)) {
+    if (!tok.word) { el.appendChild(document.createTextNode(tok.text)); continue; }
+    const span = document.createElement("span");
+    span.className = "tap-word";
+    span.dataset.word = tok.word;
+    span.textContent = tok.text;
+    span.setAttribute("role", "button");
+    span.setAttribute("tabindex", "0");
+    span.setAttribute("aria-label", "查 " + tok.word);
+    span.addEventListener("click", () => onTapWord(span));
+    span.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTapWord(span); } });
+    el.appendChild(span);
+  }
+}
+
+// 收起：删掉面板、清掉所有高亮。新翻译结果到达时也调它——上一句的面板不该留给下一句。
+function collapseWordLookup() {
+  const panel = document.getElementById(TAP_WORD_PANEL_ID);
+  if (panel) panel.remove();
+  document.querySelectorAll(".tap-word.is-active").forEach(w => w.classList.remove("is-active"));
+}
+
+// 造一个新面板：释义的 body + 隐私提示（默认藏着，只在真会联网时亮）。
+function buildWordLookupPanel() {
+  const panel = document.createElement("div");
+  panel.className = "word-lookup";
+  panel.id = TAP_WORD_PANEL_ID;
+  const body = document.createElement("div");
+  body.className = "dict-lookup-panel";
+  body.id = TAP_WORD_BODY_ID;
+  const note = document.createElement("div");
+  note.className = "privacy-note dict-privacy-note";
+  note.id = TAP_WORD_NOTE_ID;
+  note.textContent = TAP_WORD_NOTE_TEXT;
+  note.hidden = true;
+  panel.appendChild(body);
+  panel.appendChild(note);
+  return { panel, note };
+}
+
+function onTapWord(span) {
+  if (!span || !span.dataset || !span.dataset.word) return;
+  const word = span.dataset.word;
+  // 再点同一个词：收起。
+  if (span.classList.contains("is-active")) { collapseWordLookup(); return; }
+  collapseWordLookup();
+  span.classList.add("is-active");
+  const line = span.parentElement;
+  if (!line) return;
+  const { panel, note } = buildWordLookupPanel();
+  line.insertAdjacentElement("afterend", panel);
+  // 精选词库命中的不联网，隐私提示只在真会联网时亮——和打字查词的提示口径一致。
+  const curated = typeof getDictLookupIndex === "function" && getDictLookupIndex().get(word);
+  if (!curated) note.hidden = false;
+  performDictLookup(word, TAP_WORD_BODY_ID);
+}
+/* ll:tap-word:end */
+
 function showTranslateResult(result, disclaimer) {
   lastTranslateResult = result;
   // Not awaited: the words appear at once, and the voice catches up. A tap on
   // play before it lands falls back to speech synthesis that once.
   provisionTranslation(result);
   paintSaveBtn();
-  document.getElementById("resultEn").textContent = result.en;
+  collapseWordLookup();
+  renderTappableEnglish(document.getElementById("resultEn"), result.en);
   document.getElementById("resultZh").textContent = result.zh || "";
   document.getElementById("resultTip").textContent = result.tip;
   document.getElementById("aiDisclaimer").textContent = disclaimer;

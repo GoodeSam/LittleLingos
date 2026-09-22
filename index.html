@@ -4108,7 +4108,9 @@ function renderSavedScreen() {
     enBtn.onclick = () => {
       const enDiv = document.createElement('div');
       enDiv.className = 'saved-item-en';
-      enDiv.textContent = savedHeadline(p);
+      // 「显示英文」之后，英文里的词都能点（typeof：沙箱测试里没有这个模块）
+      if (typeof renderTappableEnglish === "function") renderTappableEnglish(enDiv, savedHeadline(p));
+      else enDiv.textContent = savedHeadline(p);
       enSlot.replaceChildren(enDiv);
     };
     enSlot.appendChild(enBtn);
@@ -4359,7 +4361,10 @@ function renderReviewCard() {
   answer.className = "review-answer";
   const en = document.createElement("div");
   en.className = "review-en";
-  en.textContent = savedHeadline(item);
+  // 翻开之后英文里的词都能点。typeof：这段可能被别的沙箱测试单独切出去跑。
+  // 整个 headline 一起喂：查词收藏的「· 手表」后缀里没有英文词，切出来就是不可点的文字。
+  if (typeof renderTappableEnglish === "function") renderTappableEnglish(en, savedHeadline(item));
+  else en.textContent = savedHeadline(item);
   answer.appendChild(en);
   if (item.tip) {
     const tip = document.createElement("div");

@@ -248,6 +248,25 @@ test("翻译结果和相关说法的渲染真的接上了这个模块，不是�
   assert.match(show, /collapseWordLookup\(/, "新结果来了没收起旧面板");
   const ph = html.slice(html.indexOf("function renderPhrases("), html.indexOf("function renderPhrases(") + 4000);
   assert.match(ph, /renderTappableEnglish\(/, "场景句子卡没用它画英文——预设句子里的词点不了");
+  // 复习卡翻开后的英文、收藏行「显示英文」之后的英文，同样要经过它
+  const rc = html.slice(html.indexOf("function renderReviewCard("), html.indexOf("function renderReviewCard(") + 3500);
+  assert.match(rc, /renderTappableEnglish\(/, "复习卡没用它画英文——翻开答案后的词点不了");
+  // 只抓「顶格、无 else 的」直接赋值——带 typeof 守卫的 else 兜底本来就该在
+  assert.doesNotMatch(rc, /^\s*en\.textContent = savedHeadline\(item\)/m, "复习卡的英文还在用 textContent 直接写");
+  const rs = html.slice(html.indexOf("function renderSavedScreen("), html.indexOf("function renderSavedScreen(") + 9000);
+  assert.match(rs, /renderTappableEnglish\(/, "收藏行没用它画英文——「显示英文」之后的词点不了");
+  assert.doesNotMatch(rs, /^\s*enDiv\.textContent = savedHeadline\(p\)/m, "收藏行的英文还在用 textContent 直接写");
+});
+
+test("查词收藏的条目：英文能点，后面的中文词义标签不能点", () => {
+  // savedHeadline 会给多义词加「· 手表」这样的后缀，整串喂进去时只有英文是词
+  const { ctx, byId, lookups } = loadModule();
+  ctx.renderTappableEnglish(byId.resultEn, "watch · 手表");
+  const ws = words(byId.resultEn);
+  assert.deepEqual(ws.map(w => w.dataset.word), ["watch"], "中文标签或「·」变成可点的词了");
+  assert.equal(byId.resultEn.textContent, "watch · 手表", "标签文字丢了");
+  ws[0].onclick();
+  assert.deepEqual(lookups.map(l => l.q), ["watch"]);
 });
 
 test("面板不再是固定占位：页面里不该再有 resultDictPanel，面板的样式得跟词典面板一套", () => {

@@ -3403,12 +3403,6 @@ function stopAllAudio() {
 }
 
 function speakPhrase(id, btn, rate) {
-  stopAllAudio();
-  // Captured AFTER the bump in stopAllAudio(): every handler below belongs
-  // to this session and no-ops once another playback (or stop) supersedes it.
-  const session = playbackSession;
-  const isCurrent = () => session === playbackSession;
-
   const phrase = findPhrase(id);
   if (!phrase) return;
 
@@ -3418,6 +3412,20 @@ function speakPhrase(id, btn, rate) {
   // labels drop the "慢速"/"播放中" text so the button stays icon-only; the
   // text pill play-btn keeps its full label.
   const idleLabel = isSlow ? "慢速" : "▶ 朗读";
+  const playingLabel = isSlow ? "⏸" : "⏸ 播放中";
+
+  // 同一个按钮正在放 → 暂停（进度条留在原地，按钮回到空闲标签）；
+  // 刚暂停的那段还在 → 接着放。处理了就到此为止。
+  if (pauseOrResumeClip(btn, {
+    onPaused: () => { btn.classList.remove("playing"); btn.textContent = idleLabel; },
+    onResumed: () => { btn.classList.add("playing"); btn.textContent = playingLabel; },
+  })) return;
+
+  stopAllAudio();
+  // Captured AFTER the bump in stopAllAudio(): every handler below belongs
+  // to this session and no-ops once another playback (or stop) supersedes it.
+  const session = playbackSession;
+  const isCurrent = () => session === playbackSession;
   const suffix = isSlow ? "slow_wbw" : "normal";
   const bar  = document.getElementById("bar-"  + id);
   const fill = document.getElementById("fill-" + id);
@@ -3438,7 +3446,7 @@ function speakPhrase(id, btn, rate) {
 
   function onStart() {
     btn.classList.add("playing");
-    btn.textContent = isSlow ? "⏸" : "⏸ 播放中";
+    btn.textContent = playingLabel;
     if (bar) bar.style.display = "block";
   }
   function onEnd() {
@@ -3451,6 +3459,8 @@ function speakPhrase(id, btn, rate) {
 
   // ── Try Azure MP3 first ──────────────────────────────
   const mp3 = new Audio(`./audio/${id}_${suffix}.mp3`);
+  mp3.__btn = btn;          // 暂停/接着放要认得「是这个按钮的那段」
+  mp3.__text = phrase.en;   // 接着放失败时退回朗读要念的字
   currentAudio = mp3;
 
   // Bounded load: a cache miss on a dead connection can leave the element
@@ -4405,9 +4415,9 @@ function renderReviewCard() {
 }
 
 function playReviewAudio(item, btn) {
-  // 同一个按钮正在放 → 暂停；刚暂停的那段还在 → 接着放。两种都在下面那个
-  // 函数里处理；处理了就到此为止，不许再往下走到「新造一段从头放」。
-  if (reviewPlaybackToggle(item, btn)) return;
+  // 同一个按钮正在放 → 暂停；刚暂停的那段还在 → 接着放。三处播放键共用
+  // pauseOrResumeClip()；处理了就到此为止，不许再往下走到「新造一段从头放」。
+  if (pauseOrResumeClip(btn)) return;
   stopAllAudio();
   // Same session pattern as speakPhrase(): captured after the bump in
   // stopAllAudio(), so a stale ended/error/rejected-play from a superseded
@@ -4428,6 +4438,7 @@ function playReviewAudio(item, btn) {
   if (url) {
     const mp3 = new Audio(url);
     mp3.__btn = btn;          // 暂停/接着放要认得「是这个按钮的那段」
+    mp3.__text = item.en;     // 接着放失败时退回朗读要念的字
     currentAudio = mp3;
     mp3.addEventListener("ended", () => {
       if (!isCurrent()) return;
@@ -4445,19 +4456,23 @@ function playReviewAudio(item, btn) {
   }
 }
 
-// 复习卡播放键的「暂停 / 接着放」。按钮上画的是 ⏸，做的就得是暂停——2026-09-22
-// 真机报上来：放到一半点 ⏸，声音从头重放，因为 playReviewAudio 原来第一句就是
-// stopAllAudio() 然后新造一段。
+// 播放键的「暂停 / 接着放」，复习卡、翻译结果、场景卡三处共用。按钮上画的是 ⏸，
+// 做的就得是暂停——2026-09-22 真机报上来：放到一半点 ⏸，声音从头重放，因为
+// 三个播放函数原来第一句都是 stopAllAudio() 然后新造一段。
 // 返回 true = 这一下已经处理完（暂停了或接上了），调用方不要再往下播。
-// 有录音（Audio 元素）的能真暂停、之后从停的地方接着放；退回手机自带朗读的那种
-// 没有可靠的 pause/resume（iOS 上 resume 常常不响），第二下当「停」，再点从头念。
-function reviewPlaybackToggle(item, btn) {
+// 有录音（Audio 元素，创建时标了 __btn / __text）的能真暂停、之后从停的地方接着放；
+// 退回手机自带朗读的那种没有可靠的 pause/resume（iOS 上 resume 常常不响），
+// 第二下当「停」，再点从头念。
+// onPaused / onResumed：按钮怎么画。复习卡和翻译结果用共用的两个 helper；
+// 场景卡有自己的标签和进度条，自己传。
+function pauseOrResumeClip(btn, { onPaused, onResumed } = {}) {
   if (!btn) return false;
+  const paint = { paused: onPaused || (() => resetPlayBtnState(btn)), resumed: onResumed || (() => setPlayBtnPlaying(btn)) };
   if (btn.classList.contains("playing")) {
     if (currentAudio && currentAudio.__btn === btn && !currentAudio.ended) {
       currentAudio.pause();
       currentAudio.__pausedByUser = true;
-      resetPlayBtnState(btn);
+      paint.paused();
     } else {
       stopAllAudio();
     }
@@ -4466,11 +4481,12 @@ function reviewPlaybackToggle(item, btn) {
   if (currentAudio && currentAudio.__btn === btn && currentAudio.__pausedByUser && !currentAudio.ended) {
     const resumed = currentAudio;
     resumed.__pausedByUser = false;
-    setPlayBtnPlaying(btn);
+    paint.resumed();
     resumed.play().catch(() => {
       if (currentAudio !== resumed) return;
       currentAudio = null;
-      speakText(item.en, undefined, btn, playbackSession);
+      if (resumed.__text) speakText(resumed.__text, undefined, btn, playbackSession);
+      else stopAllAudio();
     });
     return true;
   }
@@ -4845,6 +4861,8 @@ function speakText(text, rate, btn, session = playbackSession) {
 //
 // 所以取址只在渲染时做（见 showOwnWordsResult），点击时只同步查一次缓存。
 function playClipOrSpeak({ id, text, btn }) {
+  // 同一个按钮正在放 → 暂停；刚暂停的那段还在 → 接着放（见 pauseOrResumeClip）。
+  if (pauseOrResumeClip(btn)) return;
   stopAllAudio();
   const session = playbackSession;
   const isCurrent = () => session === playbackSession;
@@ -4852,6 +4870,8 @@ function playClipOrSpeak({ id, text, btn }) {
   if (url) {
     if (btn) setPlayBtnPlaying(btn);
     const mp3 = new Audio(url);
+    mp3.__btn = btn;
+    mp3.__text = text;
     currentAudio = mp3;
     mp3.addEventListener("ended", () => {
       if (!isCurrent()) return;

@@ -7808,6 +7808,20 @@ function toggleReminder() {
 }
 
 // 必须由点击直接调用：iOS 只在用户手势里弹通知权限框，所以第一个 await 就是它。
+// 开启提醒失败时，界面上说什么。服务器的英文原话（"reminder not configured"
+// 之类）对家长没有意义，但状态码要留在括号里——家长会把这句话原样转给我。
+// 2026-09-22：preview 地址上没配提醒用的密钥，点开启必 500，原来照抄英文。
+function reminderFailureText(status, out, what = "开") {
+  const err = (out && out.error) || "";
+  if (status === 500 && /not configured/i.test(err)) {
+    return "这个网址上没有提醒功能——预览版都这样。提醒要在正式版里用。";
+  }
+  if (status >= 500 && status <= 504) {
+    return `服务器那边出错了，过一会儿再试（${status}）`;
+  }
+  return `没${what}成（${status}${err ? " " + err : ""}）`;
+}
+
 async function enableReminder() {
   if (!pushSupported()) {
     reminderSay("这个浏览器收不到提醒" + (isStandalone ? "" : "。iPhone 要先「添加到主屏幕」，再从主屏幕打开"));
@@ -7843,7 +7857,7 @@ async function enableReminder() {
         try { await sub.unsubscribe(); } catch (e) {}
         reminderSay("这台手机的推送授权失效了，再点一次「开启提醒」");
       } else {
-        reminderSay(`没开成：${r.status} ${(r.out && r.out.error) || ""}`.trim());
+        reminderSay(reminderFailureText(r.status, r.out));
       }
       return;
     }
@@ -7861,7 +7875,7 @@ async function disableReminder() {
   let r;
   try { r = await reminderPost({ action: "disable", endpoint: s.endpoint, secret: s.secret }); }
   catch (e) { reminderSay("没连上服务器，提醒还开着。联网后再点一次"); return; }
-  if (r.status !== 200) { reminderSay(`没关成：${r.status} ${(r.out && r.out.error) || ""}`.trim()); return; }
+  if (r.status !== 200) { reminderSay(reminderFailureText(r.status, r.out, "关")); return; }
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();

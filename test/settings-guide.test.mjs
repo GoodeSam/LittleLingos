@@ -313,6 +313,75 @@ test("说明没有引入重复的 id，也没有把内联脚本弄坏", () => {
   assert.doesNotThrow(() => new vm.Script(script), "内联脚本语法坏了");
 });
 
+// ── 下面三条：说明不许落后于代码 ──
+// 都是从代码里读出「现在到底是什么行为」，再要求说明讲到。
+// 代码多支持一处、或者行为变了，这几条先红，逼着说明跟上。
+
+// 点词查词接在哪几处：从 renderTappableEnglish( 的调用点所在的函数推。
+// 函数名 → 家长眼里的哪一块，是下面这张表；代码里冒出表上没有的函数就红，
+// 那时候说明和这张表都要跟着改。
+const TAPPABLE_PLACES = {
+  renderPhrases: "场景",
+  renderReviewCard: "复习",
+  renderSavedScreen: "收藏",
+  showTranslateResult: "翻译",
+  renderRelatedExpressions: "翻译",
+};
+
+function tappablePlaces() {
+  const names = new Set();
+  const fns = [...html.matchAll(/function (\w+)\(/g)].map(m => ({ name: m[1], at: m.index }));
+  for (const call of html.matchAll(/renderTappableEnglish\(/g)) {
+    if (html.slice(Math.max(0, call.index - 9), call.index) === "function ") continue;
+    let owner = null;
+    for (const f of fns) if (f.at < call.index) owner = f.name;
+    names.add(owner);
+  }
+  return names;
+}
+
+test("点词查词现在接在哪几处，说明就得说哪几处——不许只说翻译结果", () => {
+  // 只看「讲点词」的那几句话。整篇说明里「场景」「复习」这些字到处都是，
+  // 拿全文去搜等于白搜——第一版就这么假绿过一次。
+  const sentences = text(guide().src).split(/[。；]/)
+    .filter(x => /不认识|点哪个|点一下那个词|点词/.test(x));
+  assert.ok(sentences.length > 0, "说明里找不到讲「点词查释义」的句子");
+  const said = sentences.join(" ");
+  const owners = [...tappablePlaces()];
+  assert.ok(owners.length >= 3, `只从代码里读出 ${owners.length} 处点词查词，读法可能坏了`);
+  for (const fn of owners) {
+    const place = TAPPABLE_PLACES[fn];
+    assert.ok(place, `代码里 ${fn}() 也接上了点词查词，这张表和说明都要跟着改`);
+    assert.ok(said.includes(place),
+      `${fn}() 里的英文能点词，讲点词那几句里没说「${place}」这一块：「${said.trim().slice(0, 60)}…」`);
+  }
+});
+
+test("播放键现在是真暂停，说明就得讲暂停和接着放；没有录音的那种第二下是停", () => {
+  const t = text(guide().src);
+  assert.ok(/function pauseOrResumeClip\(/.test(html), "代码里没有共用的暂停/接着放了——说明和这条测试都要跟着改");
+  assert.ok(/暂停/.test(t), "播放键能暂停，说明里一个字没提");
+  assert.ok(/接着放|从停的地方|继续放/.test(t), "说明只说了能暂停，没说再点一下会接着放");
+  // 同样只看讲「手机自带声音」的那几句。「自带」「从头」在别处也出现，
+  // 拿全文搜会假绿——这条第一版就是这么绿的。
+  const auto = t.split(/[。；]/).filter(x => /自带的声音|自带声音/.test(x)).join(" ");
+  assert.ok(auto.length > 0, "说明里找不到讲「手机自带声音」的句子");
+  assert.ok(/从头|不能接着放|没法接着放/.test(auto),
+    `手机自带的声音没法接着放、第二下是停，讲它的那几句里没交代：「${auto.trim().slice(0, 60)}…」`);
+});
+
+test("「今天用了」能再点一次取消，说明就得写；写了就得是真的", () => {
+  const t = text(guide().src);
+  const at = html.indexOf("function markUsed(");
+  assert.ok(/splice\(/.test(html.slice(at, at + 600)), "markUsed 不再支持取消了——说明和这条测试都要跟着改");
+  // 只看讲这个勾的那一条，别让说明别处的「每天」「取消」替它顶包。
+  const item = t.split(/[。；]/).filter(x => /今天用了|打个勾/.test(x)).join("。");
+  assert.ok(item.length > 0, "说明里没讲那个打勾的按钮是做什么的");
+  const whole = t.slice(Math.max(0, t.indexOf(item.trim().slice(0, 8))), t.indexOf(item.trim().slice(0, 8)) + 200);
+  assert.ok(/再点一次|取消/.test(whole), `打勾能取消，讲它的那一条里没写：「${whole.slice(0, 80)}…」`);
+  assert.ok(/第二天|当天|每天/.test(whole), `打卡每天清零，讲它的那一条里没写——家长会以为是永久记录：「${whole.slice(0, 80)}…」`);
+});
+
 console.log("settings guide tests");
 let passed = 0, failed = 0;
 for (const t of tests) {

@@ -1074,6 +1074,39 @@ check("进一个场景：从最上面开始，两排筛选标签整条都在，�
   assert.equal(r.tierBelow, true, "难度那一排被标题栏盖住了");
 });
 
+check("「安装到主屏幕」的横幅亮着时进场景：标题栏和筛选标签仍看得见、点得到，横幅不压在上面", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const banner = document.getElementById("installBanner");
+    banner.classList.add("show");          // 还没装到主屏幕的家长看到的就是这个状态
+    await tick();
+    const onHome = banner.getClientRects().length > 0;   // 首页上它该在
+    openScenario("bath");
+    await tick();
+    const hit = el => {                    // 这个点上，最上面的东西是不是它自己
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return !!top && (top === el || el.contains(top) || top.contains(el));
+    };
+    const header = document.querySelector("#scenarioScreen .screen-header");
+    const firstAge = document.querySelector("#ageTabs .age-tab");
+    const out = { onHome, titleHit: hit(document.getElementById("scenarioTitle")),
+                  ageHit: hit(firstAge), headerTop: Math.round(header.getBoundingClientRect().top),
+                  ageTop: Math.round(firstAge.getBoundingClientRect().top) };
+    closeScenario();
+    await tick();
+    out.backOnHome = banner.getClientRects().length > 0;  // 退回首页，邀请还得回来
+    banner.classList.remove("show");
+    return out;
+  });
+  assert.equal(r.onHome, true, "首页上安装横幅没出现，这条检查白测了");
+  assert.equal(r.titleHit, true, `场景标题被横幅压住了（标题栏 top=${r.headerTop}）`);
+  assert.equal(r.ageHit, true, `年龄那一排被横幅压住了（top=${r.ageTop}）——家长看不清也点不到`);
+  assert.ok(r.ageTop >= 0, `年龄那一排跑到屏幕外面去了（top=${r.ageTop}）`);
+  assert.equal(r.backOnHome, true, "退回首页后安装邀请没回来——不该把它永久藏掉");
+});
+
 check("复习卡：翻开英文后点一个词，释义在英文那一行底下；没翻开之前那些词是看不见的", async (ev) => {
   await ev(WORD_TAP_FETCH);
   const r = await ev(async () => {

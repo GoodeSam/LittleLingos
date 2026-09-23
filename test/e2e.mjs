@@ -1599,6 +1599,29 @@ function paidEndpointsDown(mode) {
 hostile("付费端点全挂 · 网络直接断：免费的功能一个都不许跟着坏", "", paidEndpointsDown("network"));
 hostile("付费端点全挂 · 服务端一律回 500：免费的功能一个都不许跟着坏", "", paidEndpointsDown("http500"));
 
+hostile("手机屏高不够时进场景：两排筛选标签没有被挤扁，按钮整个在自己那一行里", "", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    openScenario("bath");
+    await tick(); await tick();
+    const box = sel => { const e = document.querySelector(sel); if (!e) return null;
+      const b = e.getBoundingClientRect();
+      return { top: Math.round(b.top), bottom: Math.round(b.bottom), h: Math.round(b.height) }; };
+    return { age: box("#ageTabs"), age1: box("#ageTabs .age-tab"),
+             tier: box("#tierTabs"), tier1: box("#tierTabs .tier-tab"),
+             own: box("#ownWordsInvite"), list: box("#phraseList") };
+  });
+  // 整屏内容比屏幕高，.screen 又是纵向 flex —— 默认每一块都会被压缩，
+  // 里面 44px 的按钮溢出到盒子外面，被下面那张卡盖住半截（2026-09-23 真机）。
+  assert.ok(r.age.h >= r.age1.h, `年龄那一排被挤扁了：容器 ${r.age.h}px，里面的按钮 ${r.age1.h}px`);
+  assert.ok(r.tier.h >= r.tier1.h, `难度那一排被挤扁了：容器 ${r.tier.h}px，里面的按钮 ${r.tier1.h}px`);
+  assert.ok(r.age1.bottom <= r.age.bottom + 1, "年龄按钮溢出到它那一行外面了");
+  assert.ok(r.tier1.bottom <= r.tier.bottom + 1, "难度按钮溢出到它那一行外面了");
+  assert.ok(r.own.top >= r.tier1.bottom - 1,
+    `下面那张卡压在难度标签上（卡 top=${r.own.top}，按钮 bottom=${r.tier1.bottom}）`);
+  assert.ok(r.list.top >= r.own.bottom - 1, "句子列表压在上面那张卡上");
+}, { viewport: { width: 390, height: 844 } });
+
 hostile("窄屏 320px（老安卓机最常见的宽度）", "", async (ev) => {
   const r = await ev(() => {
     const out = { over: [] };

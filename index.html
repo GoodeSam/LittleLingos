@@ -590,6 +590,14 @@
     }
     .screen.open { display: flex; }
 
+    /* 二级屏是纵向 flex + overflow-y:auto。它的每一块默认 flex-shrink:1 ——
+       内容比一屏高时，浏览器不是让它滚，而是先把各块压扁：两排筛选标签的
+       容器被压到只剩内边距（16px / 12px），里面 44px 的按钮溢出到盒子外面，
+       被下面那张「不确定自己平时怎么说」的卡盖掉半截。家长看到的就是顶上
+       一条切掉一半的弧线（2026-09-23 Victor 真机，iPhone 390×844）。
+       首页当年是同一个毛病，修法见上面 .home-screen 那段注释；二级屏一直没修。 */
+    .screen > * { flex-shrink: 0; }
+
     /* 首页原来靠 margin-top:auto 把导航推到底，导航浮起来之后那招失效了，
        所以它也要自己让出这块高度。
        flex-shrink:0 是这里的关键：body 是 min-height:100vh 的 flex column，

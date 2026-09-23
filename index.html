@@ -3195,7 +3195,12 @@ function openScenario(id) {
   );
 
   renderPhrases();
-  document.getElementById("scenarioScreen").classList.add("open");
+  const screen = document.getElementById("scenarioScreen");
+  screen.classList.add("open");
+  // 所有场景共用这一个滚动容器（.screen 是 position:fixed + overflow-y:auto）。
+  // 不归零的话，上一个场景滚到哪儿，下一个就从哪儿开始——两排筛选标签被卷到
+  // 吸顶的标题栏底下，只露出一条底边弧线。2026-09-23 Victor 真机报上来的。
+  screen.scrollTop = 0;
 }
 
 function closeScenario() {
@@ -3810,21 +3815,24 @@ function toggleSave(id) {
   updateNavBadge();
 }
 
+// 「今天用了」是打卡，不是不可撤销的登记：点错了要能再点一下取消。
+// 2026-09-23 之前只进不出，误点一下得等到第二天自动清零。
 function markUsed(id) {
-  if (!usedToday.includes(id)) {
-    usedToday.push(id);
-    saveUsedToday();
-    renderScenarioGrid();
-    renderTodayProgress();
-  }
+  const at = usedToday.indexOf(id);
+  const nowUsed = at === -1;
+  if (nowUsed) usedToday.push(id);
+  else usedToday.splice(at, 1);
+  saveUsedToday();
+  renderScenarioGrid();
+  renderTodayProgress();
   const btn = document.getElementById("used-" + id);
   if (btn) {
-    btn.className = "used-btn used";
+    btn.className = nowUsed ? "used-btn used" : "used-btn";
     // Icon-only ghost button (phrase-card-v2 bullet 3, extended to the
     // used-today control for visual consistency): ▢/✅ outline/filled pair
     // replaces the old "今天用了"/"✓ 用了！" text labels.
     btn.innerHTML = (typeof llIcon === "function" && llIcon("ui", "check")) || "✓";
-    btn.setAttribute("aria-label", "已使用");
+    btn.setAttribute("aria-label", nowUsed ? "已使用" : "今天用了");
   }
 }
 

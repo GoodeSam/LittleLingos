@@ -1042,6 +1042,38 @@ check("场景里的预设句子：点一个词，释义在那句英文底下、�
   assert.equal(r.callsAfter, 0, "重画后点精选词也联网了");
 });
 
+check("进一个场景：从最上面开始，两排筛选标签整条都在，不是被切了一半的弧线", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const screen = document.getElementById("scenarioScreen");
+    // 先照着家长的路径走一遍：进一个场景、往下滚着看句子、退回去、再进另一个
+    openScenario("bath");
+    await tick();
+    screen.scrollTop = 300;
+    await tick();
+    const scrolledAway = screen.scrollTop > 0;   // 确认这一屏真的能滚，否则下面白测
+    closeScenario();
+    openScenario("meal");
+    await tick();
+    const header = document.querySelector("#scenarioScreen .screen-header");
+    const firstAge = document.querySelector("#ageTabs .age-tab");
+    const firstTier = document.querySelector("#tierTabs .tier-tab");
+    const below = el => el && el.getBoundingClientRect().top >= header.getBoundingClientRect().bottom - 1;
+    const whole = el => {
+      if (!el) return false;
+      const r = el.getBoundingClientRect(), h = header.getBoundingClientRect();
+      return r.top >= h.bottom - 1 && r.height >= 40;   // 整条都在标题栏下面，没被切
+    };
+    return { scrolledAway, top: screen.scrollTop,
+             ageWhole: whole(firstAge), tierBelow: below(firstTier),
+             ageH: firstAge ? Math.round(firstAge.getBoundingClientRect().height) : 0 };
+  });
+  assert.equal(r.scrolledAway, true, "这一屏根本没滚动，这条检查等于没测——换个滚动量");
+  assert.equal(r.top, 0, `再进一个场景时还停在上一个场景滚到的位置（scrollTop=${r.top}）——两排标签被卷到标题栏底下，只露出底边`);
+  assert.equal(r.ageWhole, true, `年龄那一排没整条露出来（高 ${r.ageH}px）`);
+  assert.equal(r.tierBelow, true, "难度那一排被标题栏盖住了");
+});
+
 check("复习卡：翻开英文后点一个词，释义在英文那一行底下；没翻开之前那些词是看不见的", async (ev) => {
   await ev(WORD_TAP_FETCH);
   const r = await ev(async () => {

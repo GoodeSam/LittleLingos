@@ -1107,6 +1107,48 @@ check("「安装到主屏幕」的横幅亮着时进场景：标题栏和筛选�
   assert.equal(r.backOnHome, true, "退回首页后安装邀请没回来——不该把它永久藏掉");
 });
 
+check("播放这件事由 audio-controller.mjs 掌管：模块在浏览器里真的加载了，翻译结果的 ▶ 走的是它", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const out = { loaded: !!window.llAudio };
+    if (!out.loaded) return out;                 // 模块没加载成（多半是 MIME 不对），下面不用看了
+    out.api = ["toggle", "state", "subscribe", "stopAll"].every(k => typeof window.llAudio[k] === "function");
+    // 拿一个真按钮走一遍：没有录音的句子 → 手机自带声音念
+    const btn = document.createElement("button");
+    btn.className = "result-play-btn";
+    btn.dataset.playingLabel = "⏸ 播放中";
+    btn.textContent = "▶";
+    document.body.appendChild(btn);
+    playClipOrSpeak({ id: null, text: "Bath time!", btn });
+    await tick();
+    const s1 = window.llAudio.state();
+    out.ownerIsBtn = s1.owner === btn;           // 控制器记住了是这个按钮在放
+    out.mode = s1.mode;
+    out.btnShowsPlaying = btn.classList.contains("playing");   // 界面靠订阅重画
+    // 第二下：手机自带朗读没有可靠的接着念，应当是「停」，按钮回到空闲
+    playClipOrSpeak({ id: null, text: "Bath time!", btn });
+    await tick();
+    out.afterSecond = window.llAudio.state().owner === null;
+    out.btnBackToIdle = !btn.classList.contains("playing") && btn.textContent === "▶";
+    // 全站的「全停」也要能停住它，否则会出现两个声音一起响
+    playClipOrSpeak({ id: null, text: "Bath time!", btn });
+    await tick();
+    stopAllAudio();
+    await tick();
+    out.stopAllWorks = window.llAudio.state().owner === null && !btn.classList.contains("playing");
+    btn.remove();
+    return out;
+  });
+  assert.equal(r.loaded, true, "浏览器里没有 window.llAudio——audio-controller.mjs 没加载成（先查它的 MIME 和路径）");
+  assert.equal(r.api, true, "llAudio 上缺 toggle/state/subscribe/stopAll 之一");
+  assert.equal(r.ownerIsBtn, true, "翻译结果的 ▶ 没走新模块——控制器不知道是哪个按钮在放");
+  assert.equal(r.mode, "speech", `没有录音时应当用手机自带声音念，实际 mode=${r.mode}`);
+  assert.equal(r.btnShowsPlaying, true, "按钮没变成播放中——订阅重画没接上");
+  assert.equal(r.afterSecond, true, "第二下没把朗读停掉");
+  assert.equal(r.btnBackToIdle, true, "停了之后按钮没回到 ▶");
+  assert.equal(r.stopAllWorks, true, "stopAllAudio() 停不住新模块管的声音——会出现两个声音一起响");
+});
+
 check("复习卡：翻开英文后点一个词，释义在英文那一行底下；没翻开之前那些词是看不见的", async (ev) => {
   await ev(WORD_TAP_FETCH);
   const r = await ev(async () => {

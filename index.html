@@ -2371,6 +2371,37 @@
      buildDictionaryIndex() below tolerates (empty index), unlike the
      scenarios.js DATA_OK guard which is load-bearing for the whole app. -->
 <script src="./dictionary-words.js" defer></script>
+<!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
+     DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
+     万一这个文件没加载成（MIME 不对、被缓存挡住），window.llAudio 就是
+     undefined，下面的调用点会自动退回旧那条路——不会变成点了没声音。 -->
+<script type="module">
+import { createAudioController } from "./audio-controller.mjs";
+window.llAudio = createAudioController({
+  Audio: window.Audio,
+  speech: {
+    cancel() { if (window.speechSynthesis) window.speechSynthesis.cancel(); },
+    speak(u) { if (window.speechSynthesis) window.speechSynthesis.speak(u); },
+  },
+  // 手机自带朗读的嗓子、语速跟全站一致；念完了告诉控制器，好让按钮回到 ▶。
+  Utterance: function (text) {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-US"; u.rate = 0.85; u.pitch = 1.1;
+    const v = typeof getEnglishVoice === "function" ? getEnglishVoice() : null;
+    if (v) u.voice = v;
+    if (typeof noteBrowserVoice === "function") noteBrowserVoice();
+    u.onend = u.onerror = () => window.llAudio.stopAll();
+    return u;
+  },
+});
+// 界面照着通知重画。谁在放就是哪个按钮——owner 就是按钮本身。
+let llLastPlayOwner = null;
+window.llAudio.subscribe((st) => {
+  if (llLastPlayOwner && llLastPlayOwner !== st.owner) resetPlayBtnState(llLastPlayOwner);
+  if (st.owner) (st.paused ? resetPlayBtnState : setPlayBtnPlaying)(st.owner);
+  llLastPlayOwner = st.owner;
+});
+</script>
 <script>
 // ── State ─────────────────────────────────────────────
 const AGE_KEYS = ["0-1", "1-2", "2-3", "3-6"];
@@ -3405,6 +3436,7 @@ function flashAudioUnavailable(btn) {
 
 function stopAllAudio() {
   playbackSession++;
+  if (window.llAudio) window.llAudio.stopAll();   // 新模块管的那一段也要停
   if (window.speechSynthesis) window.speechSynthesis.cancel();
   if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
   document.querySelectorAll('.play-btn.playing, .play-btn-slow.playing').forEach(b => {
@@ -4883,6 +4915,12 @@ function speakText(text, rate, btn, session = playbackSession) {
 //
 // 所以取址只在渲染时做（见 showOwnWordsResult），点击时只同步查一次缓存。
 function playClipOrSpeak({ id, text, btn }) {
+  // ADR 0009：播放交给 audio-controller.mjs。开始/暂停/接着放/换一句，都由它判断；
+  // 按钮由订阅统一重画，这里不再自己动手。模块没加载成时退回下面那条旧路。
+  if (window.llAudio && btn) {
+    window.llAudio.toggle({ owner: btn, url: id ? audioUrlFor(id) : null, text });
+    return;
+  }
   // 同一个按钮正在放 → 暂停；刚暂停的那段还在 → 接着放（见 pauseOrResumeClip）。
   if (pauseOrResumeClip(btn)) return;
   stopAllAudio();

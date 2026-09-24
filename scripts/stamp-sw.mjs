@@ -25,6 +25,7 @@ const SW_PATH = resolve(REPO, "sw.js");
 const SOURCES = [
   "index.html",
   "icons.js",
+  "audio-controller.mjs",
   "scenarios.js",
   "dictionary-words.js",
   "manifest.json",

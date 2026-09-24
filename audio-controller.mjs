@@ -1,0 +1,129 @@
+// 播放这件事的唯一主人。
+//
+// 由来（[ADR 0009]）：2026-09-22 真机报上来「点 ⏸ 变成从头重放」，病根是三个
+// 播放函数各自 stopAllAudio() 再新造一段——同一个副作用有三个主人。补一个共用
+// 函数只是把三处接上；这个模块是把「谁在放、要不要停」收口成一处，让那类 bug
+// 从结构上不可能再犯。
+//
+// 三条规矩：
+// 1. 这个文件是纯的：不碰 document / window / localStorage，也不自己 new Audio。
+//    浏览器零件从 createAudioController(deps) 传进来。所以它在 Node 里能直接
+//    import 来测，不用从 index.html 里切文本塞沙箱。
+// 2. 「谁在放」用 owner 认，owner 是调用方给的任意标识（句子 id、按钮对象都行）。
+//    播放逻辑不认得界面元素——界面怎么画是界面的事。
+// 3. 状态一变就通知订阅者。界面照着通知重画，不必自己去翻全局变量。
+//
+// 有录音（Audio 元素）的能真暂停、之后从停的地方接着放。
+// 退回手机自带朗读的那种没有可靠的 pause/resume（iOS 上 resume 常常不响），
+// 所以第二下当「停」，第三下从头念。
+
+export function createAudioController({ Audio: AudioCtor, speech, Utterance } = {}) {
+  let listeners = [];
+  // 当前这一段。owner = 谁点的；mode = "clip"（有录音）或 "speech"（手机自带朗读）。
+  let cur = null;   // { owner, mode, paused, audio? }
+
+  const snapshot = () => ({
+    owner: cur ? cur.owner : null,
+    mode: cur ? cur.mode : null,
+    paused: cur ? cur.paused : false,
+  });
+
+  function notify() {
+    const s = snapshot();
+    for (const fn of listeners.slice()) fn(s);
+  }
+
+  // 把当前这一段停掉。不通知——调用方紧接着会开始新的一段，一次变化只通知一次。
+  function halt() {
+    if (!cur) return;
+    if (cur.mode === "clip" && cur.audio && !cur.audio.ended) cur.audio.pause();
+    if (cur.mode === "speech" && speech) speech.cancel();
+    cur = null;
+  }
+
+  function startClip(owner, url, text) {
+    const audio = new AudioCtor(url);
+    audio.addEventListener("ended", () => {
+      if (!cur || cur.audio !== audio) return;   // 早就换成别的了，这条消息过期
+      cur = null;
+      notify();
+    });
+    cur = { owner, mode: "clip", paused: false, audio };
+    audio.play().catch(() => {
+      // 这一段放不出来（文件没了、格式不认、iOS 拦了）：退回手机自带朗读，
+      // 别让家长按了没反应。中途已经换成别的了就不要插队。
+      if (!cur || cur.audio !== audio) return;
+      cur = null;
+      if (text) startSpeech(owner, text);
+      notify();
+    });
+    notify();
+    return "playing";
+  }
+
+  function startSpeech(owner, text) {
+    if (speech) {
+      speech.cancel();
+      speech.speak(Utterance ? new Utterance(text) : { text });
+    }
+    cur = { owner, mode: "speech", paused: false };
+    return "speaking";
+  }
+
+  return {
+    // 点一下播放键。返回这一下做了什么：
+    // playing（开始放）/ paused（停住了）/ resumed（接着放）/
+    // speaking（用手机自带声音念）/ stopped（把正在念的停掉）
+    toggle({ owner, url, text } = {}) {
+      // ① 点的是正在放的这一段
+      if (cur && cur.owner === owner) {
+        if (cur.mode === "clip" && cur.audio && !cur.audio.ended) {
+          if (!cur.paused) {
+            cur.audio.pause();
+            cur.paused = true;
+            notify();
+            return "paused";
+          }
+          const resuming = cur.audio;
+          cur.paused = false;
+          resuming.play().catch(() => {
+            if (!cur || cur.audio !== resuming) return;
+            cur = null;
+            if (text) startSpeech(owner, text);
+            notify();
+          });
+          notify();
+          return "resumed";
+        }
+        // 手机自带朗读：没有可靠的接着念，第二下当「停」
+        if (cur.mode === "speech") {
+          halt();
+          notify();
+          return "stopped";
+        }
+      }
+      // ② 点的是别的一段（或者什么都没在放）：先把旧的停掉，再开新的
+      halt();
+      if (url) return startClip(owner, url, text);
+      const r = startSpeech(owner, text);
+      notify();
+      return r;
+    },
+
+    // 全停。界面切换、开始录音、连播结束之类的场合用。
+    stopAll() {
+      if (!cur) return;
+      halt();
+      notify();
+    },
+
+    // 现在谁在放、是不是暂停着。
+    state: snapshot,
+
+    // 状态一变就叫我。返回退订函数。
+    subscribe(fn) {
+      listeners.push(fn);
+      return () => { listeners = listeners.filter(f => f !== fn); };
+    },
+  };
+}

@@ -66,7 +66,7 @@ function makeFakeSpeech(log) {
   return {
     spoken: [],
     cancel() { log.push("speech:cancel"); },
-    speak(u) { log.push(`speech:speak(${u && u.text})`); this.spoken.push(u); },
+    speak(u) { log.push(`speech:speak(${u && u.text})`); this.spoken.push(u); },   // u 上的 onend 由模块自己挂
   };
 }
 
@@ -187,6 +187,54 @@ test("状态变了会通知界面，界面不用自己去翻全局变量", async
   off();
   ac.toggle(clip);
   assert.equal(seen.length, 4, "退订之后不该再收到通知");
+});
+
+// ── Codex 2026-09-25 评审指出的三处 ────────────────────────
+test("起播成功之后才出错（文件坏了、解码失败）：不许一直停在「正在放」", async () => {
+  const { ac, Audio, speech } = await load();
+  const clip = { owner: "p1", url: "./audio/a.mp3", text: "Bath time!" };
+  ac.toggle(clip);
+  Audio.made[0].started();          // 声音起来了，play() 的承诺已经成功
+  Audio.made[0].fire("error");      // 放到一半文件出问题
+  await new Promise(res => setTimeout(res, 0));
+  assert.notEqual(ac.state().mode, "clip", "出错之后还停在「正在放」——按钮会一直卡在 ⏸，再点也不对");
+  // 有文字就退回手机自带朗读，别让家长按了没反应
+  assert.equal(speech.spoken.length, 1, "出错后没有退回手机朗读");
+  assert.equal(ac.state().mode, "speech");
+});
+
+test("暂停期间那一段出错：不许偷偷开始念", async () => {
+  const { ac, Audio, speech } = await load();
+  const clip = { owner: "p1", url: "./audio/a.mp3", text: "Bath time!" };
+  ac.toggle(clip);
+  Audio.made[0].started();
+  ac.toggle(clip);                  // 用户按了暂停
+  Audio.made[0].fire("error");
+  await new Promise(res => setTimeout(res, 0));
+  assert.deepEqual(speech.spoken, [], "暂停着的时候出错，不该替用户开始念");
+  assert.equal(ac.state().paused, true);
+});
+
+test("旧的朗读迟到报「念完了」，不许把后来开始的那一段停掉", async () => {
+  const { ac, speech, Audio } = await load();
+  ac.toggle({ owner: "A", url: null, text: "first" });       // A 在念
+  const oldUtter = speech.spoken[0];
+  ac.toggle({ owner: "B", url: "./audio/b.mp3", text: "second" });  // 换成 B 放录音
+  assert.deepEqual(ac.state(), { owner: "B", mode: "clip", paused: false });
+  if (oldUtter && typeof oldUtter.onend === "function") oldUtter.onend();   // A 的回调迟到了
+  assert.deepEqual(ac.state(), { owner: "B", mode: "clip", paused: false },
+    "迟到的旧朗读回调把新开始的那一段停掉了");
+  assert.equal(Audio.made[0].paused, false, "新的那一段被停了");
+});
+
+test("朗读念完之后，状态自己清掉（按钮回到 ▶）", async () => {
+  const { ac, speech } = await load();
+  ac.toggle({ owner: "p1", url: null, text: "hello" });
+  assert.equal(ac.state().mode, "speech");
+  const u = speech.spoken[0];
+  assert.equal(typeof u.onend, "function", "模块没给朗读挂「念完了」的回调——按钮会一直卡在 ⏸");
+  u.onend();
+  assert.deepEqual(ac.state(), { owner: null, mode: null, paused: false });
 });
 
 // ── 模块本身的规矩 ─────────────────────────────────────────

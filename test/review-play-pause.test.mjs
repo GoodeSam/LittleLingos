@@ -75,7 +75,7 @@ function load({ url = "./audio/x_normal.mp3" } = {}) {
     clearTimeout, setTimeout,
   };
   vm.createContext(ctx);
-  for (const fn of ["setPlayBtnPlaying", "resetPlayBtnState", "flashAudioUnavailable", "stopAllAudio", "playReviewAudio", "pauseOrResumeClip"]) {
+  for (const fn of ["setPlayBtnPlaying", "resetPlayBtnState", "flashAudioUnavailable", "stopAllAudio", "stopLegacyAudio", "playReviewAudio", "pauseOrResumeClip"]) {
     vm.runInContext(fnSource(fn), ctx);
   }
   const btn = (name) => { const b = fakeBtn(name); buttons.push(b); return b; };

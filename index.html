@@ -2390,7 +2390,8 @@ window.llAudio = createAudioController({
     const v = typeof getEnglishVoice === "function" ? getEnglishVoice() : null;
     if (v) u.voice = v;
     if (typeof noteBrowserVoice === "function") noteBrowserVoice();
-    u.onend = u.onerror = () => window.llAudio.stopAll();
+    // 「念完了」由模块自己挂（它会校验这条朗读还是不是当前那条）。
+    // 这里再挂一个无条件 stopAll()，会让取消掉的旧朗读把新开始的声音停掉。
     return u;
   },
 });
@@ -3434,9 +3435,16 @@ function flashAudioUnavailable(btn) {
   }, 1600);
 }
 
+// 全停 = 停旧代码那一半 + 停新模块那一半。
+// 拆开是因为：走新模块的调用点要先把旧代码那一半停掉（否则两个声音叠在一起），
+// 但绝不能把新模块自己也停掉——那样「再点一下暂停」会变成「停掉再从头放」。
 function stopAllAudio() {
-  playbackSession++;
+  stopLegacyAudio();
   if (window.llAudio) window.llAudio.stopAll();   // 新模块管的那一段也要停
+}
+
+function stopLegacyAudio() {
+  playbackSession++;
   if (window.speechSynthesis) window.speechSynthesis.cancel();
   if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
   document.querySelectorAll('.play-btn.playing, .play-btn-slow.playing').forEach(b => {
@@ -4673,7 +4681,11 @@ function renderRelatedExpressions(related) {
         // Already voiced — start it inside the tap, synchronously (C12).
         // ADR 0009：交给 audio-controller.mjs。2026-09-25 Victor 报上来：
         // 这一处从来没有暂停，每点一次都从头重放，按钮的字也始终不变。
-        if (window.llAudio) { window.llAudio.toggle({ owner: playBtn, url, text: r.en }); return; }
+        if (window.llAudio) {
+          if (window.llAudio.state().owner !== playBtn) stopLegacyAudio();
+          window.llAudio.toggle({ owner: playBtn, url, text: r.en });
+          return;
+        }
         stopAllAudio();
         const a = new Audio(url);
         currentAudio = a;
@@ -4927,6 +4939,10 @@ function playClipOrSpeak({ id, text, btn }) {
   // ADR 0009：播放交给 audio-controller.mjs。开始/暂停/接着放/换一句，都由它判断；
   // 按钮由订阅统一重画，这里不再自己动手。模块没加载成时退回下面那条旧路。
   if (window.llAudio && btn) {
+    // 场景卡等还没迁的那几处仍用旧代码，先把它们停住。但如果正在放的就是这个
+    // 按钮自己，就不能停——stopLegacyAudio() 里有掐断手机朗读那一句，会把模块
+    // 自己正在念的那条掐掉，于是「再点一下停止」变成「停掉又从头念」。
+    if (window.llAudio.state().owner !== btn) stopLegacyAudio();
     window.llAudio.toggle({ owner: btn, url: id ? audioUrlFor(id) : null, text });
     return;
   }

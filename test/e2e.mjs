@@ -1192,6 +1192,33 @@ check("「还可以这样说」里的朗读键：放到一半再点是暂停，�
   assert.equal(r.resumed, true, "第三下没有接着放");
 });
 
+check("旧代码正在放的时候，去点走新模块的按钮：旧的那段要停，不许两个声音一起响", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    // 先用旧那条路放起来（场景卡还没迁，走的是 index.html 里的老函数）
+    openScenario("bath");
+    await tick();
+    const sceneBtn = document.querySelector("#phraseList .play-btn");
+    sceneBtn.click();
+    await new Promise(res => setTimeout(res, 800));
+    const out = { legacyStarted: !!(typeof currentAudio !== "undefined" && currentAudio) };
+    // 再去点走新模块的那个按钮
+    const btn = document.createElement("button");
+    btn.className = "result-play-btn";
+    document.body.appendChild(btn);
+    playClipOrSpeak({ id: null, text: "Time for a bath!", btn });
+    await tick();
+    out.moduleOwns = window.llAudio && window.llAudio.state().owner === btn;
+    out.legacyStopped = typeof currentAudio === "undefined" || !currentAudio || currentAudio.paused;
+    stopAllAudio(); btn.remove(); showTab("home");
+    return out;
+  });
+  assert.equal(r.legacyStarted, true, "场景卡那条旧路没放起来，这条检查等于没测");
+  assert.equal(r.moduleOwns, true, "新模块没接手");
+  assert.equal(r.legacyStopped, true,
+    "旧代码那段还在放——四处只迁了两处，「唯一主人」名不副实，用户会听到两个声音叠在一起");
+});
+
 check("复习卡：翻开英文后点一个词，释义在英文那一行底下；没翻开之前那些词是看不见的", async (ev) => {
   await ev(WORD_TAP_FETCH);
   const r = await ev(async () => {

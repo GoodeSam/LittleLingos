@@ -66,7 +66,7 @@ function load({ clipUrl = "blob:clip" } = {}) {
   };
   ctx.speechSynthesis = ctx.window.speechSynthesis;
   vm.createContext(ctx);
-  for (const fn of ["setPlayBtnPlaying", "resetPlayBtnState", "flashAudioUnavailable", "stopAllAudio", "playClipOrSpeak", "speakPhrase"]) vm.runInContext(fnSource(fn), ctx);
+  for (const fn of ["setPlayBtnPlaying", "resetPlayBtnState", "flashAudioUnavailable", "stopAllAudio", "stopLegacyAudio", "playClipOrSpeak", "speakPhrase"]) vm.runInContext(fnSource(fn), ctx);
   const shared = fnSource("pauseOrResumeClip", { optional: true }); if (shared) vm.runInContext(shared, ctx);
   const btn = (name, cls) => { const b = fakeBtn(name, cls); buttons.push(b); return b; };
   return { ctx, log, FakeAudio, btn, els };

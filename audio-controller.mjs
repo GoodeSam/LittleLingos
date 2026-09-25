@@ -48,7 +48,16 @@ export function createAudioController({ Audio: AudioCtor, speech, Utterance } = 
       cur = null;
       notify();
     });
-    cur = { owner, mode: "clip", paused: false, audio };
+    // 起播成功之后才坏掉（文件损坏、解码失败、网络中断）。只听 play() 的承诺
+    // 是不够的——那时候它已经成功了，状态会永远停在「正在放」，按钮卡在 ⏸。
+    audio.addEventListener("error", () => {
+      if (!cur || cur.audio !== audio || cur.paused) return;   // 暂停着出错，不替用户做决定
+      const t = cur.text;
+      cur = null;
+      if (t) startSpeech(owner, t);
+      notify();
+    });
+    cur = { owner, mode: "clip", paused: false, audio, text };
     audio.play().catch(() => {
       // 这一段放不出来（文件没了、格式不认、iOS 拦了）：退回手机自带朗读，
       // 别让家长按了没反应。但有两种「失败」不算放不出来，不许插队：
@@ -66,11 +75,20 @@ export function createAudioController({ Audio: AudioCtor, speech, Utterance } = 
   }
 
   function startSpeech(owner, text) {
+    const utter = Utterance ? new Utterance(text) : { text };
+    // 念完（或念出错）就把状态清掉，按钮才会回到 ▶。
+    // 身份校验不能省：取消掉的旧朗读，回调可能迟到，那时早就换成别的在放了——
+    // 不校验的话它会把后来开始的那一段停掉（Codex 2026-09-25 指出）。
+    utter.onend = utter.onerror = () => {
+      if (!cur || cur.utter !== utter) return;
+      cur = null;
+      notify();
+    };
+    cur = { owner, mode: "speech", paused: false, utter };
     if (speech) {
       speech.cancel();
-      speech.speak(Utterance ? new Utterance(text) : { text });
+      speech.speak(utter);
     }
-    cur = { owner, mode: "speech", paused: false };
     return "speaking";
   }
 

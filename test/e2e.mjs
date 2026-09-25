@@ -41,6 +41,7 @@ if (!CHROME) {
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript",
   ".json": "application/json", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png",
+  ".mp3": "audio/mpeg",   // 没有这一行，预录音频会以错误类型送出，播放当场失败
 };
 
 async function serve() {
@@ -1149,6 +1150,48 @@ check("播放这件事由 audio-controller.mjs 掌管：模块在浏览器里真
   assert.equal(r.stopAllWorks, true, "stopAllAudio() 停不住新模块管的声音——会出现两个声音一起响");
 });
 
+check("「还可以这样说」里的朗读键：放到一半再点是暂停，不是从头重放", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    // 这几句的声音是现生成的，e2e 里不联网：假装它已经有一段现成的录音。
+    const realPlayable = playableUrlFor;
+    playableUrlFor = () => "./audio/ar01_normal.mp3";
+    renderRelatedExpressions([{ id: "rel-1", en: "Time for a bath!", zh: "该洗澡啦" }]);
+    await tick();
+    const btn = document.querySelector("#resultRelated .result-related-btn");
+    const out = { found: !!btn, label0: btn ? btn.textContent.trim() : "" };
+    if (!btn) { playableUrlFor = realPlayable; return out; }
+
+    btn.click();                                   // 第一下：开始放
+    await tick();
+    const s1 = window.llAudio ? window.llAudio.state() : {};
+    out.playing = s1.owner === btn && s1.paused === false;
+    out.labelPlaying = btn.textContent.trim();
+
+    btn.click();                                   // 第二下：应当是暂停
+    await tick();
+    const s2 = window.llAudio ? window.llAudio.state() : {};
+    out.paused = s2.owner === btn && s2.paused === true;
+    out.labelPaused = btn.textContent.trim();
+
+    btn.click();                                   // 第三下：接着放，不是从头
+    await tick();
+    const s3 = window.llAudio ? window.llAudio.state() : {};
+    out.resumed = s3.owner === btn && s3.paused === false;
+
+    stopAllAudio();
+    document.getElementById("resultRelated").innerHTML = "";
+    playableUrlFor = realPlayable;
+    return out;
+  });
+  assert.equal(r.found, true, "「还可以这样说」里没渲染出朗读键");
+  assert.equal(r.playing, true, "第一下没开始放（或者没走 audio-controller）");
+  assert.notEqual(r.labelPlaying, r.label0, `放起来之后按钮字没变（一直是「${r.label0}」），家长看不出能暂停`);
+  assert.equal(r.paused, true, "第二下不是暂停——这正是 2026-09-25 报上来的毛病：每点一次都从头放");
+  assert.equal(r.labelPaused, r.label0, `暂停后按钮没回到「${r.label0}」，实际是「${r.labelPaused}」`);
+  assert.equal(r.resumed, true, "第三下没有接着放");
+});
+
 check("复习卡：翻开英文后点一个词，释义在英文那一行底下；没翻开之前那些词是看不见的", async (ev) => {
   await ev(WORD_TAP_FETCH);
   const r = await ev(async () => {
@@ -1744,6 +1787,10 @@ try {
   chrome = spawn(CHROME, [
     "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
     "--disable-extensions", "--mute-audio", "--window-size=390,844",
+    // 无头浏览器里 btn.click() 不算「真人手势」，不给这个开关的话 audio.play()
+    // 会被拒，测到的就不是产品行为而是浏览器策略。真机上必须在手势里起播这条
+    // 约束（C12）headless 本来也验不了，见 tech-constraints C12。
+    "--autoplay-policy=no-user-gesture-required",
     `--user-data-dir=${profile}`, `--remote-debugging-port=${dbg}`, "--remote-allow-origins=*",
     `http://127.0.0.1:${s.port}/index.html`,
   ], { stdio: "ignore" });

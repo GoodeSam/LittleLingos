@@ -41,8 +41,18 @@ function makeFakeAudio(log) {
     const a = {
       url, paused: true, ended: false, currentTime: 0,
       addEventListener: (evt, fn) => { (listeners[evt] ||= []).push(fn); },
-      play() { a.paused = false; log.push(`play#${made.indexOf(a) + 1}`); return Promise.resolve(); },
-      pause() { a.paused = true; log.push(`pause#${made.indexOf(a) + 1}`); },
+      // 真浏览器里 play() 返回一个承诺；声音还没真正响起来就被 pause() 打断的话，
+      // 这个承诺会以 AbortError 失败。这一点必须照实模拟——2026-09-25 就是它咬人的。
+      play() {
+        a.paused = false; log.push(`play#${made.indexOf(a) + 1}`);
+        if (a.settleNow) return Promise.resolve();
+        return new Promise((res, rej) => { a._pending = { res, rej }; });
+      },
+      started() { if (a._pending) { a._pending.res(); a._pending = null; } },   // 声音真响起来了
+      pause() {
+        a.paused = true; log.push(`pause#${made.indexOf(a) + 1}`);
+        if (a._pending) { const e = new Error("interrupted by pause"); e.name = "AbortError"; a._pending.rej(e); a._pending = null; }
+      },
       fire(evt) { if (evt === "ended") { a.ended = true; a.paused = true; } (listeners[evt] || []).forEach(f => f()); },
     };
     made.push(a); log.push(`new#${made.length}(${url})`);
@@ -128,6 +138,19 @@ test("正在放 A，去点 B：A 停下来，B 开始放", async () => {
   assert.ok(log.includes("pause#1"), `A 没有被停下来：${JSON.stringify(log)}`);
   assert.equal(Audio.made.length, 2);
   assert.deepEqual(ac.state(), { owner: "B", mode: "clip", paused: false });
+});
+
+test("刚点开始、声音还没响就点暂停：仍然是暂停，不许偷偷改用手机自带的声音念", async () => {
+  const { ac, log, speech, Audio } = await load();
+  const clip = { owner: "p1", url: "./audio/a.mp3", text: "Bath time!" };
+  ac.toggle(clip);              // 开始放（这一段还在加载，声音没响）
+  const r = ac.toggle(clip);    // 马上暂停 —— 浏览器会让上面那个承诺以 AbortError 失败
+  assert.equal(r, "paused");
+  await new Promise(res => setTimeout(res, 0));   // 让失败的回调有机会跑
+  assert.equal(ac.state().paused, true, "暂停之后状态被兜底逻辑改掉了");
+  assert.equal(ac.state().mode, "clip", `暂停之后变成了 ${ac.state().mode}——用户按的是暂停，结果手机开始念`);
+  assert.deepEqual(speech.spoken, [], `不该念任何东西：${JSON.stringify(log)}`);
+  assert.equal(Audio.made.length, 1, "不该另造一段");
 });
 
 // ── 6：没有录音、退回手机朗读的那条路 ──────────────────────

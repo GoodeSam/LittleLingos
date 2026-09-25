@@ -4658,15 +4658,22 @@ function renderRelatedExpressions(related) {
     const playBtn = document.createElement("button");
     playBtn.type = "button";
     playBtn.className = "result-related-btn";
+    playBtn.dataset.playingLabel = "⏸ 播放中";
     const paintPlay = () => {
       playBtn.textContent = playableUrlFor(r) ? "▶ 朗读" : "🔈 生成朗读";
       playBtn.setAttribute("aria-label", playBtn.textContent);
+      // 暂停后要回到的那个字，跟着这里一起更新：生成完之后标签从「🔈 生成朗读」
+      // 变成「▶ 朗读」，不更新的话暂停会退回旧字。
+      playBtn.dataset.idleLabel = playBtn.textContent;
     };
     paintPlay();
     playBtn.onclick = () => {
       const url = playableUrlFor(r);
       if (url) {
         // Already voiced — start it inside the tap, synchronously (C12).
+        // ADR 0009：交给 audio-controller.mjs。2026-09-25 Victor 报上来：
+        // 这一处从来没有暂停，每点一次都从头重放，按钮的字也始终不变。
+        if (window.llAudio) { window.llAudio.toggle({ owner: playBtn, url, text: r.en }); return; }
         stopAllAudio();
         const a = new Audio(url);
         currentAudio = a;
@@ -4685,7 +4692,9 @@ function renderRelatedExpressions(related) {
         primeAudioUrl(r.id).then(() => {
           paintPlay();
           const u = playableUrlFor(r);
-          if (u) { stopAllAudio(); const a = new Audio(u); currentAudio = a; a.play().catch(() => {}); }
+          if (!u) return;
+          if (window.llAudio) { window.llAudio.toggle({ owner: playBtn, url: u, text: r.en }); return; }
+          stopAllAudio(); const a = new Audio(u); currentAudio = a; a.play().catch(() => {});
         });
       });
     };

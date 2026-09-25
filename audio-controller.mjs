@@ -51,8 +51,12 @@ export function createAudioController({ Audio: AudioCtor, speech, Utterance } = 
     cur = { owner, mode: "clip", paused: false, audio };
     audio.play().catch(() => {
       // 这一段放不出来（文件没了、格式不认、iOS 拦了）：退回手机自带朗读，
-      // 别让家长按了没反应。中途已经换成别的了就不要插队。
-      if (!cur || cur.audio !== audio) return;
+      // 别让家长按了没反应。但有两种「失败」不算放不出来，不许插队：
+      //   · 中途已经换成别的一段了；
+      //   · 用户自己按了暂停——声音还没真正响起来就 pause()，浏览器会让这个
+      //     承诺以 AbortError 失败。当成播放失败的话，家长一按暂停手机反而
+      //     开始念（2026-09-25 真机报上来的就是这个）。
+      if (!cur || cur.audio !== audio || cur.paused) return;
       cur = null;
       if (text) startSpeech(owner, text);
       notify();
@@ -87,7 +91,7 @@ export function createAudioController({ Audio: AudioCtor, speech, Utterance } = 
           const resuming = cur.audio;
           cur.paused = false;
           resuming.play().catch(() => {
-            if (!cur || cur.audio !== resuming) return;
+            if (!cur || cur.audio !== resuming || cur.paused) return;   // 同上：自己按的暂停不算失败
             cur = null;
             if (text) startSpeech(owner, text);
             notify();

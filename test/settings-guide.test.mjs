@@ -359,7 +359,10 @@ test("点词查词现在接在哪几处，说明就得说哪几处——不许�
 
 test("播放键现在是真暂停，说明就得讲暂停和接着放；没有录音的那种第二下是停", () => {
   const t = text(guide().src);
-  assert.ok(/function pauseOrResumeClip\(/.test(html), "代码里没有共用的暂停/接着放了——说明和这条测试都要跟着改");
+  // 2026-09-25（ADR 0009）：暂停/接着放收进了 audio-controller.mjs。
+  const mod = readFileSync(join(ROOT, "audio-controller.mjs"), "utf8");
+  assert.match(mod, /return "paused"/, "模块里没有「暂停」了——说明和这条测试都要跟着改");
+  assert.match(mod, /return "resumed"/, "模块里没有「接着放」了——说明和这条测试都要跟着改");
   assert.ok(/暂停/.test(t), "播放键能暂停，说明里一个字没提");
   assert.ok(/接着放|从停的地方|继续放/.test(t), "说明只说了能暂停，没说再点一下会接着放");
   // 同样只看讲「手机自带声音」的那几句。「自带」「从头」在别处也出现，

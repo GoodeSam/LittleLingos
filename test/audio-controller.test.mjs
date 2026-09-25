@@ -293,6 +293,22 @@ test("这个模块是纯的：import 的时候不碰 document、不碰 window", 
   }
 });
 
+test("旧的那套播放代码已经删干净——同一件事不许有两份实现", async () => {
+  const src = readFileSync(join(ROOT, "index.html"), "utf8");
+  for (const gone of ["pauseOrResumeClip", "__pausedByUser", "__btn", "reviewPlaybackToggle"]) {
+    assert.ok(!src.includes(gone),
+      `index.html 里还有「${gone}」——播放只该有 audio-controller.mjs 一个主人（ADR 0009）`);
+  }
+  // 四处播放键都必须经过模块
+  for (const fn of ["playClipOrSpeak", "playReviewAudio", "speakPhrase"]) {
+    const at = src.indexOf(`function ${fn}(`);
+    assert.ok(at !== -1, `找不到 ${fn}`);
+    const body = src.slice(at, src.indexOf("\n}", at));
+    assert.ok(body.includes("llAudio"), `${fn}() 没走 audio-controller`);
+    assert.ok(!/new Audio\(/.test(body), `${fn}() 里还在自己 new Audio——造声音归模块管`);
+  }
+});
+
 test("新文件要进 sw.js 的预缓存清单和缓存戳来源，否则离线会坏、改了也不换戳", async () => {
   const sw = readFileSync(join(ROOT, "sw.js"), "utf8");
   const shell = sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = [")));

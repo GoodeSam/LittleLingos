@@ -1281,6 +1281,33 @@ check("场景卡的「▶ 朗读」也归 audio-controller 管：加载中→播
   assert.equal(r.resumed, true, "第三下没有接着放");
 });
 
+check("万一 audio-controller.mjs 没加载成：按钮显示「暂不可用」，不许默默没反应", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const saved = window.llAudio;
+    window.llAudio = null;                       // 假装模块没加载成
+    openScenario("bath"); switchAge("1-2"); await tick();
+    const btn = document.querySelector("#phraseList .play-btn");
+    const before = btn.textContent.trim();
+    btn.click(); await tick();
+    const out = { before, after: btn.textContent.trim(), marked: btn.classList.contains("unavailable") };
+    // 翻译结果那条也要有同样的交代（三处调用点，不能只管一处）
+    const tBtn = document.createElement("button");
+    tBtn.className = "result-play-btn"; tBtn.textContent = "▶";
+    document.body.appendChild(tBtn);
+    playClipOrSpeak({ id: null, text: "Bath time!", btn: tBtn });
+    await tick();
+    out.translateMarked = tBtn.classList.contains("unavailable");
+    tBtn.remove();
+    window.llAudio = saved;
+    showTab("home");
+    return out;
+  });
+  assert.notEqual(r.after, r.before, `模块没加载成时点播放，按钮一点反应都没有（一直是「${r.before}」）——家长会以为软件坏了`);
+  assert.equal(r.marked, true, `场景卡按钮没进入「暂不可用」状态，显示的是「${r.after}」`);
+  assert.equal(r.translateMarked, true, "翻译结果那个 ▶ 在模块缺失时默默没反应");
+});
+
 check("复习卡的播放键也归 audio-controller 管：开始 / 暂停 / 接着放，同一段声音", async (ev) => {
   const r = await ev(async () => {
     const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));

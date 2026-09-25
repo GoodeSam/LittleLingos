@@ -276,11 +276,13 @@ test("先放生成好的那段，取不到才退回浏览器声音", () => {
     .replace(/^[ \t]*\/\/.*$/gm, "");
   const at = product.indexOf("function playClipOrSpeak");
   const fn = product.slice(at, at + 1600);
-  const clipAt = fn.search(/audioUrlFor\(|primeAudioUrl\(/);
-  const ttsAt = fn.indexOf("speakText(");
-  assert.ok(clipAt !== -1, "根本没去找生成好的那段音频");
-  assert.ok(ttsAt !== -1, "没有兜底：音频没生成好时会哑掉");
-  assert.ok(clipAt < ttsAt, "先用了浏览器声音，生成好的那段成了摆设");
+  // 2026-09-25（ADR 0009）：兜底搬进了 audio-controller.mjs——有地址就放录音，
+  // 没地址才用手机自带的声音念。这里验的意图没变：**生成好的那段要优先**。
+  assert.ok(fn.search(/audioUrlFor\(|primeAudioUrl\(/) !== -1, "根本没去找生成好的那段音频");
+  assert.match(fn, /llAudio\.toggle\(/, "没交给 audio-controller，等于又写了第二份播放逻辑");
+  const mod = readFileSync(join(ROOT, "audio-controller.mjs"), "utf8");
+  assert.match(mod, /if \(url\) return startClip\(/, "模块里不是「有录音优先」");
+  assert.match(mod, /startSpeech\(owner, text\)/, "模块里没有兜底：音频没生成好时会哑掉");
 });
 
 // ── 界面上真的挂上去了 ──────────────────────────────────────────────────

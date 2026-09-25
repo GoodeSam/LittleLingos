@@ -3528,129 +3528,7 @@ function speakPhrase(id, btn, rate) {
     }
     return;
   }
-  // 下面是模块没加载成时的老路（沙箱测试也走这条）。
-  // 同一个按钮正在放 → 暂停（进度条留在原地，按钮回到空闲标签）；
-  // 刚暂停的那段还在 → 接着放。处理了就到此为止。
-  if (pauseOrResumeClip(btn, {
-    onPaused: () => { btn.classList.remove("playing"); btn.textContent = idleLabel; },
-    onResumed: () => { btn.classList.add("playing"); btn.textContent = playingLabel; },
-  })) return;
-
-  stopAllAudio();
-  // Captured AFTER the bump in stopAllAudio(): every handler below belongs
-  // to this session and no-ops once another playback (or stop) supersedes it.
-  const session = playbackSession;
-  const isCurrent = () => session === playbackSession;
-  const suffix = isSlow ? "slow_wbw" : "normal";
-  const bar  = document.getElementById("bar-"  + id);
-  const fill = document.getElementById("fill-" + id);
-
-  // Immediate pending state (2026-07-26 visual critique, Sev A): the tap
-  // must never look dead while the MP3 loads — a slow cache miss can take
-  // up to the 8s loadTimer before any other handler fires. onStart()
-  // replaces this with the real playing state; every failure path already
-  // resets or replaces the button (error/timeout → fallbackTTS → onStart or
-  // flashAudioUnavailable; a superseding tap → stopAllAudio).
-  // Seed the true idle label BEFORE showing pending text, so a later
-  // flashAudioUnavailable() can never capture "⏳ 加载中" as the label to
-  // restore to.
-  if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = idleLabel;
-  btn.classList.add("playing");
-  btn.textContent = isSlow ? "⏳" : "⏳ 加载中";
-  if (bar) bar.style.display = "block";
-
-  function onStart() {
-    btn.classList.add("playing");
-    btn.textContent = playingLabel;
-    if (bar) bar.style.display = "block";
-  }
-  function onEnd() {
-    btn.classList.remove("playing");
-    btn.textContent = idleLabel;
-    if (fill) fill.style.width = "100%";
-    setTimeout(() => { if (bar) bar.style.display = "none"; if (fill) fill.style.width = "0%"; }, 500);
-    currentAudio = null;
-  }
-
-  // ── Try Azure MP3 first ──────────────────────────────
-  const mp3 = new Audio(`./audio/${id}_${suffix}.mp3`);
-  mp3.__btn = btn;          // 暂停/接着放要认得「是这个按钮的那段」
-  mp3.__text = phrase.en;   // 接着放失败时退回朗读要念的字
-  currentAudio = mp3;
-
-  // Bounded load: a cache miss on a dead connection can leave the element
-  // with neither canplaythrough nor error for a long time — never a dead tap.
-  let mp3Settled = false;
-  const loadTimer = setTimeout(() => {
-    if (!isCurrent() || mp3Settled) return;
-    mp3Settled = true;
-    mp3.src = "";
-    fallbackTTS();
-  }, 8000);
-
-  mp3.addEventListener("canplaythrough", () => {
-    if (!isCurrent() || mp3Settled) return;
-    mp3Settled = true;
-    clearTimeout(loadTimer);
-    onStart();
-    mp3.play().catch(() => fallbackTTS());
-  }, { once: true });
-
-  mp3.addEventListener("timeupdate", () => {
-    if (!isCurrent()) return;
-    if (mp3.duration && fill) fill.style.width = (mp3.currentTime / mp3.duration * 100) + "%";
-  });
-
-  mp3.addEventListener("ended", () => { if (isCurrent()) onEnd(); }, { once: true });
-
-  mp3.addEventListener("error", () => {
-    if (!isCurrent() || mp3Settled) return;
-    mp3Settled = true;
-    clearTimeout(loadTimer);
-    currentAudio = null;
-    fallbackTTS();
-  }, { once: true });
-
-  mp3.load();
-
-  // ── Browser TTS fallback ─────────────────────────────
-  function fallbackTTS() {
-    // A stale mp3 error handler must not start TTS over a newer playback.
-    if (!isCurrent()) return;
-    // MP3 load failed AND there's no browser speech-synthesis to fall back
-    // to — surface that visibly instead of leaving the tap unanswered.
-    if (!window.speechSynthesis) { flashAudioUnavailable(btn); return; }
-    noteBrowserVoice();
-    const spokenRate = rate ?? 0.82;
-    const say = () => {
-      if (!isCurrent()) return;
-      const utter = new SpeechSynthesisUtterance(phrase.en);
-      utter.lang = "en-US";
-      utter.rate = spokenRate;
-      utter.pitch = 1.1;
-      const v = getEnglishVoice();
-      if (v) utter.voice = v;
-
-      onStart();
-      let start = null;
-      const estimatedMs = Math.max(phrase.en.length * 75 * (0.82 / spokenRate), 1200);
-      function animateFill(ts) {
-        if (!isCurrent()) return;
-        if (!start) start = ts;
-        const pct = Math.min(((ts - start) / estimatedMs) * 100, 95);
-        if (fill) fill.style.width = pct + "%";
-        if (pct < 95) requestAnimationFrame(animateFill);
-      }
-      requestAnimationFrame(animateFill);
-      utter.onend  = () => { if (isCurrent()) onEnd(); };
-      utter.onerror = () => {
-        if (!isCurrent()) return;
-        btn.classList.remove("playing"); btn.textContent = idleLabel; if (bar) bar.style.display = "none";
-      };
-      speechSynthesis.speak(utter);
-    };
-    speechSynthesis.getVoices().length > 0 ? say() : (speechSynthesis.onvoiceschanged = () => { cachedVoice = null; say(); });
-  }
+  flashAudioUnavailable(btn);   // 模块没加载成：明确告诉家长，不许默默没反应
 }
 
 // ── Sort helper: newest-saved first, render-time only (never mutates the
@@ -4540,84 +4418,9 @@ function playReviewAudio(item, btn) {
     window.llAudio.toggle({ owner: btn, url: playableUrlFor(item), text: item.en });
     return;
   }
-  // 下面是模块没加载成时的老路（沙箱测试也走这条）。
-  // 同一个按钮正在放 → 暂停；刚暂停的那段还在 → 接着放。三处播放键共用
-  // pauseOrResumeClip()；处理了就到此为止，不许再往下走到「新造一段从头放」。
-  if (pauseOrResumeClip(btn)) return;
-  stopAllAudio();
-  // Same session pattern as speakPhrase(): captured after the bump in
-  // stopAllAudio(), so a stale ended/error/rejected-play from a superseded
-  // review element can't reset the newer playback's button or start stale TTS.
-  const session = playbackSession;
-  const isCurrent = () => session === playbackSession;
-  if (btn) setPlayBtnPlaying(btn);
-  // Only real scenario phrases have a pregenerated Azure mp3 — everything
-  // else (AI translations, dictionary words, legacy t_ ids) goes straight
-  // to speechSynthesis. See isAudioBacked() (ll:dictionary-shared) for why
-  // this is a positive allowlist, not an id-prefix denylist.
-  // Preset phrases ship with the app as ./audio/<id>_normal.mp3; saved
-  // translations and dictionary words are voiced one at a time and kept on the
-  // device (ADR 0003). Both are real recordings — only their origin differs.
-  // The stored one is looked up SYNCHRONOUSLY here; see ll:audio-playback for
-  // why that matters on iOS.
-  const url = playableUrlFor(item);
-  if (url) {
-    const mp3 = new Audio(url);
-    mp3.__btn = btn;          // 暂停/接着放要认得「是这个按钮的那段」
-    mp3.__text = item.en;     // 接着放失败时退回朗读要念的字
-    currentAudio = mp3;
-    mp3.addEventListener("ended", () => {
-      if (!isCurrent()) return;
-      if (currentAudio === mp3) currentAudio = null;
-      resetPlayBtnState(btn);
-    }, { once: true });
-    mp3.addEventListener("error", () => {
-      if (!isCurrent()) return;
-      if (currentAudio === mp3) currentAudio = null;
-      speakText(item.en, undefined, btn, session);
-    }, { once: true });
-    mp3.play().catch(() => { if (isCurrent()) speakText(item.en, undefined, btn, session); });
-  } else {
-    speakText(item.en, undefined, btn, session);
-  }
+  flashAudioUnavailable(btn);   // 模块没加载成：明确告诉家长
 }
 
-// 播放键的「暂停 / 接着放」，复习卡、翻译结果、场景卡三处共用。按钮上画的是 ⏸，
-// 做的就得是暂停——2026-09-22 真机报上来：放到一半点 ⏸，声音从头重放，因为
-// 三个播放函数原来第一句都是 stopAllAudio() 然后新造一段。
-// 返回 true = 这一下已经处理完（暂停了或接上了），调用方不要再往下播。
-// 有录音（Audio 元素，创建时标了 __btn / __text）的能真暂停、之后从停的地方接着放；
-// 退回手机自带朗读的那种没有可靠的 pause/resume（iOS 上 resume 常常不响），
-// 第二下当「停」，再点从头念。
-// onPaused / onResumed：按钮怎么画。复习卡和翻译结果用共用的两个 helper；
-// 场景卡有自己的标签和进度条，自己传。
-function pauseOrResumeClip(btn, { onPaused, onResumed } = {}) {
-  if (!btn) return false;
-  const paint = { paused: onPaused || (() => resetPlayBtnState(btn)), resumed: onResumed || (() => setPlayBtnPlaying(btn)) };
-  if (btn.classList.contains("playing")) {
-    if (currentAudio && currentAudio.__btn === btn && !currentAudio.ended) {
-      currentAudio.pause();
-      currentAudio.__pausedByUser = true;
-      paint.paused();
-    } else {
-      stopAllAudio();
-    }
-    return true;
-  }
-  if (currentAudio && currentAudio.__btn === btn && currentAudio.__pausedByUser && !currentAudio.ended) {
-    const resumed = currentAudio;
-    resumed.__pausedByUser = false;
-    paint.resumed();
-    resumed.play().catch(() => {
-      if (currentAudio !== resumed) return;
-      currentAudio = null;
-      if (resumed.__text) speakText(resumed.__text, undefined, btn, playbackSession);
-      else stopAllAudio();
-    });
-    return true;
-  }
-  return false;
-}
 
 // ── Translate ──────────────────────────────────────────
 const translateResponses = {
@@ -5010,32 +4813,7 @@ function playClipOrSpeak({ id, text, btn }) {
     window.llAudio.toggle({ owner: btn, url: id ? audioUrlFor(id) : null, text });
     return;
   }
-  // 同一个按钮正在放 → 暂停；刚暂停的那段还在 → 接着放（见 pauseOrResumeClip）。
-  if (pauseOrResumeClip(btn)) return;
-  stopAllAudio();
-  const session = playbackSession;
-  const isCurrent = () => session === playbackSession;
-  const url = id ? audioUrlFor(id) : null;
-  if (url) {
-    if (btn) setPlayBtnPlaying(btn);
-    const mp3 = new Audio(url);
-    mp3.__btn = btn;
-    mp3.__text = text;
-    currentAudio = mp3;
-    mp3.addEventListener("ended", () => {
-      if (!isCurrent()) return;
-      if (currentAudio === mp3) currentAudio = null;
-      resetPlayBtnState(btn);
-    }, { once: true });
-    mp3.addEventListener("error", () => {
-      if (!isCurrent()) return;
-      if (currentAudio === mp3) currentAudio = null;
-      speakText(text, undefined, btn, session);
-    }, { once: true });
-    mp3.play().catch(() => { if (isCurrent()) speakText(text, undefined, btn, session); });
-    return;
-  }
-  speakText(text, undefined, btn, session);
+  flashAudioUnavailable(btn);   // 模块没加载成：明确告诉家长
 }
 
 // 薄壳：翻译页那个按钮的入口，解析出 id 和文字之后走共用那条。

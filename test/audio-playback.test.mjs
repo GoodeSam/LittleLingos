@@ -191,10 +191,14 @@ test("复习播放先问本机有没有存好的声音，再谈别的", async ()
   const body = html.slice(at, html.indexOf("\n}", at));
   assert.match(body, /playableUrlFor\(/,
     "复习播放必须先问「这一条的声音从哪儿来」——共用那个判定，不自己再写一遍");
-  const usesStored = body.indexOf("playableUrlFor(");
-  const fallsBack = body.indexOf("speakText(");
-  assert.ok(usesStored < fallsBack,
-    "必须先查本机、查不到才退回浏览器朗读，顺序反了等于那些声音白生成了");
+  // 2026-09-25（ADR 0009）：退回朗读这件事搬进了 audio-controller.mjs——
+  // 它拿到 url 就放录音，拿不到才念。所以这里改成验「本机地址确实传给了模块」，
+  // 要守的意图没变：**先查本机，查不到才念**，不然家长花钱生成的声音白生成。
+  assert.match(body, /llAudio\.toggle\(\s*\{[^}]*url:\s*playableUrlFor\(item\)/s,
+    "本机那条声音的地址没传给 audio-controller——它会直接念，等于绕过了本机录音");
+  const mod = readFileSync(join(ROOT, "audio-controller.mjs"), "utf8");
+  assert.match(mod, /if \(url\) return startClip\(/,
+    "模块里也得是「有录音就放录音」——只有拿不到地址时才轮到手机自带的声音");
   // 只看代码，不看注释 —— 注释里提到那个路径是在解释，不是在拼装。
   const code = body.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
   assert.ok(!/_normal\.mp3/.test(code),

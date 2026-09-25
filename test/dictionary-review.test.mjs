@@ -221,9 +221,15 @@ test("renderSavedScreen and renderReviewCard no longer hand-roll the old disagre
 
 // ── playReviewAudio must gate on isAudioBacked, not the old id-prefix denylist ──
 test("playReviewAudio source no longer branches on the raw t_ id-prefix denylist", () => {
-  const fnSrc = html.slice(html.indexOf("function playReviewAudio"), html.indexOf("// ── Translate"));
+  const at = html.indexOf("function playReviewAudio");
+  const fnSrc = html.slice(at, html.indexOf("\n}", at));
   assert.doesNotMatch(fnSrc, /startsWith\("t_"\)/, "playReviewAudio must not re-implement the id-prefix denylist inline");
-  assert.match(fnSrc, /isAudioBacked\(/, "playReviewAudio must gate on the shared isAudioBacked() allowlist");
+  // 2026-09-25（ADR 0009）：播放搬进 audio-controller.mjs 之后，这个函数只负责
+  // 「这一条的声音从哪儿来」——答案仍必须来自共用的 playableUrlFor()，
+  // 而它内部走的就是 isAudioBacked() 那个白名单。意图没变，验的位置跟着代码走。
+  assert.match(fnSrc, /playableUrlFor\(item\)/, "playReviewAudio must ask the shared playableUrlFor() where the audio comes from");
+  const pf = html.slice(html.indexOf("function playableUrlFor"), html.indexOf("\n}", html.indexOf("function playableUrlFor")));
+  assert.match(pf, /isAudioBacked\(/, "playableUrlFor must gate on the shared isAudioBacked() allowlist");
 });
 
 // ── C3: Severity-C user-select fixes (raw-text assertions, sw.test.mjs style) ──

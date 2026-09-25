@@ -26,6 +26,8 @@ export function createAudioController({ Audio: AudioCtor, speech, Utterance } = 
     owner: cur ? cur.owner : null,
     mode: cur ? cur.mode : null,
     paused: cur ? cur.paused : false,
+    // 按下去到声音真响起来之间是「加载中」：界面要能显示 ⏳，而不是装作已经在放。
+    loading: cur ? !!cur.loading : false,
   });
 
   function notify() {
@@ -36,13 +38,29 @@ export function createAudioController({ Audio: AudioCtor, speech, Utterance } = 
   // 把当前这一段停掉。不通知——调用方紧接着会开始新的一段，一次变化只通知一次。
   function halt() {
     if (!cur) return;
+    if (cur.loadTimer) { clearTimeout(cur.loadTimer); cur.loadTimer = null; }
     if (cur.mode === "clip" && cur.audio && !cur.audio.ended) cur.audio.pause();
     if (cur.mode === "speech" && speech) speech.cancel();
     cur = null;
   }
 
-  function startClip(owner, url, text) {
+  function startClip(owner, url, text, opts = {}) {
     const audio = new AudioCtor(url);
+    // 声音真的响起来了（浏览器的 playing 事件）：退出「加载中」。
+    audio.addEventListener("playing", () => {
+      if (!cur || cur.audio !== audio || !cur.loading) return;
+      cur.loading = false;
+      if (cur.loadTimer) { clearTimeout(cur.loadTimer); cur.loadTimer = null; }
+      notify();
+    });
+    // 进度：场景卡的进度条靠它走。这里只报比例，怎么画是界面的事。
+    if (typeof opts.onProgress === "function") {
+      audio.addEventListener("timeupdate", () => {
+        if (!cur || cur.audio !== audio) return;
+        const d = audio.duration;
+        if (d > 0) opts.onProgress(Math.min(1, audio.currentTime / d));
+      });
+    }
     audio.addEventListener("ended", () => {
       if (!cur || cur.audio !== audio) return;   // 早就换成别的了，这条消息过期
       cur = null;
@@ -57,7 +75,19 @@ export function createAudioController({ Audio: AudioCtor, speech, Utterance } = 
       if (t) startSpeech(owner, t);
       notify();
     });
-    cur = { owner, mode: "clip", paused: false, audio, text };
+    cur = { owner, mode: "clip", paused: false, audio, text, loading: true, loadTimer: null };
+    // 网络卡住时，这一段可能既不响也不报错。到点就退回手机自带的声音念，
+    // 不许让家长对着一个「加载中」的按钮干等（旧代码里的 8 秒 loadTimer 同理）。
+    const wait = opts.loadTimeoutMs ?? 8000;
+    if (wait > 0) {
+      cur.loadTimer = setTimeout(() => {
+        if (!cur || cur.audio !== audio || !cur.loading) return;
+        audio.pause();
+        cur = null;
+        if (text) startSpeech(owner, text);
+        notify();
+      }, wait);
+    }
     audio.play().catch(() => {
       // 这一段放不出来（文件没了、格式不认、iOS 拦了）：退回手机自带朗读，
       // 别让家长按了没反应。但有两种「失败」不算放不出来，不许插队：
@@ -96,7 +126,7 @@ export function createAudioController({ Audio: AudioCtor, speech, Utterance } = 
     // 点一下播放键。返回这一下做了什么：
     // playing（开始放）/ paused（停住了）/ resumed（接着放）/
     // speaking（用手机自带声音念）/ stopped（把正在念的停掉）
-    toggle({ owner, url, text } = {}) {
+    toggle({ owner, url, text, onProgress, loadTimeoutMs } = {}) {
       // ① 点的是正在放的这一段
       if (cur && cur.owner === owner) {
         if (cur.mode === "clip" && cur.audio && !cur.audio.ended) {
@@ -126,7 +156,7 @@ export function createAudioController({ Audio: AudioCtor, speech, Utterance } = 
       }
       // ② 点的是别的一段（或者什么都没在放）：先把旧的停掉，再开新的
       halt();
-      if (url) return startClip(owner, url, text);
+      if (url) return startClip(owner, url, text, { onProgress, loadTimeoutMs });
       const r = startSpeech(owner, text);
       notify();
       return r;

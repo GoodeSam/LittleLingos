@@ -51,7 +51,23 @@ async function serve() {
     if (!file.startsWith(ROOT)) { res.writeHead(403).end(); return; }
     try {
       const body = await readFile(file);
-      res.writeHead(200, { "Content-Type": MIME[extname(file)] || "application/octet-stream" });
+      const type = MIME[extname(file)] || "application/octet-stream";
+      // Content-Length + 分段请求：真服务器都有，缺了浏览器就不知道音频多长
+      // （duration 变成 Infinity/NaN），进度条永远是 0%。
+      const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || "");
+      if (range) {
+        const start = range[1] ? parseInt(range[1], 10) : 0;
+        const end = range[2] ? parseInt(range[2], 10) : body.length - 1;
+        const slice = body.subarray(start, end + 1);
+        res.writeHead(206, {
+          "Content-Type": type, "Accept-Ranges": "bytes",
+          "Content-Range": `bytes ${start}-${end}/${body.length}`,
+          "Content-Length": slice.length,
+        });
+        res.end(slice);
+        return;
+      }
+      res.writeHead(200, { "Content-Type": type, "Accept-Ranges": "bytes", "Content-Length": body.length });
       res.end(body);
     } catch { res.writeHead(404).end("not found"); }
   });
@@ -1195,13 +1211,13 @@ check("「还可以这样说」里的朗读键：放到一半再点是暂停，�
 check("旧代码正在放的时候，去点走新模块的按钮：旧的那段要停，不许两个声音一起响", async (ev) => {
   const r = await ev(async () => {
     const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
-    // 先用旧那条路放起来（场景卡还没迁，走的是 index.html 里的老函数）
-    openScenario("bath");
-    await tick();
-    const sceneBtn = document.querySelector("#phraseList .play-btn");
-    sceneBtn.click();
+    // 造一段「旧代码管的声音」。四处播放键都迁走了，但连续播放（收藏页的
+    // 【连续播放全部】）仍然用 index.html 里的 currentAudio 那一套，所以这个
+    // 不变量还在：它放着的时候去点任何一个播放键，它必须停。
+    currentAudio = new Audio("./audio/b11_normal.mp3");
+    currentAudio.play().catch(() => {});
     await new Promise(res => setTimeout(res, 800));
-    const out = { legacyStarted: !!(typeof currentAudio !== "undefined" && currentAudio) };
+    const out = { legacyStarted: !!currentAudio && !currentAudio.paused };
     // 再去点走新模块的那个按钮
     const btn = document.createElement("button");
     btn.className = "result-play-btn";
@@ -1209,14 +1225,99 @@ check("旧代码正在放的时候，去点走新模块的按钮：旧的那段�
     playClipOrSpeak({ id: null, text: "Time for a bath!", btn });
     await tick();
     out.moduleOwns = window.llAudio && window.llAudio.state().owner === btn;
-    out.legacyStopped = typeof currentAudio === "undefined" || !currentAudio || currentAudio.paused;
+    out.legacyStopped = !currentAudio || currentAudio.paused;
     stopAllAudio(); btn.remove(); showTab("home");
     return out;
   });
-  assert.equal(r.legacyStarted, true, "场景卡那条旧路没放起来，这条检查等于没测");
+  assert.equal(r.legacyStarted, true, "旧代码那段没放起来，这条检查等于没测");
   assert.equal(r.moduleOwns, true, "新模块没接手");
   assert.equal(r.legacyStopped, true,
-    "旧代码那段还在放——四处只迁了两处，「唯一主人」名不副实，用户会听到两个声音叠在一起");
+    "旧代码那段还在放——连播和播放键会两个声音叠在一起");
+});
+
+check("场景卡的「▶ 朗读」也归 audio-controller 管：加载中→播放中→暂停→接着放，进度条跟着走", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    openScenario("bath"); switchAge("1-2"); await tick();
+    const card = document.querySelector("#phraseList .phrase-card");
+    const btn = card.querySelector(".play-btn");
+    const id = btn.id.replace(/^play-/, "");
+    const bar = document.getElementById("bar-" + id);
+    const fill = document.getElementById("fill-" + id);
+    const out = { found: !!btn && !!bar };
+
+    btn.click(); await tick();
+    const s1 = window.llAudio.state();
+    out.owns = s1.owner === btn && s1.mode === "clip";
+    out.labelWhileLoadingOrPlaying = btn.textContent.trim();
+    await new Promise(res => setTimeout(res, 1200));       // 等它真响起来并走一段
+    const s2 = window.llAudio.state();
+    out.playingNotLoading = s2.owner === btn && !s2.loading && !s2.paused;
+    out.labelPlaying = btn.textContent.trim();
+    out.barShown = bar.style.display === "block";
+    out.fillMoved = parseFloat(fill.style.width) > 0;
+
+    btn.click(); await tick();                              // 暂停
+    const s3 = window.llAudio.state();
+    out.paused = s3.owner === btn && s3.paused === true;
+    out.labelPaused = btn.textContent.trim();
+    out.fillKept = parseFloat(fill.style.width) > 0;        // 暂停时进度条留在原地
+
+    btn.click(); await tick();                              // 接着放
+    out.resumed = window.llAudio.state().paused === false;
+
+    stopAllAudio(); showTab("home");
+    return out;
+  });
+  assert.equal(r.found, true, "场景卡上没找到朗读键或进度条");
+  assert.equal(r.owns, true, "场景卡的「▶ 朗读」没走 audio-controller");
+  assert.equal(r.playingNotLoading, true, `1.2 秒后还没真正放起来（按钮上是「${r.labelPlaying}」）`);
+  assert.equal(r.labelPlaying, "⏸ 播放中", `放起来之后按钮该写「⏸ 播放中」，实际「${r.labelPlaying}」`);
+  assert.equal(r.barShown, true, "进度条没显示出来");
+  assert.equal(r.fillMoved, true, "进度条没有走");
+  assert.equal(r.paused, true, "第二下不是暂停");
+  assert.equal(r.labelPaused, "▶ 朗读", `暂停后按钮该回到「▶ 朗读」，实际「${r.labelPaused}」`);
+  assert.equal(r.fillKept, true, "暂停时进度条被清零了——应当留在原地");
+  assert.equal(r.resumed, true, "第三下没有接着放");
+});
+
+check("复习卡的播放键也归 audio-controller 管：开始 / 暂停 / 接着放，同一段声音", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    // 收藏一句预设句（它自带随应用下发的录音），让它到期，复习卡就会出它
+    openScenario("bath"); switchAge("0-1"); await tick();
+    const p = scenarios.bath.phrases["0-1"][0];
+    if (!savedPhrases.some(x => x.id === p.id)) toggleSave(p.id);
+    const mine = savedPhrases.find(x => x.id === p.id); mine.rv = { s: 0, due: Date.now() - 1000 };
+    __primeReviewQueueForTest([mine]);
+    showTab("review"); await tick();
+    __primeReviewQueueForTest([mine]); renderReviewCard(); await tick();
+    const btn = document.querySelector("#reviewArea .review-btn-play");
+    const out = { found: !!btn };
+    if (!btn) return out;
+
+    btn.click(); await tick();                       // 开始放
+    const s1 = window.llAudio.state();
+    out.owns = s1.owner === btn && s1.mode === "clip" && !s1.paused;
+    out.labelPlaying = btn.textContent.trim();
+
+    btn.click(); await tick();                       // 暂停
+    const s2 = window.llAudio.state();
+    out.paused = s2.owner === btn && s2.paused === true;
+
+    btn.click(); await tick();                       // 接着放
+    const s3 = window.llAudio.state();
+    out.resumed = s3.owner === btn && s3.paused === false;
+    out.sameClip = s3.owner === s1.owner;
+
+    stopAllAudio(); showTab("home");
+    return out;
+  });
+  assert.equal(r.found, true, "复习卡上没有播放键，这条检查等于没测");
+  assert.equal(r.owns, true, "复习卡的播放键没走 audio-controller");
+  assert.equal(r.paused, true, "第二下不是暂停");
+  assert.equal(r.resumed, true, "第三下没有接着放");
+  assert.equal(r.sameClip, true, "接着放的不是同一段");
 });
 
 check("复习卡：翻开英文后点一个词，释义在英文那一行底下；没翻开之前那些词是看不见的", async (ev) => {

@@ -2398,8 +2398,20 @@ window.llAudio = createAudioController({
 // 界面照着通知重画。谁在放就是哪个按钮——owner 就是按钮本身。
 let llLastPlayOwner = null;
 window.llAudio.subscribe((st) => {
-  if (llLastPlayOwner && llLastPlayOwner !== st.owner) resetPlayBtnState(llLastPlayOwner);
-  if (st.owner) (st.paused ? resetPlayBtnState : setPlayBtnPlaying)(st.owner);
+  const isScene = (b) => b && b.classList && (b.classList.contains("play-btn") || b.classList.contains("play-btn-slow"));
+  // 场景卡有自己的标签和进度条，不能套用通用的重画
+  if (llLastPlayOwner && llLastPlayOwner !== st.owner) {
+    if (isScene(llLastPlayOwner)) scenePlayBtnIdle(llLastPlayOwner);
+    else resetPlayBtnState(llLastPlayOwner);
+  }
+  if (st.owner) {
+    if (isScene(st.owner)) {
+      if (st.paused) { st.owner.classList.remove("playing"); st.owner.textContent = st.owner.dataset.idleLabel || "▶ 朗读"; }
+      else if (!st.loading) { st.owner.classList.add("playing"); st.owner.textContent = st.owner.classList.contains("play-btn-slow") ? "⏸" : "⏸ 播放中"; }
+    } else {
+      (st.paused ? resetPlayBtnState : setPlayBtnPlaying)(st.owner);
+    }
+  }
   llLastPlayOwner = st.owner;
 });
 </script>
@@ -3443,6 +3455,17 @@ function stopAllAudio() {
   if (window.llAudio) window.llAudio.stopAll();   // 新模块管的那一段也要停
 }
 
+// 场景卡的按钮回到空闲：标签复原、进度条走到头再收起来（和旧代码 onEnd() 一致）。
+function scenePlayBtnIdle(btn) {
+  if (!btn) return;
+  btn.classList.remove("playing");
+  btn.textContent = btn.dataset.idleLabel || (btn.classList.contains("play-btn-slow") ? "慢速" : "▶ 朗读");
+  const id = (btn.id || "").replace(/^play-(slow-)?/, "");
+  const bar = document.getElementById("bar-" + id), fill = document.getElementById("fill-" + id);
+  if (fill) fill.style.width = "100%";
+  setTimeout(() => { if (bar) bar.style.display = "none"; if (fill) fill.style.width = "0%"; }, 500);
+}
+
 function stopLegacyAudio() {
   playbackSession++;
   if (window.speechSynthesis) window.speechSynthesis.cancel();
@@ -3473,6 +3496,39 @@ function speakPhrase(id, btn, rate) {
   const idleLabel = isSlow ? "慢速" : "▶ 朗读";
   const playingLabel = isSlow ? "⏸" : "⏸ 播放中";
 
+  // ADR 0009：播放交给 audio-controller.mjs（第四处，也是最后一处）。
+  // 场景卡比别处多三样：加载中的 ⏳、8 秒加载超时、进度条——模块都支持了，
+  // 怎么画仍归这里管（模块不碰 DOM）。
+  if (window.llAudio && btn) {
+    const barEl  = document.getElementById("bar-"  + id);
+    const fillEl = document.getElementById("fill-" + id);
+    if (window.llAudio.state().owner !== btn) stopLegacyAudio();
+    // 先把空闲标签存好：之后失败提示要靠它复原，不能把「⏳ 加载中」当成空闲字样
+    if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = idleLabel;
+    const before = window.llAudio.state();
+    const r = window.llAudio.toggle({
+      owner: btn,
+      url: `./audio/${id}_${isSlow ? "slow_wbw" : "normal"}.mp3`,
+      text: phrase.en,
+      loadTimeoutMs: 8000,
+      onProgress: (ratio) => { if (fillEl) fillEl.style.width = Math.round(ratio * 100) + "%"; },
+    });
+    if (r === "paused") {
+      btn.classList.remove("playing");
+      btn.textContent = idleLabel;          // 进度条留在原地，不清零
+    } else if (r === "resumed") {
+      btn.classList.add("playing");
+      btn.textContent = playingLabel;
+    } else {
+      // 新开一段：先显示「加载中」，真响起来由下面那个订阅改成「播放中」
+      btn.classList.add("playing");
+      btn.textContent = isSlow ? "⏳" : "⏳ 加载中";
+      if (barEl) barEl.style.display = "block";
+      if (fillEl) fillEl.style.width = "0%";
+    }
+    return;
+  }
+  // 下面是模块没加载成时的老路（沙箱测试也走这条）。
   // 同一个按钮正在放 → 暂停（进度条留在原地，按钮回到空闲标签）；
   // 刚暂停的那段还在 → 接着放。处理了就到此为止。
   if (pauseOrResumeClip(btn, {
@@ -4477,6 +4533,14 @@ function renderReviewCard() {
 }
 
 function playReviewAudio(item, btn) {
+  // ADR 0009：播放交给 audio-controller.mjs（第三处调用点）。
+  // 录音地址仍要在点击这一刻同步取出来（iOS 的限制，见 C12）。
+  if (window.llAudio && btn) {
+    if (window.llAudio.state().owner !== btn) stopLegacyAudio();
+    window.llAudio.toggle({ owner: btn, url: playableUrlFor(item), text: item.en });
+    return;
+  }
+  // 下面是模块没加载成时的老路（沙箱测试也走这条）。
   // 同一个按钮正在放 → 暂停；刚暂停的那段还在 → 接着放。三处播放键共用
   // pauseOrResumeClip()；处理了就到此为止，不许再往下走到「新造一段从头放」。
   if (pauseOrResumeClip(btn)) return;

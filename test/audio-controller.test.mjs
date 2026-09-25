@@ -39,7 +39,7 @@ function makeFakeAudio(log) {
   function FakeAudio(url) {
     const listeners = {};
     const a = {
-      url, paused: true, ended: false, currentTime: 0,
+      url, paused: true, ended: false, currentTime: 0, duration: 3,   // 真的 Audio 元素有时长，进度就是按它算的
       addEventListener: (evt, fn) => { (listeners[evt] ||= []).push(fn); },
       // 真浏览器里 play() 返回一个承诺；声音还没真正响起来就被 pause() 打断的话，
       // 这个承诺会以 AbortError 失败。这一点必须照实模拟——2026-09-25 就是它咬人的。
@@ -48,7 +48,8 @@ function makeFakeAudio(log) {
         if (a.settleNow) return Promise.resolve();
         return new Promise((res, rej) => { a._pending = { res, rej }; });
       },
-      started() { if (a._pending) { a._pending.res(); a._pending = null; } },   // 声音真响起来了
+      started() { if (a._pending) { a._pending.res(); a._pending = null; } a.fire("playing"); },   // 声音真响起来了
+      tick(t) { a.currentTime = t; a.fire("timeupdate"); },
       pause() {
         a.paused = true; log.push(`pause#${made.indexOf(a) + 1}`);
         if (a._pending) { const e = new Error("interrupted by pause"); e.name = "AbortError"; a._pending.rej(e); a._pending = null; }
@@ -92,7 +93,7 @@ test("点一句话的播放键：开始放", async () => {
   const r = ac.toggle({ owner: "p1", url: "./audio/a.mp3", text: "Bath time!" });
   assert.equal(r, "playing", `第一次点应当开始放，实际是「${r}」`);
   assert.deepEqual(log, ["new#1(./audio/a.mp3)", "play#1"]);
-  assert.deepEqual(ac.state(), { owner: "p1", mode: "clip", paused: false });
+  assert.deepEqual(ac.state(), { owner: "p1", mode: "clip", paused: false, loading: true });   // 刚按下，还在加载
 });
 
 test("正在放，再点同一个键：停在那里，不是从头重放", async () => {
@@ -102,7 +103,7 @@ test("正在放，再点同一个键：停在那里，不是从头重放", async
   const r = ac.toggle({ owner: "p1", url: "./audio/a.mp3", text: "Bath time!" });
   assert.equal(r, "paused", `再点一下应当是暂停，实际是「${r}」`);
   assert.deepEqual(log, ["pause#1"], `暂停时不许新造一段声音：${JSON.stringify(log)}`);
-  assert.deepEqual(ac.state(), { owner: "p1", mode: "clip", paused: true });
+  assert.deepEqual(ac.state(), { owner: "p1", mode: "clip", paused: true, loading: true });
 });
 
 test("接着再点：从停的地方继续，还是同一段声音", async () => {
@@ -137,7 +138,7 @@ test("正在放 A，去点 B：A 停下来，B 开始放", async () => {
   assert.equal(r, "playing");
   assert.ok(log.includes("pause#1"), `A 没有被停下来：${JSON.stringify(log)}`);
   assert.equal(Audio.made.length, 2);
-  assert.deepEqual(ac.state(), { owner: "B", mode: "clip", paused: false });
+  assert.deepEqual(ac.state(), { owner: "B", mode: "clip", paused: false, loading: true });
 });
 
 test("刚点开始、声音还没响就点暂停：仍然是暂停，不许偷偷改用手机自带的声音念", async () => {
@@ -158,12 +159,12 @@ test("没有现成录音：用手机自带的声音念；第二下是停，第�
   const { ac, log, speech } = await load();
   const line = { owner: "p9", url: null, text: "Let's wash hands" };
   assert.equal(ac.toggle(line), "speaking");
-  assert.deepEqual(ac.state(), { owner: "p9", mode: "speech", paused: false });
+  assert.deepEqual(ac.state(), { owner: "p9", mode: "speech", paused: false, loading: false });
   log.length = 0;
   // 手机自带朗读没有可靠的暂停/继续（iOS 上 resume 常常不响），所以第二下当「停」
   assert.equal(ac.toggle(line), "stopped");
   assert.ok(log.includes("speech:cancel"), `第二下应当把朗读停掉：${JSON.stringify(log)}`);
-  assert.deepEqual(ac.state(), { owner: null, mode: null, paused: false });
+  assert.deepEqual(ac.state(), { owner: null, mode: null, paused: false, loading: false });
   assert.equal(ac.toggle(line), "speaking", "第三下应当从头念");
   assert.equal(speech.spoken.length, 2, "两次念，不是接着上次");
 });
@@ -220,9 +221,9 @@ test("旧的朗读迟到报「念完了」，不许把后来开始的那一段�
   ac.toggle({ owner: "A", url: null, text: "first" });       // A 在念
   const oldUtter = speech.spoken[0];
   ac.toggle({ owner: "B", url: "./audio/b.mp3", text: "second" });  // 换成 B 放录音
-  assert.deepEqual(ac.state(), { owner: "B", mode: "clip", paused: false });
+  assert.deepEqual(ac.state(), { owner: "B", mode: "clip", paused: false, loading: true });
   if (oldUtter && typeof oldUtter.onend === "function") oldUtter.onend();   // A 的回调迟到了
-  assert.deepEqual(ac.state(), { owner: "B", mode: "clip", paused: false },
+  assert.deepEqual(ac.state(), { owner: "B", mode: "clip", paused: false, loading: true },
     "迟到的旧朗读回调把新开始的那一段停掉了");
   assert.equal(Audio.made[0].paused, false, "新的那一段被停了");
 });
@@ -234,7 +235,48 @@ test("朗读念完之后，状态自己清掉（按钮回到 ▶）", async () =
   const u = speech.spoken[0];
   assert.equal(typeof u.onend, "function", "模块没给朗读挂「念完了」的回调——按钮会一直卡在 ⏸");
   u.onend();
-  assert.deepEqual(ac.state(), { owner: null, mode: null, paused: false });
+  assert.deepEqual(ac.state(), { owner: null, mode: null, paused: false, loading: false });
+});
+
+// ── 场景卡要用的三样（ADR 0009 第四处调用点）────────────────
+test("按下去到声音真响起来之间，是「加载中」——界面要能显示 ⏳，不能装作已经在放", async () => {
+  const { ac, Audio } = await load();
+  const seen = [];
+  ac.subscribe(st => seen.push(`${st.mode || "空"}/${st.loading ? "加载中" : "放"}`));
+  ac.toggle({ owner: "p1", url: "./audio/a.mp3", text: "x" });
+  assert.equal(ac.state().loading, true, "刚按下去应当是「加载中」");
+  Audio.made[0].started();
+  assert.equal(ac.state().loading, false, "声音响了还说在加载");
+  assert.deepEqual(seen, ["clip/加载中", "clip/放"], "加载中和真的响了，两次都要通知界面");
+});
+
+test("放的过程中报进度，场景卡的进度条靠它走", async () => {
+  const { ac, Audio } = await load();
+  const seen = [];
+  ac.toggle({ owner: "p1", url: "./audio/a.mp3", text: "x", onProgress: r => seen.push(Math.round(r * 100)) });
+  Audio.made[0].started();
+  Audio.made[0].tick(1.5);          // 假 Audio 的时长是 3 秒
+  Audio.made[0].tick(3);
+  assert.deepEqual(seen, [50, 100], `进度不对：${JSON.stringify(seen)}`);
+});
+
+test("录音迟迟不响（网络卡住）：到点退回手机自带的声音念，不许一直卡在加载中", async () => {
+  const { ac, Audio, speech } = await load();
+  ac.toggle({ owner: "p1", url: "./audio/a.mp3", text: "Bath time!", loadTimeoutMs: 20 });
+  assert.equal(ac.state().loading, true);
+  await new Promise(res => setTimeout(res, 40));
+  assert.equal(ac.state().mode, "speech", `卡住之后没退回朗读，现在是 ${ac.state().mode}`);
+  assert.equal(speech.spoken.length, 1);
+  assert.equal(Audio.made[0].paused, true, "卡住的那一段没被停掉");
+});
+
+test("录音在超时之前响了：就不要再退回朗读", async () => {
+  const { ac, Audio, speech } = await load();
+  ac.toggle({ owner: "p1", url: "./audio/a.mp3", text: "Bath time!", loadTimeoutMs: 20 });
+  Audio.made[0].started();
+  await new Promise(res => setTimeout(res, 40));
+  assert.deepEqual(speech.spoken, [], "已经响了还去念一遍——会两个声音叠在一起");
+  assert.equal(ac.state().mode, "clip");
 });
 
 // ── 模块本身的规矩 ─────────────────────────────────────────

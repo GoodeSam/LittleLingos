@@ -113,8 +113,13 @@ test("2xx 但正文不是合法 JSON：归为格式不对，不当成断网", as
 
 test("等太久：到点归为超时，并且真的把请求掐掉", async () => {
   const { api, fetch } = load({ hang: true });
-  const r = await api.post("/x", {}, { timeoutMs: 15 });
-  assert.equal(r.kind, "timeout");
+  // 自己的兜底：实现要是不掐请求，这个 await 会永远等下去，Node 会静默退出——
+  // 既不红也不绿。所以和一个 200ms 的闹钟赛跑，让它明确变红。
+  const r = await Promise.race([
+    api.post("/x", {}, { timeoutMs: 15 }),
+    new Promise(res => setTimeout(() => res({ kind: "never-settled" }), 200)),
+  ]);
+  assert.equal(r.kind, "timeout", `到点没有归为超时（实际 ${r.kind}）——多半是根本没掐请求`);
   assert.equal(fetch.calls[0].init.signal.aborted, true, "超时了却没把请求掐掉——钱照花");
 });
 

@@ -2373,6 +2373,8 @@
 <script src="./dictionary-words.js" defer></script>
 <!-- 本机存储的唯一主人（ADR 0009 第二块）。不带 defer：下面主脚本一解析就要读收藏。 -->
 <script src="./storage.js"></script>
+<!-- 往自家服务器打电话的唯一出口（ADR 0009 第三块）。 -->
+<script src="./api-client.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
      万一这个文件没加载成（MIME 不对、被缓存挡住），window.llAudio 就是
@@ -2441,6 +2443,16 @@ const llStorage = llStorageLib.createStorage({
     removeItem: (k) => { try { localStorage.removeItem(k); } catch (e) { throw e; } },
   },
   onWriteFailed: () => showOfflineToast("⚠️ 无法保存到本机 — 更改在关闭页面后会丢失"),
+});
+
+// 往 /api 打电话只有这一个出口（api-client.js，ADR 0009）。下面那行是全文唯一
+// 一处直接叫 fetch 的地方；邀请码在调用那一刻现取。
+const llApi = llApiLib.createApiClient({
+  fetch: (url, init) => fetch(url, init),
+  getAccessCode: () => getAccessCode(),
+  AbortController: typeof AbortController !== "undefined" ? AbortController : null,
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (t) => clearTimeout(t),
 });
 
 // A missing/corrupt/invalid stored value falls back to the pre-existing
@@ -5538,42 +5550,27 @@ function performDictLookup(query, panelId = "dictLookupPanel") {
 
   renderDictLookupPanel(panel, { state: "loading" });
 
-  const controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
-  const timer = setTimeout(() => { if (controller) controller.abort(); }, DICT_LOOKUP_TIMEOUT_MS);
-
-  fetch("/api/dictionary", {
-    method: "POST",
-    headers: accessHeaders(),
-    body: JSON.stringify({ word: String(query).trim() }),
-    signal: controller ? controller.signal : undefined,
-  }).then(res => {
-    clearTimeout(timer);
+  // 拼请求、超时、归类都在 api-client.js；这里只负责「每一类对家长说什么」。
+  // Only uncurated words reach this call at all, so a parent without a code
+  // still gets every curated word — the message has to say which of the two
+  // is missing, not that lookup is broken.
+  const PANEL_STATE_BY_KIND = {
+    access: "error-access", invalid: "error-invalid", server: "error-nokey", upstream: "error-upstream",
+    timeout: "error-timeout", network: "error-network", malformed: "error-malformed",
+  };
+  llApi.post("/api/dictionary", { word: String(query).trim() }, { timeoutMs: DICT_LOOKUP_TIMEOUT_MS }).then(r => {
     if (!isCurrentDictSession(session)) return;
-    // Only uncurated words reach this call at all, so a parent without a code
-    // still gets every curated word — the message has to say which of the two
-    // is missing, not that lookup is broken.
-    const accessMsg = accessErrorMessage(res.status);
-    if (accessMsg) return renderDictLookupPanel(panel, { state: "error-access", message: accessMsg });
-    if (res.status === 400) return renderDictLookupPanel(panel, { state: "error-invalid" });
-    if (res.status === 500) return renderDictLookupPanel(panel, { state: "error-nokey" });
-    if (res.status === 502) return renderDictLookupPanel(panel, { state: "error-upstream" });
-    if (!res.ok) return renderDictLookupPanel(panel, { state: "error-upstream" });
-    return res.json()
-      .then(body => {
-        if (!isCurrentDictSession(session)) return;
-        if (!body || typeof body.lemma !== "string" || !Array.isArray(body.senses)) {
-          return renderDictLookupPanel(panel, { state: "error-malformed" });
-        }
-        const data = normalizeDictResult(body, "api");
-        resetDueOnRepeatLookup(data); // C4: repeat lookup of an already-saved sense resets its review clock
-        renderDictLookupPanel(panel, { state: "result", data });
-      })
-      .catch(() => { if (isCurrentDictSession(session)) renderDictLookupPanel(panel, { state: "error-malformed" }); });
-  }).catch(err => {
-    clearTimeout(timer);
-    if (!isCurrentDictSession(session)) return;
-    if (err && err.name === "AbortError") return renderDictLookupPanel(panel, { state: "error-timeout" });
-    renderDictLookupPanel(panel, { state: "error-network" });
+    if (r.kind !== "ok") {
+      const extra = r.kind === "access" ? { message: accessErrorMessage(r.status) } : {};
+      return renderDictLookupPanel(panel, { state: PANEL_STATE_BY_KIND[r.kind] || "error-upstream", ...extra });
+    }
+    const body = r.body;
+    if (!body || typeof body.lemma !== "string" || !Array.isArray(body.senses)) {
+      return renderDictLookupPanel(panel, { state: "error-malformed" });
+    }
+    const data = normalizeDictResult(body, "api");
+    resetDueOnRepeatLookup(data); // C4: repeat lookup of an already-saved sense resets its review clock
+    renderDictLookupPanel(panel, { state: "result", data });
   });
 }
 
@@ -6047,29 +6044,17 @@ const TRANSLATE_TIMEOUT_MS = 12000;
 async function translateChinese(zh, age) {
   const clean = String(zh == null ? "" : zh).trim();
   if (!clean) return { ok: false, error: "empty" };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TRANSLATE_TIMEOUT_MS);
-  try {
-    const res = await fetch("/api/translate", {
-      method: "POST",
-      headers: accessHeaders(),
-      body: JSON.stringify({ zh: clean, age }),
-      signal: controller.signal,
-    });
-    const message = accessErrorMessage(res.status);
-    if (message) return { ok: false, error: "access", message };
-    if (!res.ok) return { ok: false, error: "upstream" };
-    const result = await res.json();
-    // A result missing its English or its tip is not a usable suggestion —
-    // treated as an outage so the caller falls back rather than showing a
-    // half-empty card.
-    if (!result || !result.en || !result.tip) return { ok: false, error: "incomplete" };
-    return { ok: true, result };
-  } catch {
-    return { ok: false, error: "offline" };
-  } finally {
-    clearTimeout(timer);
-  }
+  const r = await llApi.post("/api/translate", { zh: clean, age }, { timeoutMs: TRANSLATE_TIMEOUT_MS });
+  if (r.kind === "access") return { ok: false, error: "access", message: accessErrorMessage(r.status) };
+  // 原来任何抛错（断网、超时、连 JSON 解析失败）都归 offline，照旧；其余非 2xx 归 upstream。
+  if (r.kind === "network" || r.kind === "timeout" || r.kind === "malformed") return { ok: false, error: "offline" };
+  if (r.kind !== "ok") return { ok: false, error: "upstream" };
+  const result = r.body;
+  // A result missing its English or its tip is not a usable suggestion —
+  // treated as an outage so the caller falls back rather than showing a
+  // half-empty card.
+  if (!result || !result.en || !result.tip) return { ok: false, error: "incomplete" };
+  return { ok: true, result };
 }
 
 // A scenario a parent cannot put anything into is a folder. They supply the
@@ -6557,11 +6542,7 @@ function requestAudio(item) {
 // 存句子和设置里的试听都走它——两个地方各自去拼凭据和音色，
 // 迟早有一处会漏掉其中一样。
 function ttsFetch(text, voice) {
-  return fetch("/api/tts", {
-    method: "POST",
-    headers: accessHeaders(),
-    body: JSON.stringify({ text, voice }),
-  });
+  return llApi.raw("/api/tts", { text, voice });   // 要读二进制回复，走不归类的那个口
 }
 
 // 连播里的中文提示，按需生成一次就存在设备上。键用 "zh:" 开头，clipKey 认得
@@ -6932,14 +6913,7 @@ function setAccessCode(code) {
 
 // Callers hand this straight to fetch, so it carries the content type too —
 // returning only the access header would drop it and 400 every request.
-function accessHeaders() {
-  const headers = { "Content-Type": "application/json" };
-  const code = getAccessCode();
-  // Absent rather than empty: a blank header reads as "tried with an empty
-  // code" instead of "never entered one", and those want different messages.
-  if (code) headers["X-LL-Access"] = code;
-  return headers;
-}
+// 请求头（Content-Type + 邀请码）现由 api-client.js 统一拼，这里不再有第二份。
 
 // Returns null for anything that is not an access problem. A 500 is a server
 // configuration fault and a 502 is upstream; telling a parent to check their
@@ -7658,10 +7632,10 @@ function reminderTimeZone() {
 // 推送相关的请求都挡在邀请码后面，走这一处带码——带码的调用点越少，
 // 越不会有哪一处忘了带。
 async function pushApiPost(path, body) {
-  const res = await fetch(path, { method: "POST", headers: accessHeaders(), body: JSON.stringify(body) });
-  let out = {};
-  try { out = await res.json(); } catch (e) {}
-  return { status: res.status, out };
+  const r = await llApi.post(path, body);
+  // 原来断网是 fetch 直接抛、由调用方的 catch 说「没连上服务器」——照旧抛出去。
+  if (r.kind === "network" || r.kind === "timeout") throw new Error(r.kind === "timeout" ? "请求超时" : "没连上服务器");
+  return { status: r.status, out: r.body || {} };
 }
 
 function reminderPost(body) {

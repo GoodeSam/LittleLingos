@@ -25,9 +25,11 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const require = createRequire(import.meta.url);
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
 const START = "/* ll:access-code:start */";
@@ -59,7 +61,7 @@ function loadModule({ storage = fakeStorage() } = {}) {
   injectStorage(ctx);
   vm.createContext(ctx);
   vm.runInContext(html.slice(s, e + END.length), ctx);
-  for (const fn of ["getAccessCode", "setAccessCode", "accessHeaders", "accessErrorMessage"]) {
+  for (const fn of ["getAccessCode", "setAccessCode", "accessErrorMessage"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
   return ctx;
@@ -127,24 +129,33 @@ test("a missing localStorage does not break the module", () => {
 });
 
 // ══ 3. 请求头 ═════════════════════════════════════════════════════════
+// 2026-09-26（ADR 0009）：请求头由 api-client.js 统一拼，用的是这个块的 getAccessCode()。
+// 下面三条验的事没变，只是拼头的代码换了地方——所以拿真的 api-client 来拼。
+const { createApiClient } = require(join(ROOT, "api-client.js"));
+function headersVia(ctx) {
+  let seen = null;
+  const api = createApiClient({ fetch: (url, init) => { seen = init.headers; return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) }); }, getAccessCode: () => ctx.getAccessCode() });
+  api.raw("/x", {});
+  return seen;
+}
 
 test("the code rides on the header the server reads", () => {
   const store = fakeStorage();
   loadModule({ storage: store }).setAccessCode(CODE);
-  const h = loadModule({ storage: store }).accessHeaders();
+  const h = headersVia(loadModule({ storage: store }));
   assert.equal(h["X-LL-Access"], CODE);
 });
 
 test("the JSON content type is still set — the header helper replaces the whole object", () => {
   const store = fakeStorage();
   loadModule({ storage: store }).setAccessCode(CODE);
-  const h = loadModule({ storage: store }).accessHeaders();
+  const h = headersVia(loadModule({ storage: store }));
   assert.equal(h["Content-Type"], "application/json",
     "callers pass this straight to fetch; dropping the content type would 400 every request");
 });
 
 test("with no code, the header is absent rather than empty", () => {
-  const h = loadModule().accessHeaders();
+  const h = headersVia(loadModule());
   assert.ok(!("X-LL-Access" in h),
     "an empty header would look like an attempt with a blank code rather than no attempt");
   assert.equal(h["Content-Type"], "application/json");
@@ -183,12 +194,13 @@ test("both paid endpoints send the header — neither is left behind", () => {
   // Asserted against the source because these two calls live in page code
   // that needs a DOM to run. What matters is that no paid call is left
   // constructing its own bare headers object.
+  // 2026-09-26（ADR 0009）：两处付费调用都改走 api-client.js，邀请码头由它统一加。
+  // 意图不变：没有哪一处付费调用是自己拼 headers 的。
+  const client = readFileSync(join(ROOT, "api-client.js"), "utf8");
+  assert.match(client, /X-LL-Access/, "api-client.js 不再加邀请码头——每一处付费调用都会忘了带码");
   for (const [label, marker] of [["translate", '"/api/translate"'], ["dictionary", '"/api/dictionary"']]) {
-    const at = html.indexOf(`fetch(${marker}`);
-    assert.ok(at !== -1, `${label} call site not found`);
-    const block = html.slice(at, at + 400);
-    assert.match(block, /headers:\s*accessHeaders\(\)/,
-      `the ${label} call must use accessHeaders() — a hand-written headers object here is a call that forgets the code`);
+    assert.ok(html.indexOf(`llApi.post(${marker}`) !== -1, `${label} call site must go through llApi.post()`);
+    assert.equal(html.indexOf(`fetch(${marker}`), -1, `${label} still has a bare fetch() — a call that builds its own headers is a call that forgets the code`);
   }
 });
 
@@ -198,13 +210,15 @@ test("the free paths do not require a code", () => {
   // find the whole app dead rather than two features unavailable.
   const s = html.indexOf(START), e = html.indexOf(END);
   const rest = html.slice(0, s) + html.slice(e);
-  assert.ok(!/audio\/\$\{[^}]*\}[^)]*accessHeaders/.test(rest),
+  assert.ok(!/audio\/\$\{[^}]*\}[^)]*llApi\./.test(rest),
     "audio playback must not be gated");
-  const calls = [...html.matchAll(/accessHeaders\(\)/g)];
+  // 2026-09-26（ADR 0009）：带码的请求一律走 llApi.post() / llApi.raw()，数它们的调用点。
   // 4 → 5（2026-09-17，Victor 同意）：第 5 个是推送相关请求共用的 pushApiPost()
   // （到点提醒 /api/reminder）。它不花钱，但 ADR 0008 要求它挡在邀请码后面。
+  const calls = [...html.matchAll(/llApi\.(post|raw)\(/g)];
   assert.ok(calls.length <= 5,
-    `accessHeaders() appears ${calls.length} times — it belongs only at the paid call sites`);
+    `llApi is called ${calls.length} times — it belongs only at the paid call sites`);
+  assert.equal([...html.matchAll(/accessHeaders\(\)/g)].length, 0, "accessHeaders() 已删，不该再冒出第二份拼头的代码");
 });
 
 // ══ 6. 换个入口要重填，界面得说清这不是故障 ═══════════════════════════

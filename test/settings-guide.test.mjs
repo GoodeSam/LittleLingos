@@ -195,12 +195,12 @@ function guideItem(startsWith) {
 
 test("翻译时发出去的每一样，说明都点到了：中文、档位、邀请码", () => {
   // 客户端真发的东西，从那次 fetch 调用整段里读：body 里的字段，加上 headers 走不走 accessHeaders()。
-  const call = html.match(/fetch\("\/api\/translate",\s*\{([\s\S]*?)\}\);/);
-  assert.ok(call, "找不到翻译请求的调用");
-  const body = call[1].match(/body: JSON\.stringify\(\{([^}]+)\}\)/);
-  assert.ok(body, "翻译请求的 body 不是一个对象字面量了——这条测试的读法要跟着改");
-  const fields = body[1].split(",").map(f => f.trim().split(":")[0].trim());
-  const sendsCode = /headers: accessHeaders\(\)/.test(call[1]);
+  // 2026-09-26（ADR 0009）：翻译改走 llApi.post("/api/translate", { … })，body 就是那个对象字面量；
+  // 邀请码头由 api-client.js 统一加（有码才加）。读的位置跟着代码走，验的事没变。
+  const call = html.match(/llApi\.post\("\/api\/translate",\s*\{([^}]+)\}/);
+  assert.ok(call, "找不到翻译请求的调用（应当是 llApi.post(\"/api/translate\", { … })）");
+  const fields = call[1].split(",").map(f => f.trim().split(":")[0].trim()).filter(Boolean);
+  const sendsCode = /X-LL-Access/.test(readFileSync(join(ROOT, "api-client.js"), "utf8"));
   const t = guideItem("翻译时：");
   const say = { zh: /中文/, age: /档位|档/, clean: /中文/ };
   for (const f of fields) {

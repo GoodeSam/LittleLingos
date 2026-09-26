@@ -30,7 +30,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
-import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
+import { injectStorage, injectApi } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -96,6 +96,7 @@ function loadModule({
   };
   injectStorage(ctx);
   vm.createContext(ctx);
+  injectApi(ctx);
   vm.runInContext(html.slice(s, e + END.length), ctx);
   for (const fn of ["requestAudio", "audioMarkFor", "retryAudio"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);

@@ -24,7 +24,7 @@ import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
+import { injectStorage, injectApi } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -88,6 +88,7 @@ async function world({ upstream, code = CODE }, fn) {
   };
   injectStorage(ctx);
   vm.createContext(ctx);
+  injectApi(ctx);
   try { return await fn({ ctx, crossed, upstreamCalls }); }
   finally {
     globalThis.fetch = prevFetch;

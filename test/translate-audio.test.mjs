@@ -36,7 +36,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
-import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
+import { injectStorage, injectApi } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -85,6 +85,7 @@ function loadModule({ store = fakeStore(), code = CODE, onLine = true, fetchImpl
   };
   injectStorage(ctx);
   vm.createContext(ctx);
+  injectApi(ctx);
   // provisionTranslation() 现在调用 assignTranslationIds()，它在 ll:translate-save
   // 里。那是一小段纯同步的判定，属于同一个行为契约 —— 按上一轮定下的分界线
   // 跑真代码，而不是手写一份会漂移的桩。

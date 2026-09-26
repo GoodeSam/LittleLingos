@@ -33,3 +33,17 @@ export function injectPersistSaved(ctx) {
   vm.runInContext(html.slice(at, html.indexOf("\n}", at) + 2), ctx);
   return ctx;
 }
+
+// 把真正的 api-client.js 接到沙箱自己的 fetch 假件上：fetch、邀请码、AbortController
+// 都在调用那一刻从上下文里现取（access-code 块可能在这之后才加载）。
+const { createApiClient } = require(join(dirname(fileURLToPath(import.meta.url)), "..", "api-client.js"));
+export function injectApi(ctx) {
+  ctx.llApi = createApiClient({
+    fetch: (...a) => ctx.fetch(...a),
+    getAccessCode: () => (typeof ctx.getAccessCode === "function" ? ctx.getAccessCode() : ""),
+    AbortController: ctx.AbortController || globalThis.AbortController,
+    setTimeout: (...a) => (ctx.setTimeout || globalThis.setTimeout)(...a),
+    clearTimeout: (...a) => (ctx.clearTimeout || globalThis.clearTimeout)(...a),
+  });
+  return ctx;
+}

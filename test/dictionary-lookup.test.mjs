@@ -37,7 +37,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
-import { injectStorage, injectPersistSaved } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
+import { injectStorage, injectPersistSaved, injectApi } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -235,6 +235,7 @@ function makeEnv({
   };
   injectStorage(ctx);
   vm.createContext(ctx);
+  injectApi(ctx);
   injectPersistSaved(ctx);
   // The lookup module calls accessHeaders(), which lives in a DIFFERENT
   // marker block. Rather than hand-writing a stub — which would silently
@@ -254,8 +255,9 @@ function makeEnv({
   const as = html.indexOf(ACCESS_START), ae = html.indexOf(ACCESS_END);
   assert.ok(as !== -1 && ae !== -1, `index.html must contain ${ACCESS_START} … ${ACCESS_END} markers`);
   vm.runInContext(html.slice(as, ae + ACCESS_END.length), ctx);
-  assert.equal(typeof ctx.accessHeaders, "function",
-    "the access-code block must define accessHeaders() — the lookup module calls it on every network lookup");
+  // 2026-09-26（ADR 0009）：查词的网络请求走 llApi（api-client.js），邀请码由它在调用那一刻从这个块的 getAccessCode() 取。
+  assert.equal(typeof ctx.llApi.post, "function", "llApi must be injected — the lookup module calls it on every network lookup");
+  assert.equal(typeof ctx.getAccessCode, "function", "the access-code block must define getAccessCode() — llApi reads the code through it");
 
   const s = html.indexOf(START), e = html.indexOf(END);
   assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);

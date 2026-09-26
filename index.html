@@ -2371,6 +2371,8 @@
      buildDictionaryIndex() below tolerates (empty index), unlike the
      scenarios.js DATA_OK guard which is load-bearing for the whole app. -->
 <script src="./dictionary-words.js" defer></script>
+<!-- 本机存储的唯一主人（ADR 0009 第二块）。不带 defer：下面主脚本一解析就要读收藏。 -->
+<script src="./storage.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
      万一这个文件没加载成（MIME 不对、被缓存挡住），window.llAudio 就是
@@ -2429,14 +2431,23 @@ function translateAgeForBand(age) {
   return TRANSLATE_AGE_KEYS.includes(age) ? age : "1-2";
 }
 
-// Guard the read exactly like safeParseArray below: a missing/corrupt/
-// invalid stored value must fall back to the pre-existing default ("1-2"),
-// never throw.
+// 本机存储只有这一个主人（storage.js，ADR 0009）。这三个适配函数每次都现取
+// localStorage：有的隐私模式连碰一下它都会抛，模块里每次调用都包着 try。
+// 写失败只在第一次提示一次——内存里的状态仍是准的，当前操作照常完成。
+const llStorage = llStorageLib.createStorage({
+  backend: {
+    getItem: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+    setItem: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { throw e; } },   // 抛给模块去记「失败一次」
+    removeItem: (k) => { try { localStorage.removeItem(k); } catch (e) { throw e; } },
+  },
+  onWriteFailed: () => showOfflineToast("⚠️ 无法保存到本机 — 更改在关闭页面后会丢失"),
+});
+
+// A missing/corrupt/invalid stored value falls back to the pre-existing
+// default ("1-2"); llStorage never throws.
 function loadStoredAge() {
-  try {
-    const v = localStorage.getItem("ll_age");
-    return AGE_KEYS.includes(v) ? v : "1-2";
-  } catch { return "1-2"; }
+  const v = llStorage.readString(llStorage.KEYS.age, "");
+  return AGE_KEYS.includes(v) ? v : "1-2";
 }
 
 let currentAge = loadStoredAge();
@@ -2448,41 +2459,27 @@ let currentTier = "all";
 // migration and render paths below can dereference item fields without the
 // whole script aborting on one bad record.
 function safeParseArray(key) {
-  try {
-    const v = JSON.parse(localStorage.getItem(key));
-    return Array.isArray(v) ? v.filter(x => x && typeof x === "object") : [];
-  }
-  catch { return []; }
+  return llStorage.readArray(key);    // 薄壳：名字留给沙箱测试，规则在 storage.js
 }
 
 // Storage writes throw synchronously when storage is disabled, full, or in
 // some private-browsing modes. In-memory state stays authoritative; a failed
 // persist must never abort the UI action that triggered it. Warned once per
 // session so the parent knows changes won't survive a reload.
-let storageWarned = false;
 function safeSetItem(key, value) {
-  try { localStorage.setItem(key, value); }
-  catch {
-    if (!storageWarned) {
-      storageWarned = true;
-      showOfflineToast("⚠️ 无法保存到本机 — 更改在关闭页面后会丢失");
-    }
-  }
+  llStorage.write(key, value);        // 薄壳：失败提示一次的逻辑在 storage.js
 }
 
 // 微信里可以把存储关掉，隐私模式下 localStorage 一读就抛。这三处在启动路径
 // 上，没保护的话家长看到的不是「收藏丢了」，是一片白。读不到就当没关过——
 // 顶多多看一次横幅，比整页打不开好。
 function installDismissed(key) {
-  try { return !!localStorage.getItem(key); }
-  catch { return false; }
+  return llStorage.has(key);
 }
 
 function loadUsedToday() {
-  try {
-    const meta = JSON.parse(localStorage.getItem("ll_used_meta") || "{}");
-    if (meta.date === new Date().toDateString() && Array.isArray(meta.ids)) return meta.ids;
-  } catch {}
+  const meta = llStorage.readJSON(llStorage.KEYS.usedMeta, {});
+  if (meta && typeof meta === "object" && meta.date === new Date().toDateString() && Array.isArray(meta.ids)) return meta.ids;
   return [];
 }
 
@@ -5926,11 +5923,7 @@ function isCustomScenario(tag) {
 // A parent whose storage got mangled should find an app that works and an
 // empty list, not one that will not open.
 function loadCustomScenarios() {
-  let raw = null;
-  try { raw = localStorage.getItem(SCENARIOS_KEY); } catch { return []; }
-  if (!raw) return [];
-  let list;
-  try { list = JSON.parse(raw); } catch { return []; }
+  const list = llStorage.readJSON(SCENARIOS_KEY, null);
   if (!Array.isArray(list)) return [];
   // A half-written entry would render as a scenario with no name — a tile a
   // parent cannot identify and cannot fix.
@@ -6675,13 +6668,12 @@ const VOICE_KEY = "ll_voice";
 
 // 手机里存着一个已经下架的音色时，退回默认——而不是从此每句话都生成失败。
 function getVoice() {
-  let v = null;
-  try { v = localStorage.getItem(VOICE_KEY); } catch {}
+  const v = llStorage.readString(VOICE_KEY, null);
   return VOICE_OPTIONS.some(o => o.id === v) ? v : DEFAULT_VOICE_ID;
 }
 function setVoice(id) {
   if (!VOICE_OPTIONS.some(o => o.id === id)) return false;
-  try { localStorage.setItem(VOICE_KEY, id); } catch {}
+  llStorage.write(VOICE_KEY, id);     // 存不进去也算选了（这一会话有效），和原来一致
   return true;
 }
 /* ll:voice:end */
@@ -6919,8 +6911,7 @@ let accessCodeMemo = null;
 
 function getAccessCode() {
   if (accessCodeMemo !== null) return accessCodeMemo;
-  try { return localStorage.getItem(ACCESS_KEY) || ""; }
-  catch { return ""; }          // no storage at all, or reads throw
+  return llStorage.readString(ACCESS_KEY, "");   // no storage at all, or reads throw → ""
 }
 
 // Returns whether the code will survive a reload, so the UI can tell a parent
@@ -6929,11 +6920,7 @@ function setAccessCode(code) {
   // Trim: a pasted code very often carries a trailing space or newline, and
   // the server compares exactly.
   accessCodeMemo = String(code == null ? "" : code).trim();
-  try {
-    if (accessCodeMemo) localStorage.setItem(ACCESS_KEY, accessCodeMemo);
-    else localStorage.removeItem(ACCESS_KEY);
-    return true;
-  } catch { return false; }
+  return accessCodeMemo ? llStorage.write(ACCESS_KEY, accessCodeMemo) : llStorage.remove(ACCESS_KEY);
 }
 
 // Callers hand this straight to fetch, so it carries the content type too —
@@ -7645,8 +7632,7 @@ const REMINDER_FLUSH_DELAY_MS = 1500;
 let reminderFlushTimer = null;
 
 function reminderState() {
-  let s = null;
-  try { s = JSON.parse(localStorage.getItem(REMINDER_KEY) || "null"); } catch (e) {}
+  let s = llStorage.readJSON(REMINDER_KEY, null);
   if (!s || typeof s !== "object") s = {};
   if (!REMINDER_TARGETS.includes(s.target)) s.target = "review";
   return s;
@@ -7854,7 +7840,7 @@ window.addEventListener("online", () => { flushReminderReview(); });
 const PUSH_PUBLIC_KEY = "BBPXvT-rnKQYK-iXm6x_ocKfIyx5vfpbIFQWxYmPW44NBC4g7fykk_Fhu2f0FCzjag41AtfGNKm0xosX21HHMpw";
 
 // 试验期留下的本机日志（ll_push_spike_log），正式版不再用，清掉。
-try { localStorage.removeItem("ll_push_spike_log"); } catch (e) {}
+llStorage.remove("ll_push_spike_log");
 
 function pushSupported() {
   return !!navigator.serviceWorker && typeof PushManager !== "undefined" &&

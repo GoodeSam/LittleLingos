@@ -76,6 +76,7 @@ step("L0 · the usage guide in settings says what the app really does (test/sett
 step("L0 · page ↔ server speak the same language (test/api-contract.test.mjs)", () => run("node", ["test/api-contract.test.mjs"]));
 step("L0 · on-device audio store (test/audio-store.test.mjs)", () => run("node", ["test/audio-store.test.mjs"]));
 step("L0 · audio provisioning on save (test/audio-provision.test.mjs)", () => run("node", ["test/audio-provision.test.mjs"]));
+step("L0 · storage owns every localStorage read/write (test/storage.test.mjs)", () => run("node", ["test/storage.test.mjs"]));
 step("L0 · audio controller owns play/pause (test/audio-controller.test.mjs)", () => run("node", ["test/audio-controller.test.mjs"]));
 step("L0 · used-today check can be untapped (test/used-today-toggle.test.mjs)", () => run("node", ["test/used-today-toggle.test.mjs"]));
 step("L0 · reminder failure text is readable by a parent (test/reminder-failure-text.test.mjs)", () => run("node", ["test/reminder-failure-text.test.mjs"]));

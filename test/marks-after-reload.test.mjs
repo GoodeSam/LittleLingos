@@ -27,6 +27,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -58,6 +59,7 @@ function loadModule({ present = [] } = {}) {
     whichHaveAudio: async ids => { asked.push(ids); return new Set(ids.filter(i => map.has(i))); },
     fetch: async () => new Response(mp3(), { status: 200, headers: { "Content-Type": "audio/mpeg" } }),
   };
+  injectStorage(ctx);
   vm.createContext(ctx);
   vm.runInContext(html.slice(s, e + END.length), ctx);
   assert.equal(typeof ctx.syncAudioMarks, "function", "module must define syncAudioMarks()");

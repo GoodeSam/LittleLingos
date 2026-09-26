@@ -18,6 +18,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -66,6 +67,7 @@ function loadVoice(stored) {
     setItem: (k, v) => store.set(k, String(v)),
     removeItem: k => store.delete(k),
   } };
+  injectStorage(ctx);
   vm.createContext(ctx);
   vm.runInContext(html.slice(s + START.length, e), ctx);
   ctx.VOICE_OPTIONS = vm.runInContext("VOICE_OPTIONS", ctx);

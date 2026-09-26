@@ -21,6 +21,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import vm from "node:vm";
+import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -41,6 +42,7 @@ function load(code = "") {
       removeItem: k => store.delete(k),
     },
   };
+  injectStorage(ctx);
   vm.createContext(ctx);
   vm.runInContext(html.slice(s + START.length, e), ctx);
   // 顶层 const 进的是 context 的词法环境，不会挂到 ctx 对象上——

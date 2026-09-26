@@ -26,6 +26,7 @@ const SOURCES = [
   "index.html",
   "icons.js",
   "audio-controller.mjs",
+  "storage.js",
   "scenarios.js",
   "dictionary-words.js",
   "manifest.json",

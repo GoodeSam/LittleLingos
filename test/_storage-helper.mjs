@@ -21,3 +21,15 @@ export function injectStorage(ctx) {
   ctx.llStorage = createStorage({ backend, onWriteFailed: () => {} });
   return ctx;
 }
+
+// 把真正的 persistSaved() 放进沙箱——它是 index.html 顶层的函数，不在任何标记块里，
+// 而收藏的改动散在四个块里都会叫它。塞的是从 index.html 切出来的原函数，不是复制品。
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+export function injectPersistSaved(ctx) {
+  const html = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "index.html"), "utf8");
+  const at = html.indexOf("function persistSaved(");
+  if (at === -1) throw new Error("index.html 里没有 persistSaved()");
+  vm.runInContext(html.slice(at, html.indexOf("\n}", at) + 2), ctx);
+  return ctx;
+}

@@ -2488,6 +2488,13 @@ function saveUsedToday() {
 }
 
 let savedPhrases = safeParseArray("ll_saved");
+
+// 收藏这一份数据的唯一写入口（ADR 0009）。原来 10 处各写各的
+// safeSetItem("ll_saved", JSON.stringify(savedPhrases))——改数据格式时必然漏一处。
+// 存法保持一模一样：键名、JSON.stringify，旧版本照常读得回来。
+function persistSaved() {
+  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+}
 let usedToday = loadUsedToday();
 
 // Spaced-repetition intervals (days). rv.s = successful review count;
@@ -2500,7 +2507,7 @@ const REVIEW_INTERVALS = [1, 3, 7, 14, 30];
     if (!p.rv) { p.rv = { s: 0, due: Date.now() }; changed = true; }
     if (!p.savedAt) { p.savedAt = Date.now(); changed = true; }
   });
-  if (changed) safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  if (changed) persistSaved();
 })();
 
 // ── Phrase Data — loaded from scenarios.js ─────────────
@@ -3781,7 +3788,7 @@ function toggleSave(id) {
     savedPhrases.push({ ...phrase, scenario: currentScenario, age: currentAge,
                         savedAt: Date.now(), rv: { s: 0, due: Date.now() } });
   }
-  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  persistSaved();
   // 只在「加」的时候说。从两条取消到剩一条也会让计数等于 1，
   // 那时再弹一次「收好了」，说的是一件没发生的事。
   if (added) {
@@ -4193,7 +4200,7 @@ function refreshAudioMarks() {
 
 function removeSaved(id) {
   savedPhrases = savedPhrases.filter(s => s.id !== id);
-  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  persistSaved();
   renderSavedScreen();
   renderReviewArea();
 }
@@ -4249,7 +4256,7 @@ function answerById(id, remembered) {
     item.rv.s = 0;
     item.rv.due = now;
   }
-  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  persistSaved();
   return true;
 }
 
@@ -5199,7 +5206,7 @@ function saveDictSense(lemma, sense, multiSense, panel, data) {
   savedPhrases.push(buildDictSaveEntry(lemma, sense, multiSense));
   // Same as saveTranslation(): fire and forget, the save already landed.
   requestAudio(savedPhrases[savedPhrases.length - 1]);
-  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  persistSaved();
   updateNavBadge();
   renderDictLookupPanel(panel, { state: "result", data });
 }
@@ -5214,7 +5221,7 @@ function updateDictSaveContent(lemma, sense, panel, data) {
   if (!existing) return;
   existing.zh = sense.zh || existing.zh;
   existing.tip = dictSaveTip(sense) || existing.tip;
-  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  persistSaved();
   renderDictLookupPanel(panel, { state: "result", data });
 }
 
@@ -5252,7 +5259,7 @@ function resetDueOnRepeatLookup(data) {
     }
   });
   if (changed) {
-    safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+    persistSaved();
     updateNavBadge();
   }
 }
@@ -5989,7 +5996,7 @@ function deleteCustomScenario(id) {
   for (const p of savedPhrases) {
     if (p && p.scenario === tag) p.scenario = "__translate__";
   }
-  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  persistSaved();
   list.splice(at, 1);
   saveCustomScenarios(list);
   return true;
@@ -6121,7 +6128,7 @@ function saveTranslatedPhrase(entry) {
     savedAt: Date.now(),
     rv: { s: 0, due: Date.now() },
   });
-  safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+  persistSaved();
   updateNavBadge();
   // Claims the clip if one already exists — requestAudio() checks the device
   // before spending anything, so an alternative the parent played before
@@ -7512,7 +7519,7 @@ function importUserData(input) {
 
     const { merged, added, skipped } = mergeSaved(savedPhrases, parsed.payload.saved);
     savedPhrases = merged;
-    safeSetItem("ll_saved", JSON.stringify(savedPhrases));
+    persistSaved();
     if (parsed.payload.age) {
       currentAge = parsed.payload.age;
       safeSetItem("ll_age", currentAge);

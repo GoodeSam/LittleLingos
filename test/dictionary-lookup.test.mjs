@@ -37,7 +37,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
-import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
+import { injectStorage, injectPersistSaved } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -235,6 +235,7 @@ function makeEnv({
   };
   injectStorage(ctx);
   vm.createContext(ctx);
+  injectPersistSaved(ctx);
   // The lookup module calls accessHeaders(), which lives in a DIFFERENT
   // marker block. Rather than hand-writing a stub — which would silently
   // drift from the real thing the day accessHeaders() changes shape — the

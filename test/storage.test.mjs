@@ -169,6 +169,21 @@ test("index.html 在主脚本之前加载它（收藏在页面一解析就要读
   assert.ok(sources.includes("storage.js"), "stamp-sw.mjs 的 SOURCES 里没有它——改了它缓存戳不变");
 });
 
+test("收藏这一份数据只有一处写入：谁改了收藏都叫 persistSaved()，不许各写各的", () => {
+  const html = readFileSync(join(ROOT, "index.html"), "utf8");
+  const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const writes = code.match(/safeSetItem\(\s*"ll_saved"/g) || [];
+  assert.equal(writes.length, 1,
+    `收藏有 ${writes.length} 处直接写入——改数据格式时必然漏掉一处（09-22 那类 bug 的根）。只允许 persistSaved() 里那一处`);
+  const at = code.indexOf("function persistSaved(");
+  assert.ok(at !== -1, "没有 persistSaved()");
+  const body = code.slice(at, code.indexOf("\n}", at));
+  assert.match(body, /safeSetItem\(\s*"ll_saved",\s*JSON\.stringify\(savedPhrases\)\)/,
+    "persistSaved() 的存法必须和原来一模一样：JSON.stringify(savedPhrases)——不然旧版本读不回来");
+  const calls = (code.match(/\bpersistSaved\(\)/g) || []).length - 1;   // 减掉定义本身
+  assert.ok(calls >= 9, `只有 ${calls} 处叫 persistSaved()——原来 10 处写入，收完应当至少 9 处调用`);
+});
+
 test("index.html 里不再有人直接碰 localStorage——只剩把它交给模块的那三行", () => {
   const html = readFileSync(join(ROOT, "index.html"), "utf8");
   const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");

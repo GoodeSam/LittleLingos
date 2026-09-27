@@ -76,6 +76,7 @@ step("L0 · the usage guide in settings says what the app really does (test/sett
 step("L0 · page ↔ server speak the same language (test/api-contract.test.mjs)", () => run("node", ["test/api-contract.test.mjs"]));
 step("L0 · on-device audio store (test/audio-store.test.mjs)", () => run("node", ["test/audio-store.test.mjs"]));
 step("L0 · audio provisioning on save (test/audio-provision.test.mjs)", () => run("node", ["test/audio-provision.test.mjs"]));
+step("L0 · related expressions render, play and save (test/related-expressions.test.mjs)", () => run("node", ["test/related-expressions.test.mjs"]));
 step("L0 · reminder UI is honest about platform capability (test/reminder-capability.test.mjs)", () => run("node", ["test/reminder-capability.test.mjs"]));
 step("L0 · translate failures name their cause (test/translate-failure.test.mjs)", () => run("node", ["test/translate-failure.test.mjs"]));
 step("L0 · api-client is the only way to call /api (test/api-client.test.mjs)", () => run("node", ["test/api-client.test.mjs"]));

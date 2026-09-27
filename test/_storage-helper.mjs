@@ -47,3 +47,31 @@ export function injectApi(ctx) {
   });
   return ctx;
 }
+
+// 把真正的 audio-controller.mjs 接到沙箱里：Audio 用测试自己的假件（ctx.Audio），
+// 手机朗读用一个可检查的假件（挂在 ctx.__llSpeech 上）；按钮重画照 index.html 的
+// 订阅接法（有 setPlayBtnPlaying / resetPlayBtnState 就用）。定时器 unref，免得 8 秒
+// 加载超时把测试进程吊着。
+const { createAudioController } = require(join(dirname(fileURLToPath(import.meta.url)), "..", "audio-controller.mjs"));   // Node 26：require 可直接加载 ESM
+export function injectAudio(ctx) {
+  const spoken = [];
+  const speech = { spoken, cancel() {}, speak(u) { spoken.push(u); } };
+  ctx.__llSpeech = speech;
+  if (!ctx.window) ctx.window = {};   // 产品代码从 window.llAudio 取；沙箱没有 window 就给一个
+  ctx.llAudio = createAudioController({
+    Audio: function (url) { return new ctx.Audio(url); },
+    speech,
+    Utterance: function (text) { return { text }; },
+  });
+  ctx.window.llAudio = ctx.llAudio;
+  let last = null;
+  ctx.llAudio.subscribe((st) => {
+    if (last && last !== st.owner && typeof ctx.resetPlayBtnState === "function") ctx.resetPlayBtnState(last);
+    if (st.owner) {
+      if (st.paused && typeof ctx.resetPlayBtnState === "function") ctx.resetPlayBtnState(st.owner);
+      else if (!st.paused && typeof ctx.setPlayBtnPlaying === "function") ctx.setPlayBtnPlaying(st.owner);
+    }
+    last = st.owner;
+  });
+  return ctx;
+}

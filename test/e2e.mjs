@@ -1249,32 +1249,6 @@ check("「还可以这样说」里的朗读键：放到一半再点是暂停，�
   assert.equal(r.resumed, true, "第三下没有接着放");
 });
 
-check("旧代码正在放的时候，去点走新模块的按钮：旧的那段要停，不许两个声音一起响", async (ev) => {
-  const r = await ev(async () => {
-    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
-    // 造一段「旧代码管的声音」。四处播放键都迁走了，但连续播放（收藏页的
-    // 【连续播放全部】）仍然用 index.html 里的 currentAudio 那一套，所以这个
-    // 不变量还在：它放着的时候去点任何一个播放键，它必须停。
-    currentAudio = new Audio("./audio/b11_normal.mp3");
-    currentAudio.play().catch(() => {});
-    await new Promise(res => setTimeout(res, 800));
-    const out = { legacyStarted: !!currentAudio && !currentAudio.paused };
-    // 再去点走新模块的那个按钮
-    const btn = document.createElement("button");
-    btn.className = "result-play-btn";
-    document.body.appendChild(btn);
-    playClipOrSpeak({ id: null, text: "Time for a bath!", btn });
-    await tick();
-    out.moduleOwns = window.llAudio && window.llAudio.state().owner === btn;
-    out.legacyStopped = !currentAudio || currentAudio.paused;
-    stopAllAudio(); btn.remove(); showTab("home");
-    return out;
-  });
-  assert.equal(r.legacyStarted, true, "旧代码那段没放起来，这条检查等于没测");
-  assert.equal(r.moduleOwns, true, "新模块没接手");
-  assert.equal(r.legacyStopped, true,
-    "旧代码那段还在放——连播和播放键会两个声音叠在一起");
-});
 
 check("场景卡的「▶ 朗读」也归 audio-controller 管：加载中→播放中→暂停→接着放，进度条跟着走", async (ev) => {
   const r = await ev(async () => {
@@ -1390,6 +1364,69 @@ check("翻译时断网：说「没有网络」，本地建议照给，按钮恢�
   assert.match(r.notice, /没有网络|网络/, `说明行：「${r.notice}」`);
   assert.doesNotMatch(r.notice, /暂时不可用/, "断网不该说成服务器不可用");
   assert.equal(r.cardShown, true); assert.equal(r.enabled, true); assert.equal(r.labelAfter, r.label0);
+});
+
+check("查词面板的「▶ 朗读」也归 audio-controller 管：开始 / 暂停 / 接着放", async (ev) => {
+  await ev(WORD_TAP_FETCH);
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    openScenario("bath"); switchAge("0-1"); await tick();
+    const en = document.querySelector("#phraseList .phrase-card .phrase-en");
+    const bath = en && Array.from(en.querySelectorAll(".tap-word")).find(w => w.dataset.word === "bath");
+    if (!bath) return { found: false };
+    bath.click(); await tick();
+    const btn = document.querySelector("#wordLookupPanel .dict-result-play-btn");
+    const out = { found: !!btn };
+    if (!btn) return out;
+    btn.click(); await tick();
+    const s1 = window.llAudio.state();
+    out.owns = s1.owner === btn && s1.mode === "clip";      // bath 在精选词库里，有随应用下发的录音
+    btn.click(); await tick();
+    out.paused = window.llAudio.state().paused === true && window.llAudio.state().owner === btn;
+    btn.click(); await tick();
+    out.resumed = window.llAudio.state().paused === false && window.llAudio.state().owner === btn;
+    stopAllAudio(); if (typeof collapseWordLookup === "function") collapseWordLookup(); switchAge("1-2"); showTab("home");
+    return out;
+  });
+  assert.equal(r.found, true, "查词面板里没有播放键（或 bath 没被切成可点的词）");
+  assert.equal(r.owns, true, "查词面板的播放键没走 audio-controller");
+  assert.equal(r.paused, true, "第二下不是暂停——查词面板一直有「暂停变重播」的毛病，之前漏迁了");
+  assert.equal(r.resumed, true, "第三下没有接着放");
+});
+
+check("连播和播放键互相让路：连播放着时点任何播放键，连播停；播放键放着时开连播，播放键那段停", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    // 连播要有带录音的收藏：收藏两句预设句
+    openScenario("bath"); switchAge("1-2"); await tick();
+    const ps = scenarios.bath.phrases["1-2"].slice(0, 2);
+    for (const p of ps) if (!savedPhrases.some(x => x.id === p.id)) toggleSave(p.id);
+    const items = savedPhrases.filter(x => ps.some(p => p.id === x.id));
+    const out = {};
+    // ① 连播放着 → 点场景卡的播放键 → 连播必须停
+    out.loopStarted = startAudioLoop(items) === true;
+    await new Promise(res => setTimeout(res, 300));
+    const btn = document.querySelector("#phraseList .play-btn");
+    btn.click(); await tick();
+    out.loopStoppedByButton = !audioLoopPlaying();
+    out.buttonOwns = window.llAudio.state().owner === btn;
+    // ② 播放键放着 → 开连播 → 播放键那段必须停
+    stopAllAudio(); await tick();
+    btn.click(); await tick();
+    out.buttonPlaying = window.llAudio.state().owner === btn;
+    startAudioLoop(items);
+    await tick();
+    out.buttonStoppedByLoop = window.llAudio.state().owner === null;
+    out.loopRunning = audioLoopPlaying();
+    stopAudioLoop(); stopAllAudio(); showTab("home");
+    return out;
+  });
+  assert.equal(r.loopStarted, true, "连播没起来，这条检查等于没测");
+  assert.equal(r.loopStoppedByButton, true, "连播放着的时候点播放键，连播没停——两个声音一起响");
+  assert.equal(r.buttonOwns, true);
+  assert.equal(r.buttonPlaying, true, "对照：播放键该先放起来");
+  assert.equal(r.buttonStoppedByLoop, true, "播放键放着的时候开连播，那段没停——两个声音一起响");
+  assert.equal(r.loopRunning, true);
 });
 
 check("复习卡的播放键也归 audio-controller 管：开始 / 暂停 / 接着放，同一段声音", async (ev) => {
@@ -1952,9 +1989,15 @@ hostile("窄屏 320px（老安卓机最常见的宽度）", "", async (ev) => {
     const w = document.documentElement.clientWidth;
     out.width = w;
     out.scrollW = document.documentElement.scrollWidth;
+    // 横向滚动的容器（比如首页的收藏条 .saved-chips 是 overflow-x:auto）里的东西
+    // 本来就可以伸出屏幕外——那是滚动，不是撑破。2026-09-27 之前这条一直没撞上，
+    // 是因为跑到它之前从没有检查留下过好几条收藏。
+    const inScroller = el => { for (let p = el.parentElement; p; p = p.parentElement) {
+      const ox = getComputedStyle(p).overflowX; if (ox === "auto" || ox === "scroll") return true; } return false; };
     for (const el of document.querySelectorAll("#homeScreen *, .bottom-nav *")) {
       const b = el.getBoundingClientRect();
       if (b.width === 0 && b.height === 0) continue;
+      if (inScroller(el)) continue;
       if (b.right > w + 1 || b.left < -1) {
         out.over.push(String(el.className || el.tagName).split(" ")[0] +
           ":" + Math.round(b.left) + "→" + Math.round(b.right));

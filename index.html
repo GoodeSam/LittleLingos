@@ -3211,6 +3211,7 @@ function showVoiceStatus(msg) {
 // 这把嗓子在我们这个 Azure 区域真的可用的办法——不可用就当场说出来，
 // 而不是等到他存了句子才发现没有声音。
 let voicePreviewBusy = false;
+const VOICE_PREVIEW_OWNER = { kind: "voice-preview" };   // 试听在模块里的身份记号（它没有按钮）
 async function previewVoice(opt) {
   if (voicePreviewBusy) return;
   if (!getAccessCode()) { showVoiceStatus("试听要先填上面的邀请码。"); return; }
@@ -3220,9 +3221,12 @@ async function previewVoice(opt) {
     const res = await ttsFetch(VOICE_SAMPLE, opt.id);
     if (!res.ok) { showVoiceStatus(`${opt.label} 这把嗓子现在用不了，换一把试试。`); return; }
     const url = URL.createObjectURL(await res.blob());
-    const audio = new Audio(url);
-    audio.onended = () => URL.revokeObjectURL(url);
-    await audio.play();
+    if (!window.llAudio) { showVoiceStatus("这个浏览器放不了试听。"); URL.revokeObjectURL(url); return; }
+    // 交给模块放（这样它也会把别处正在放的停掉）。试听没有兜底文字：退回手机自带
+    // 的声音念会让家长以为「这就是那把嗓子」。放完（或被别的声音顶掉）就收回地址。
+    if (window.llAudio.state().owner !== VOICE_PREVIEW_OWNER) stopLegacyAudio();
+    const off = window.llAudio.subscribe((st) => { if (st.owner !== VOICE_PREVIEW_OWNER) { off(); URL.revokeObjectURL(url); } });
+    window.llAudio.toggle({ owner: VOICE_PREVIEW_OWNER, url, text: null });
     showVoiceStatus(`这是 ${opt.label}。`);
   } catch {
     showVoiceStatus("连不上网，试听失败。");
@@ -3404,13 +3408,11 @@ function toggleCoach(id, type) {
 
 // ── Speech ─────────────────────────────────────────────
 let cachedVoice = null;
-let currentAudio = null; // active HTMLAudioElement, if any
 // Monotonic playback session. stopAllAudio() bumps it, so media handlers
 // wired by an earlier speakPhrase() (late canplaythrough/error/ended from a
 // discarded element) check their captured session before touching shared
 // playback state — a rapid phrase switch can't start stale TTS or clobber
 // the new playback's UI.
-let playbackSession = 0;
 
 function getEnglishVoice() {
   if (cachedVoice) return cachedVoice;
@@ -3449,6 +3451,18 @@ function resetPlayBtnState(btn) {
 // error — a tap that produces zero visible change. This gives every audio
 // button (play, slow, review, translate-result) a brief, unmistakable
 // "unavailable" state instead of silence.
+// 取不到生成好的片段时会退回手机自带的语音合成。那是完全另一把嗓子，
+// 界面上一个字不说的话，家长只会觉得这软件时好时坏。一次会话只说一遍，
+// 说多了就成噪音。
+let browserVoiceNoted = false;
+function noteBrowserVoice() {
+  if (browserVoiceNoted) return;
+  browserVoiceNoted = true;
+  if (typeof showOfflineToast === "function") {
+    showOfflineToast("这句还没生成好，先用手机自带的声音念");
+  }
+}
+
 function flashAudioUnavailable(btn) {
   if (!btn) return;
   if (btn.dataset.idleLabel === undefined) btn.dataset.idleLabel = btn.textContent;
@@ -3482,10 +3496,11 @@ function scenePlayBtnIdle(btn) {
   setTimeout(() => { if (bar) bar.style.display = "none"; if (fill) fill.style.width = "0%"; }, 500);
 }
 
+// 「旧代码那一半」现在只剩：连播（它整会话用自己那一个元素，见 ll:audio-loop 为什么）、
+// 手机朗读、以及各处按钮/进度条的复位。
 function stopLegacyAudio() {
-  playbackSession++;
+  if (typeof audioLoopPlaying === "function" && audioLoopPlaying()) stopAudioLoop();   // 播放键和连播互相让路
   if (window.speechSynthesis) window.speechSynthesis.cancel();
-  if (currentAudio) { currentAudio.pause(); currentAudio.src = ""; currentAudio = null; }
   document.querySelectorAll('.play-btn.playing, .play-btn-slow.playing').forEach(b => {
     b.classList.remove("playing");
     b.textContent = b.classList.contains("play-btn-slow") ? "慢速" : "▶ 朗读";
@@ -4579,10 +4594,7 @@ function renderRelatedExpressions(related) {
           window.llAudio.toggle({ owner: playBtn, url, text: r.en });
           return;
         }
-        stopAllAudio();
-        const a = new Audio(url);
-        currentAudio = a;
-        a.play().catch(() => {});
+        flashAudioUnavailable(playBtn);   // 模块没加载成：明确告诉家长
         return;
       }
       // First tap pays for it. Generation takes ~3s; the button says so, and
@@ -4599,7 +4611,7 @@ function renderRelatedExpressions(related) {
           const u = playableUrlFor(r);
           if (!u) return;
           if (window.llAudio) { window.llAudio.toggle({ owner: playBtn, url: u, text: r.en }); return; }
-          stopAllAudio(); const a = new Audio(u); currentAudio = a; a.play().catch(() => {});
+          flashAudioUnavailable(playBtn);
         });
       });
     };
@@ -4771,44 +4783,6 @@ async function doTranslate() {
 }
 
 
-// Optional `session`: a caller that already captured a playback session
-// (playReviewAudio's MP3-error fallback) passes it through so a stale
-// fallback can't fire after a newer playback started; direct callers
-// (playResultAudio) default to the current session.
-// 取不到生成好的片段时会退回手机自带的语音合成。那是完全另一把嗓子，
-// 界面上一个字不说的话，家长只会觉得这软件时好时坏。一次会话只说一遍，
-// 说多了就成噪音。
-let browserVoiceNoted = false;
-function noteBrowserVoice() {
-  if (browserVoiceNoted) return;
-  browserVoiceNoted = true;
-  if (typeof showOfflineToast === "function") {
-    showOfflineToast("这句还没生成好，先用手机自带的声音念");
-  }
-}
-
-function speakText(text, rate, btn, session = playbackSession) {
-  const isCurrent = () => session === playbackSession;
-  if (!isCurrent()) return;
-  // No speech-synthesis fallback available (used after an MP3 error in
-  // playReviewAudio, or directly by playResultAudio for AI translations that
-  // have no MP3 at all) — flash a visible state rather than resetting to
-  // idle in silence.
-  if (!window.speechSynthesis) { flashAudioUnavailable(btn); return; }
-  if (!text) { resetPlayBtnState(btn); return; }
-  noteBrowserVoice();
-  window.speechSynthesis.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.lang = "en-US"; utter.rate = rate || 0.85; utter.pitch = 1.1;
-  const v = getEnglishVoice();
-  if (v) utter.voice = v;
-  if (btn) {
-    setPlayBtnPlaying(btn);
-    utter.onend = () => { if (isCurrent()) resetPlayBtnState(btn); };
-    utter.onerror = () => { if (isCurrent()) resetPlayBtnState(btn); };
-  }
-  speechSynthesis.speak(utter);
-}
 
 // 一条播放路径，两个入口共用：翻译页的结果，和场景页「说说看」的结果。
 //
@@ -5311,30 +5285,13 @@ function dictAudioSlug(lemma) {
 //     positive-allowlist comment (ll:dictionary-shared) exists to prevent;
 //     this function must never do that on the API branch.
 function playDictResultAudio(data, btn) {
-  stopAllAudio();
-  // Captured AFTER the bump in stopAllAudio(), same idiom as playReviewAudio/
-  // speakPhrase: every handler below belongs to this session and no-ops once
-  // a newer playback (or an explicit stop) supersedes it.
-  const session = playbackSession;
-  const isCurrent = () => session === playbackSession;
-  if (btn) setPlayBtnPlaying(btn);
-  if (isDictCuratedProvenance(data.provenance)) {
-    const mp3 = new Audio(`./audio/dict/${dictAudioSlug(data.lemma)}_normal.mp3`);
-    currentAudio = mp3;
-    mp3.addEventListener("ended", () => {
-      if (!isCurrent()) return;
-      if (currentAudio === mp3) currentAudio = null;
-      resetPlayBtnState(btn);
-    }, { once: true });
-    mp3.addEventListener("error", () => {
-      if (!isCurrent()) return;
-      if (currentAudio === mp3) currentAudio = null;
-      speakText(data.lemma, undefined, btn, session);
-    }, { once: true });
-    mp3.play().catch(() => { if (isCurrent()) speakText(data.lemma, undefined, btn, session); });
-  } else {
-    speakText(data.lemma, undefined, btn, session);
-  }
+  // ADR 0009：播放交给 audio-controller.mjs（第五处调用点——之前漏迁了，所以查词面板
+  // 一直有「暂停变重播」）。精选词有随应用下发的录音；别的词没有录音，直接念。
+  // 开始 / 暂停 / 接着放 / 录音坏了退回念，都由模块判断；按钮由订阅统一重画。
+  if (!window.llAudio || !btn) { flashAudioUnavailable(btn); return; }   // 和别的调用点一样，从 window 取
+  if (window.llAudio.state().owner !== btn) stopLegacyAudio();
+  const url = isDictCuratedProvenance(data.provenance) ? `./audio/dict/${dictAudioSlug(data.lemma)}_normal.mp3` : null;
+  window.llAudio.toggle({ owner: btn, url, text: data.lemma });
 }
 
 function buildDictResultCard(data, panel) {
@@ -6242,6 +6199,7 @@ function silenceLoopCue() {
 // phrase on deck changes, so the screen can show its Chinese.
 function startAudioLoop(items, onCue) {
   stopAudioLoop();
+  if (typeof stopAllAudio === "function") stopAllAudio();   // 播放键正在放的那段要停，否则两个声音一起响
   loopQueue = (items || []).filter(it => playableUrlFor(it));
   if (!loopQueue.length) return false;
   loopOnCue = typeof onCue === "function" ? onCue : null;

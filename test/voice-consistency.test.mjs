@@ -105,14 +105,12 @@ test("退回手机自带的声音时，界面上说得出来", () => {
   const fn = html.match(/function noteBrowserVoice[\s\S]*?\n\}/);
   assert.match(fn[0], /手机|自带|系统/, "那句话没说清这是手机自带的声音");
 
-  // 两条退路都要说：句子卡的朗读，和结果卡/复习卡的朗读
-  const speakText = html.match(/function speakText[\s\S]*?\n\}/);
-  assert.ok(speakText, "找不到 speakText");
-  assert.match(speakText[0], /noteBrowserVoice\(\)/, "speakText 退回时没说");
-  const fallback = html.match(/function fallbackTTS[\s\S]*?\n  \}/);
-  if (fallback) {
-    assert.match(fallback[0], /noteBrowserVoice\(\)/, "句子卡退回时没说");
-  }
+  // 2026-09-27（ADR 0009）：所有播放键的退路都收进了 audio-controller，它念之前会经过
+  // index.html 里那个 Utterance 工厂（<script type="module"> 里 createAudioController 的
+  // 参数）——所以「说一声」只需要在那一处。老的 speakText / fallbackTTS 已删。
+  const factory = html.match(/Utterance:\s*function \(text\) \{[\s\S]*?\n  \},/);
+  assert.ok(factory, "找不到交给 audio-controller 的 Utterance 工厂");
+  assert.match(factory[0], /noteBrowserVoice\(\)/, "退回手机自带声音时没说一声");
 });
 
 test("场景里的预设句子不跟着换音色——这件事在设置里写明了", () => {

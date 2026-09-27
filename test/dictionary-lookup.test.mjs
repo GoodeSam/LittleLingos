@@ -37,7 +37,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
-import { injectStorage, injectPersistSaved, injectApi } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
+import { injectStorage, injectPersistSaved, injectApi, injectAudio } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -199,18 +199,14 @@ function makeEnv({
     // generation-counter idiom the real one uses) so the session-guard tests
     // can exercise a real stale-callback race, and it stubs a fresh Audio()
     // ctor is unaffected — mirroring what production does with currentAudio.
+    // 2026-09-27（ADR 0009）：播放收进 audio-controller.mjs，playbackSession / currentAudio /
+    // speakText 都不在了。Audio 仍是这里的假件，真控制器接在它上面（见下面 injectAudio）。
+    // stopLegacyAudio 是模块之外「让路」的那一半（停连播、停手机朗读、复位按钮），这里只记次数。
     Audio: FakeAudio,
-    playbackSession: 0,
-    currentAudio: null,
-    stopAllAudio() {
-      stopAllAudioCalls.push(true);
-      ctx.playbackSession++;
-      ctx.currentAudio = null;
-    },
+    stopLegacyAudio() { stopAllAudioCalls.push(true); },
     setPlayBtnPlaying(btn) { setPlayBtnPlayingCalls.push(btn); if (btn) btn.__playing = true; },
     resetPlayBtnState(btn) { resetPlayBtnStateCalls.push(btn); if (btn) btn.__playing = false; },
     flashAudioUnavailable(btn) { flashAudioUnavailableCalls.push(btn); },
-    speakText(text, rate, btn, session) { speakTextCalls.push({ text, rate, btn, session }); },
     // requestAudio() lives in ll:audio-provision and is a paid, asynchronous
     // side effect with its own storage, network, auth and concurrency state —
     // and its own 18 tests. Running the real thing here would make this file's
@@ -237,6 +233,7 @@ function makeEnv({
   vm.createContext(ctx);
   injectApi(ctx);
   injectPersistSaved(ctx);
+  injectAudio(ctx);   // 真的 audio-controller，接在上面那个 FakeAudio 和一个可检查的朗读假件上
   // The lookup module calls accessHeaders(), which lives in a DIFFERENT
   // marker block. Rather than hand-writing a stub — which would silently
   // drift from the real thing the day accessHeaders() changes shape — the
@@ -278,6 +275,7 @@ function makeEnv({
     ctx, els, searchPhrasesCalls, goTranslateCalls, fetchCalls, safeSetItemCalls, updateNavBadgeCalls, savedPhrases,
     audioRequests,
     speakTextCalls, setPlayBtnPlayingCalls, resetPlayBtnStateCalls, flashAudioUnavailableCalls, stopAllAudioCalls, FakeAudio,
+    spoken: ctx.__llSpeech.spoken,   // 模块退回手机朗读时念了什么（原来是 speakTextCalls）
   };
 }
 
@@ -1370,7 +1368,7 @@ test("API-path result's play control goes to speechSynthesis and NEVER construct
   });
   // "watch" is deliberately kept OUT of FIXTURE_WORDS (see its own comment
   // above) so this is a genuine curated-miss -> API-hit, not an accident.
-  const { ctx, els, FakeAudio, speakTextCalls } = makeEnv({ inputValue: "watch", fetchImpl });
+  const { ctx, els, FakeAudio, spoken } = makeEnv({ inputValue: "watch", fetchImpl });
   ctx.performDictLookup("watch");
   await flush();
   const card = panelChild(els.dictLookupPanel, "dict-result-card");
@@ -1378,13 +1376,13 @@ test("API-path result's play control goes to speechSynthesis and NEVER construct
   assert.ok(playBtn, "API-path result card must still render a play control");
   playBtn.onclick();
   assert.equal(FakeAudio.instances.length, 0, "an API-path lemma must NEVER construct an Audio() URL");
-  assert.equal(speakTextCalls.length, 1, "the API path must go straight to speakText()");
-  assert.equal(speakTextCalls[0].text, "watch");
+  assert.equal(spoken.length, 1, "the API path must go straight to speech synthesis");
+  assert.equal(spoken[0].text, "watch");
 });
 
 // ── mp3 failure -> speakText fallback (both real-browser failure channels) ──
 test("mp3 `error` event falls back to speakText(lemma)", async () => {
-  const { ctx, els, FakeAudio, speakTextCalls } = makeEnv({ inputValue: "eat" });
+  const { ctx, els, FakeAudio, spoken } = makeEnv({ inputValue: "eat" });
   ctx.performDictLookup("eat");
   await flush();
   const card = panelChild(els.dictLookupPanel, "dict-result-card");
@@ -1392,12 +1390,12 @@ test("mp3 `error` event falls back to speakText(lemma)", async () => {
   playBtn.onclick();
   assert.equal(FakeAudio.instances.length, 1);
   FakeAudio.instances[0].fire("error");
-  assert.equal(speakTextCalls.length, 1);
-  assert.equal(speakTextCalls[0].text, "eat");
+  assert.equal(spoken.length, 1);
+  assert.equal(spoken[0].text, "eat");
 });
 
 test("a rejected play() promise also falls back to speakText(lemma)", async () => {
-  const { ctx, els, FakeAudio, speakTextCalls } = makeEnv({ inputValue: "eat" });
+  const { ctx, els, FakeAudio, spoken } = makeEnv({ inputValue: "eat" });
   FakeAudio.nextPlayRejects = true;
   ctx.performDictLookup("eat");
   await flush();
@@ -1405,15 +1403,15 @@ test("a rejected play() promise also falls back to speakText(lemma)", async () =
   const playBtn = findByClassToken(card, "dict-result-play-btn");
   playBtn.onclick();
   await flush();
-  assert.equal(speakTextCalls.length, 1);
-  assert.equal(speakTextCalls[0].text, "eat");
+  assert.equal(spoken.length, 1);
+  assert.equal(spoken[0].text, "eat");
 });
 
 // ── Session guard: a stale callback from a superseded card must not touch
 // a newer playback's button (same generation-counter idiom as speakPhrase/
 // playReviewAudio's playbackSession guard) ──────────────────────────────
 test("session guard: a stale error from a superseded dict result card does not reset a newer button", async () => {
-  const { ctx, els, FakeAudio, resetPlayBtnStateCalls, speakTextCalls } = makeEnv({ inputValue: "eat" });
+  const { ctx, els, FakeAudio, resetPlayBtnStateCalls, spoken } = makeEnv({ inputValue: "eat" });
   ctx.performDictLookup("eat");
   await flush();
   const cardA = panelChild(els.dictLookupPanel, "dict-result-card");
@@ -1430,11 +1428,15 @@ test("session guard: a stale error from a superseded dict result card does not r
   assert.equal(FakeAudio.instances.length, 2, "second tap must construct its own, newer Audio()");
   assert.equal(btnB.__playing, true);
 
+  // 2026-09-27（ADR 0009）：B 一开始放，A 就被订阅重画复位——那是正确的界面行为
+  // （老设计的沙箱里没有这一步）。要验的仍是「过期的回调什么都不再做」：
+  // 触发前后，复位次数不变、不念、B 照样在放。
+  const resetsBefore = resetPlayBtnStateCalls.length;
   // The FIRST (now-stale) Audio() instance's error fires late.
   FakeAudio.instances[0].fire("error");
 
-  assert.ok(!resetPlayBtnStateCalls.includes(btnA), "a stale error must not reset the OLD button either — it should just no-op");
-  assert.equal(speakTextCalls.length, 0, "a stale error must not start a fallback speakText() call");
+  assert.equal(resetPlayBtnStateCalls.length, resetsBefore, "a stale error must not reset ANY button — it should just no-op");
+  assert.equal(spoken.length, 0, "a stale error must not start a fallback speech call");
   assert.equal(btnB.__playing, true, "the NEWER button's playing state must remain untouched by the stale callback");
 });
 

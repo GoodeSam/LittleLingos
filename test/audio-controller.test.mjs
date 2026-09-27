@@ -309,6 +309,23 @@ test("旧的那套播放代码已经删干净——同一件事不许有两份�
   }
 });
 
+test("播放收尾：index.html 里只许剩连播那一个 Audio 元素；查词面板、音色试听也走模块；旧的全局变量全删", async () => {
+  const html = readFileSync(join(ROOT, "index.html"), "utf8");
+  const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const sites = [...code.matchAll(/new Audio\(/g)].map(m => m.index);
+  assert.equal(sites.length, 1, `index.html 里还有 ${sites.length} 处 new Audio(——除了连播那个整会话只造一次的元素（iOS 只让被点击解锁的那个元素接着放），其余都该走 audio-controller`);
+  const loopAt = code.indexOf("function startAudioLoop(");
+  assert.ok(loopAt !== -1 && sites[0] > loopAt && sites[0] < code.indexOf("\n}", loopAt), "唯一剩下的那个 new Audio( 不在 startAudioLoop 里");
+  for (const gone of ["currentAudio", "playbackSession", "function speakText("]) {
+    assert.ok(!code.includes(gone), `index.html 里还有「${gone}」——播放的状态只该在模块里`);
+  }
+  for (const fn of ["playDictResultAudio", "previewVoice"]) {
+    const at = code.indexOf(`function ${fn}(`);
+    assert.ok(at !== -1, `找不到 ${fn}`);
+    assert.ok(code.slice(at, code.indexOf("\n}", at)).includes("llAudio"), `${fn}() 没走 audio-controller`);
+  }
+});
+
 test("新文件要进 sw.js 的预缓存清单和缓存戳来源，否则离线会坏、改了也不换戳", async () => {
   const sw = readFileSync(join(ROOT, "sw.js"), "utf8");
   const shell = sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = [")));

@@ -4494,6 +4494,16 @@ function syncTranslateCopy() {
   const note = document.getElementById("aiDisclaimer");
   if (note) note.textContent = translateDisclaimer();
 }
+// 翻译没成功时，结果卡说明行上对家长说的话。本地匹配的建议照常显示（免费能力
+// 不受影响），这一行只负责把**原因**说准：断网 ≠ 太慢 ≠ 服务器出问题。
+// 服务器回的英文原话一个字都不进来——它们对家长没有意义，还会把人吓到。
+function translateFailureNotice(error) {
+  if (error === "network") return "📴 没有网络 — 这是本地匹配的建议，联网后可获得 AI 翻译。";
+  if (error === "timeout") return "⏳ 服务器响应太慢 — 先给你本地匹配的建议，稍后再试一次。";
+  // server / upstream / malformed / invalid / incomplete：都是那边的问题，不是他的网络
+  return "⚠️ AI 翻译暂时不可用（不是你的网络问题）— 先给你本地匹配的建议，稍后再试。";
+}
+
 function translateDisclaimer() {
   return translateAge === "adult"
     ? "⚠ AI 即时生成，未经人工审核 — 用之前先自己读一遍。"
@@ -4753,7 +4763,7 @@ async function doTranslate() {
       return;
     }
     // Offline / quota exhausted / function error / incomplete result
-    showTranslateResult(localTranslate(zh), "📴 离线建议（本地匹配，非 AI 生成）— 联网后可获得更贴合的表达。");
+    showTranslateResult(localTranslate(zh), translateFailureNotice(t.error));
   } finally {
     btn.disabled = false;
     btn.textContent = btnLabel;
@@ -6046,9 +6056,10 @@ async function translateChinese(zh, age) {
   if (!clean) return { ok: false, error: "empty" };
   const r = await llApi.post("/api/translate", { zh: clean, age }, { timeoutMs: TRANSLATE_TIMEOUT_MS });
   if (r.kind === "access") return { ok: false, error: "access", message: accessErrorMessage(r.status) };
-  // 原来任何抛错（断网、超时、连 JSON 解析失败）都归 offline，照旧；其余非 2xx 归 upstream。
-  if (r.kind === "network" || r.kind === "timeout" || r.kind === "malformed") return { ok: false, error: "offline" };
-  if (r.kind !== "ok") return { ok: false, error: "upstream" };
+  // 失败原因原样带出（network / timeout / server / upstream / malformed / invalid）：
+  // 2026-09-27 之前断网、超时、回复异常全被压成 offline，家长看到的都是「离线建议」，
+  // 会去检查一个其实正常的网络（PRD 6.8）。对家长说什么，见 translateFailureNotice()。
+  if (r.kind !== "ok") return { ok: false, error: r.kind };
   const result = r.body;
   // A result missing its English or its tip is not a usable suggestion —
   // treated as an outage so the caller falls back rather than showing a

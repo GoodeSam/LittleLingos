@@ -1308,6 +1308,49 @@ check("万一 audio-controller.mjs 没加载成：按钮显示「暂不可用」
   assert.equal(r.translateMarked, true, "翻译结果那个 ▶ 在模块缺失时默默没反应");
 });
 
+// 翻译失败时把原因说准（ADR 0009 判据 2 功能 ①，PRD 6.8）。超时那种要等 12 秒，
+// 单元测试里已验；这里只验真浏览器里家长真能看见的两种：服务器故障、断网。
+async function translateWith(ev, fetchBody) {
+  await ev(STUB_FETCH);
+  return ev(async (fetchBody) => {
+    const real = window.fetch;
+    window.fetch = new Function("real", "return " + fetchBody)(real);
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    showTab("help"); await tick();
+    const btn = document.querySelector(".translate-btn");
+    const label0 = btn.textContent.trim();
+    document.getElementById("zhInput").value = "我们去洗手";
+    await doTranslate();
+    await tick();
+    const out = {
+      label0, labelAfter: btn.textContent.trim(), enabled: !btn.disabled,
+      notice: document.getElementById("aiDisclaimer").textContent.trim(),
+      cardShown: document.getElementById("translateResult").classList.contains("show"),
+      en: document.getElementById("resultEn").innerText.trim(),
+    };
+    window.fetch = real;
+    return out;
+  }, fetchBody);
+}
+check("翻译时服务器故障：说「暂时不可用、不是你的网络」，不抄英文原话，本地建议照给，按钮恢复", async (ev) => {
+  const r = await translateWith(ev, `async (u, i) => String(u).indexOf("/api/translate") !== -1
+    ? new Response(JSON.stringify({ error: "GEMINI_API_KEY missing" }), { status: 500, headers: { "Content-Type": "application/json" } })
+    : real(u, i)`);
+  assert.match(r.notice, /暂时不可用/, `说明行：「${r.notice}」`);
+  assert.match(r.notice, /不是.*网络/, `没写明不是他的网络问题：「${r.notice}」`);
+  assert.doesNotMatch(r.notice, /GEMINI|missing/i, `把服务器原话抄给家长了：「${r.notice}」`);
+  assert.equal(r.cardShown, true, "本地建议的卡片没显示——免费能力受影响了");
+  assert.ok(r.en.length > 0, "本地建议是空的");
+  assert.equal(r.enabled, true, "翻译按钮没恢复可点");
+  assert.equal(r.labelAfter, r.label0, `按钮字样没恢复（「${r.labelAfter}」）`);
+});
+check("翻译时断网：说「没有网络」，本地建议照给，按钮恢复", async (ev) => {
+  const r = await translateWith(ev, `async (u, i) => { if (String(u).indexOf("/api/translate") !== -1) throw new TypeError("Failed to fetch"); return real(u, i); }`);
+  assert.match(r.notice, /没有网络|网络/, `说明行：「${r.notice}」`);
+  assert.doesNotMatch(r.notice, /暂时不可用/, "断网不该说成服务器不可用");
+  assert.equal(r.cardShown, true); assert.equal(r.enabled, true); assert.equal(r.labelAfter, r.label0);
+});
+
 check("复习卡的播放键也归 audio-controller 管：开始 / 暂停 / 接着放，同一段声音", async (ev) => {
   const r = await ev(async () => {
     const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));

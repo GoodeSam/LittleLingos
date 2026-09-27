@@ -107,8 +107,9 @@ test("说明里画的四种声音标记，和收藏列表里真用的图标一�
 
 test("说明里写的复习间隔，和复习真用的间隔是同一组数", () => {
   const { src } = guide();
-  const m = html.match(/const REVIEW_INTERVALS = \[([^\]]+)\]/);
-  assert.ok(m, "找不到复习间隔的定义");
+  // 2026-09-27（ADR 0009）：间隔表搬进了 review-engine.js，那是唯一的一份。
+  const m = readFileSync(join(ROOT, "review-engine.js"), "utf8").match(/INTERVALS = Object\.freeze\(\[([^\]]+)\]\)/);
+  assert.ok(m, "找不到复习间隔的定义（review-engine.js 里的 INTERVALS）");
   const days = m[1].split(",").map(s => s.trim());
   const want = days.join("、");
   assert.ok(text(src).includes(want),

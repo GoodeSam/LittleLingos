@@ -75,3 +75,11 @@ export function injectAudio(ctx) {
   });
   return ctx;
 }
+
+
+// 真正的 review-engine.js 进沙箱（它没有依赖，直接挂）。
+const llReviewLib = require(join(dirname(fileURLToPath(import.meta.url)), "..", "review-engine.js"));
+export function injectReview(ctx) {
+  ctx.llReview = llReviewLib;
+  return ctx;
+}

@@ -2375,6 +2375,8 @@
 <script src="./storage.js"></script>
 <!-- 往自家服务器打电话的唯一出口（ADR 0009 第三块）。 -->
 <script src="./api-client.js"></script>
+<!-- 复习怎么排的唯一主人（ADR 0009 第四块）。不带 defer：首页一开就要数今天到期几句。 -->
+<script src="./review-engine.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
      万一这个文件没加载成（MIME 不对、被缓存挡住），window.llAudio 就是
@@ -2512,11 +2514,11 @@ let usedToday = loadUsedToday();
 // Spaced-repetition intervals (days). rv.s = successful review count;
 // rv.due = next review timestamp. Entries saved before the review feature
 // get default fields so they enter the queue immediately.
-const REVIEW_INTERVALS = [1, 3, 7, 14, 30];
+// 复习间隔表与排期算法在 review-engine.js（llReview），这里不再有第二份。
 (function migrateSaved() {
   let changed = false;
   savedPhrases.forEach(p => {
-    if (!p.rv) { p.rv = { s: 0, due: Date.now() }; changed = true; }
+    if (!p.rv) { p.rv = llReview.freshSchedule(Date.now()); changed = true; }
     if (!p.savedAt) { p.savedAt = Date.now(); changed = true; }
   });
   if (changed) persistSaved();
@@ -4253,7 +4255,7 @@ function dueReviews() {
   // sortedBySavedAtDesc). reviewAnswer() still shift/push()es this queue in
   // place for its own "answer again this session" logic; that in-session
   // reordering is unaffected since it operates on the queue, not this sort.
-  return sortedBySavedAtDesc(savedPhrases.filter(p => p.rv && p.rv.due <= now));
+  return sortedBySavedAtDesc(llReview.dueItems(savedPhrases, now));
 }
 
 // Reschedule ONE phrase, named by id. This is the form the saved list needs:
@@ -4272,17 +4274,10 @@ function answerById(id, remembered) {
   if (!item) return false;
   // Items saved by older versions, or restored by hand, may have no schedule
   // at all. Give them one rather than throwing.
-  if (!item.rv) item.rv = { s: 0, due: Date.now() };
   const now = Date.now();
-  if (remembered) {
-    item.rv.s = Math.min((item.rv.s || 0) + 1, REVIEW_INTERVALS.length);
-    const days = REVIEW_INTERVALS[Math.min(item.rv.s - 1, REVIEW_INTERVALS.length - 1)];
-    item.rv.due = now + days * 86400000;
-  } else {
-    // Back to stage 0, due now — comes around again today.
-    item.rv.s = 0;
-    item.rv.due = now;
-  }
+  if (!item.rv) item.rv = llReview.freshSchedule(now);
+  // 算法在 review-engine.js；这里原地写回（对象身份和格式 rv:{s,due} 都不变）。
+  Object.assign(item.rv, llReview.nextSchedule(item.rv, remembered, now));
   persistSaved();
   return true;
 }
@@ -5248,9 +5243,7 @@ function resetDueOnRepeatLookup(data) {
     const id = dictSaveId(data.lemma, sense.key);
     const existing = savedPhrases.find(p => p.id === id);
     if (existing) {
-      existing.rv = existing.rv || {};
-      existing.rv.s = 0;
-      existing.rv.due = now;
+      existing.rv = Object.assign(existing.rv || {}, llReview.freshSchedule(now));   // 回到起点，算法归模块
       changed = true;
     }
   });

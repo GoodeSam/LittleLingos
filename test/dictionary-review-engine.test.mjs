@@ -23,7 +23,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
-import { injectPersistSaved } from "./_storage-helper.mjs";   // 真正的 persistSaved()，从 index.html 切出来
+import { injectPersistSaved, injectReview } from "./_storage-helper.mjs";   // 真正的 persistSaved()，从 index.html 切出来
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -57,6 +57,7 @@ function makeEnv({ savedPhrases = [] } = {}) {
     console,
   };
   vm.createContext(ctx);
+  injectReview(ctx);
   injectPersistSaved(ctx);
   const s = html.indexOf(START), e = html.indexOf(END);
   assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
@@ -76,10 +77,12 @@ function dictSavedItem(overrides = {}) {
 
 // ── Guard: no silent second interval table ──────────────────────────────
 test("index.html's real REVIEW_INTERVALS matches what this suite assumes (no drift, no second table)", () => {
-  const m = html.match(/const REVIEW_INTERVALS = (\[[^\]]*\]);/);
-  assert.ok(m, "index.html must define `const REVIEW_INTERVALS = [...]`");
-  const real = JSON.parse(m[1]);
-  assert.deepEqual(real, ASSUMED_REVIEW_INTERVALS);
+  // 2026-09-27（ADR 0009）：间隔表搬进 review-engine.js，那是唯一的一份；index.html 里不许再有第二份。
+  const engine = readFileSync(join(ROOT, "review-engine.js"), "utf8");
+  const m = engine.match(/INTERVALS = Object\.freeze\((\[[^\]]*\])\)/);
+  assert.ok(m, "review-engine.js must define INTERVALS");
+  assert.deepEqual(JSON.parse(m[1]), ASSUMED_REVIEW_INTERVALS);
+  assert.ok(!/const REVIEW_INTERVALS\s*=/.test(html), "index.html must not carry a second interval table");
 });
 
 // ── dueReviews(): a dictionary save is due exactly like any other save ──

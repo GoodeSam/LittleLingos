@@ -32,7 +32,10 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const TARGET = join(ROOT, "index.html");
+// 变异默认改 index.html；拆出去的模块用 `file` 字段指名（ADR 0009 之后代码不再只有一个文件）。
+const DEFAULT_TARGET = "index.html";
+const fileOf = (m) => join(ROOT, m.file || DEFAULT_TARGET);
+const TOUCHED = () => [...new Set(MUTANTS.map(m => m.file || DEFAULT_TARGET))];
 
 // Each mutant names the test that MUST go red. Naming it is half the value:
 // "some test will catch this" is a hope, "this file catches this" is a claim
@@ -68,9 +71,11 @@ const MUTANTS = [
     kills: "test/scenario-restore-fidelity.test.mjs",
   },
   {
+    // 2026-09-27：这段代码搬进了 item-kind.js（ADR 0009 第七块），锚串跟着搬。
     name: "自建场景的判断挪到预设场景之后",
     why: "那些句子会被当成有随应用下发的 mp3，去播一个不存在的文件",
-    find: `  if (typeof isCustomScenario === "function" && isCustomScenario(item.scenario)) return "translate";\n`,
+    file: "item-kind.js",
+    find: `      if (isCustom(item.scenario)) return "translate";\n`,
     with: ``,
     kills: "test/scenario-ui.test.mjs",
   },
@@ -118,14 +123,16 @@ const MUTANTS = [
 const sh = (cmd, args, opts = {}) =>
   execFileSync(cmd, args, { cwd: ROOT, encoding: "utf8", ...opts });
 
-if (sh("git", ["status", "--porcelain", "index.html"]).trim()) {
-  console.error("✗ index.html 有未提交改动 —— 先提交或 stash。");
-  console.error("  这个脚本会反复改写它，崩在中间就找不回来了。");
+const dirty = sh("git", ["status", "--porcelain", ...TOUCHED()]).trim();
+if (dirty) {
+  console.error(`✗ 这些文件有未提交改动 —— 先提交或 stash：\n${dirty}`);
+  console.error("  这个脚本会反复改写它们，崩在中间就找不回来了。");
   process.exit(2);
 }
 
-const ORIGINAL = readFileSync(TARGET, "utf8");
-const restore = () => writeFileSync(TARGET, ORIGINAL);
+// 每个会被动到的文件各存一份原文；还原时全部写回。
+const ORIGINALS = new Map(TOUCHED().map(f => [f, readFileSync(join(ROOT, f), "utf8")]));
+const restore = () => { for (const [f, text] of ORIGINALS) writeFileSync(join(ROOT, f), text); };
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => { restore(); process.exit(130); });
 }
@@ -138,17 +145,18 @@ try {
     const n = i + 1;
     if (only && only !== n) continue;
 
-    const count = ORIGINAL.split(m.find).length - 1;
+    const source = ORIGINALS.get(m.file || DEFAULT_TARGET);
+    const count = source.split(m.find).length - 1;
     if (count !== 1) {
       // The anchor moved. Reported as a failure of this file, not of the
       // suite — a mutant that cannot be applied proves nothing and must not
       // be mistaken for one that was killed.
-      results.push({ n, m, verdict: "anchor", detail: `锚串命中 ${count} 次，应为 1` });
+      results.push({ n, m, verdict: "anchor", detail: `${m.file || DEFAULT_TARGET} 里锚串命中 ${count} 次，应为 1` });
       console.log(`[${n}/${MUTANTS.length}] ⚠ ${m.name} —— 锚串命中 ${count} 次，这条变异没跑`);
       continue;
     }
 
-    writeFileSync(TARGET, ORIGINAL.replace(m.find, m.with));
+    writeFileSync(fileOf(m), source.replace(m.find, m.with));
     let killed = false;
     try {
       execFileSync("node", [m.kills], { cwd: ROOT, stdio: "pipe" });
@@ -166,9 +174,11 @@ try {
   // Belt and braces: a restore that silently failed would leave a mutated
   // product file in the working tree, which is far worse than any finding
   // this script could report.
-  if (readFileSync(TARGET, "utf8") !== ORIGINAL) {
-    console.error("\n🚨 index.html 没能还原！立刻跑：git checkout index.html");
-    process.exit(3);
+  for (const [f, text] of ORIGINALS) {
+    if (readFileSync(join(ROOT, f), "utf8") !== text) {
+      console.error(`\n🚨 ${f} 没能还原！立刻跑：git checkout ${f}`);
+      process.exit(3);
+    }
   }
 }
 

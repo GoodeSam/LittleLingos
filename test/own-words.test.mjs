@@ -20,7 +20,7 @@
 //   对着话筒讲。他讲了一句，这句话变成英文留在这个场景里。下次再点开
 //   洗澡时间，那句问话不再出现——它已经做完它的事了。而他点开「吃饭时间」
 //   时，那里的问话照常在。
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
@@ -40,18 +40,36 @@ vm.runInContext(readFileSync(join(ROOT, "scenarios.js"), "utf8"), sctx);
 const scenarios = sctx.scenarios || sctx.window.scenarios;
 const scenarioOrder = sctx.scenarioOrder || sctx.window.scenarioOrder;
 
+// 2026-09-27（ADR 0009 第五块）：这三个纯函数搬进了 own-words.js，直接 require，
+// 不再从 index.html 里切块。
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 function load() {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1 && e > s,
-    "找不到 ll:own-words 块 —— 这个功能还没有实现");
-  const ctx = { console };
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s + START.length, e), ctx);
-  return ctx;
+  const p = join(ROOT, "own-words.js");
+  assert.ok(existsSync(p), "own-words.js 还不存在——这三个纯函数该搬出 index.html 了");
+  return require(p);
 }
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
+
+test("这三个函数只在 own-words.js 里有一份：index.html 里的块删了，两个调用点走模块，主脚本前加载，进了离线清单", () => {
+  const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  assert.ok(!html.includes(START), "index.html 里还有 ll:own-words 块——同一件事两份实现");
+  for (const fn of ["isOwnWords", "ownWordsInvite", "ownWordsResult"]) {
+    assert.ok(!code.includes(`function ${fn}(`), `index.html 里还定义着 ${fn}()`);
+  }
+  assert.ok(/llOwnWords\.ownWordsInvite\(/.test(code), "问话那处没走模块");
+  assert.ok(/llOwnWords\.ownWordsResult\(/.test(code), "结果卡那处没走模块");
+  const tagAt = html.indexOf('<script src="./own-words.js"></script>');
+  assert.ok(tagAt !== -1 && tagAt < html.indexOf("\n<script>\n"), "own-words.js 要在主脚本之前加载");
+  const sw = readFileSync(join(ROOT, "sw.js"), "utf8");
+  assert.ok(sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = ["))).includes("own-words.js"), "sw.js 的 SHELL 里没有它——离线会白屏");
+  const stamp = readFileSync(join(ROOT, "scripts/stamp-sw.mjs"), "utf8");
+  assert.ok(stamp.slice(stamp.indexOf("const SOURCES = ["), stamp.indexOf("]", stamp.indexOf("const SOURCES = ["))).includes("own-words.js"), "stamp-sw.mjs 的 SOURCES 里没有它");
+  const src = readFileSync(join(ROOT, "own-words.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  for (const bad of ["document.", "window.", "localStorage", "fetch("]) assert.ok(!src.includes(bad), `own-words.js 里出现了「${bad}」——它该是纯的`);
+});
 
 const preset = (scenarioTag, i = 0) => {
   const p = scenarios[scenarioTag].phrases["1-2"][i];

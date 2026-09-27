@@ -29,6 +29,7 @@ const SOURCES = [
   "storage.js",
   "api-client.js",
   "review-engine.js",
+  "own-words.js",
   "scenarios.js",
   "dictionary-words.js",
   "manifest.json",

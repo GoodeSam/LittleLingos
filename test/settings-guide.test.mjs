@@ -385,6 +385,20 @@ test("「今天用了」能再点一次取消，说明就得写；写了就得�
   assert.ok(/第二天|当天|每天/.test(whole), `打卡每天清零，讲它的那一条里没写——家长会以为是永久记录：「${whole.slice(0, 80)}…」`);
 });
 
+test("讲到点提醒时，把哪些平台验过、哪些收不到、哪些没验说清——和界面上说的一致", () => {
+  // 看整条「到点提醒」主题（summary 里带这四个字的那个 <details>），不按句子过滤——
+  // 第一版按「含『提醒』的句子」过滤，把「安卓还没验证过」这句漏了（它没有那两个字）。
+  const src = guide().src;
+  const m = src.match(/<details[^>]*>\s*<summary[^>]*>[^<]*到点提醒[^<]*<\/summary>([\s\S]*?)<\/details>/);
+  assert.ok(m, "使用说明里找不到「到点提醒」那一条");
+  const item = text(m[1]);
+  assert.match(item, /主屏幕/, "没说 iPhone 要主屏幕版");
+  assert.match(item, /微信/, "没说微信里收不到提醒");
+  assert.match(item, /安卓/, "没说安卓还没验证过");
+  // 「能不能收到」里的「不能」不算断言（第一版正则在这里误报过）——只抓「安卓…不能/无法/收不到」这种下结论的写法
+  assert.doesNotMatch(item, /安卓[^。；]{0,8}(?<!能)(不能|无法|收不到)/, "安卓没验过，不许断言不能");
+});
+
 console.log("settings guide tests");
 let passed = 0, failed = 0;
 for (const t of tests) {

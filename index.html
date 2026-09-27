@@ -7680,10 +7680,49 @@ function formatReminderTime(t) {
   return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${hm}`;
 }
 
+// 这个环境能不能开提醒、按钮写什么、说明行说什么——一处定（R21，PRD 6.4 支持矩阵）。
+// 三档：已验过（iPhone 主屏幕版）/ 没验证过（安卓、桌面……允许开但标明）/ 开不了
+// （iPhone 没装主屏幕、微信里、浏览器不支持通知）。没验过的事不许说成「能」或「不能」。
+// 平台事实从外面传进来，所以能在 Node 里直接测。
+function reminderCapability(facts) {
+  const f = facts && typeof facts === "object" ? facts : {};
+  const env = f.installEnv && typeof f.installEnv === "object" ? f.installEnv : {};
+  const standalone = f.isStandalone === true;
+  const push = f.pushSupported === true;
+  const base = { buttonLabel: "开启提醒", action: "none", canEnable: false };
+  if (env.isWeChat === true && !push) {
+    // 这个微信内置浏览器没有通知能力——「收不到」是事实，不是猜测。指路去装主屏幕版。
+    return { ...base, level: "wechat",
+      note: "这个微信里收不到提醒。iPhone 请用 Safari 打开这个网址并「添加到主屏幕」，再从主屏幕打开；安卓在这里还没验证过。" };
+  }
+  if (env.isIOS === true && !standalone) {
+    return { ...base, level: "ios-install-first", action: "install", buttonLabel: "先添加到主屏幕",
+      note: "iPhone 要先「添加到主屏幕」、再从主屏幕上的图标打开，才收得到提醒。" };
+  }
+  if (!push) {
+    return { ...base, level: "unsupported", note: "这个浏览器不支持通知，收不到提醒。" };
+  }
+  if (env.isIOS === true && standalone) {
+    return { ...base, level: "ready", action: "enable", canEnable: true, note: "" };
+  }
+  // 有通知能力但没验证过（安卓、桌面、带通知能力的微信……）：允许开，但把话说在前面
+  return { ...base, level: "unverified", action: "enable", canEnable: true,
+    note: (env.isWeChat === true ? "微信里的提醒还没验证过" : "这个环境还没验证过") + "：可以开，但开了也可能收不到。收到了请告诉作者。" };
+}
+
+function reminderCapabilityNow() {
+  return reminderCapability({ installEnv, isStandalone, pushSupported: pushSupported() });
+}
+
 function paintReminder() {
   const s = reminderState();
+  const cap = reminderCapabilityNow();
   const toggle = document.getElementById("reminderToggle");
-  if (toggle) toggle.textContent = s.on ? "关闭提醒" : "开启提醒";
+  if (toggle) {
+    // 已经开着的永远能关（哪怕环境变了）；没开的按能力来：能开 / 带去装 / 不可点
+    toggle.textContent = s.on ? "关闭提醒" : cap.buttonLabel;
+    toggle.disabled = !s.on && !cap.canEnable && cap.action !== "install";
+  }
   document.querySelectorAll("[data-rtarget]").forEach(btn => {
     const on = btn.dataset.rtarget === s.target;
     btn.classList.toggle("active", on);
@@ -7696,7 +7735,10 @@ function paintReminder() {
     next.textContent = show ? `下一次提醒：${formatReminderTime(s.nextAt)}（复习之后会往后挪）` : "";
   }
   const platform = document.getElementById("reminderPlatformNote");
-  if (platform) platform.hidden = !!isStandalone;
+  if (platform) {
+    platform.textContent = cap.note;
+    platform.hidden = !cap.note;
+  }
 }
 
 function setReminderTarget(t) {
@@ -7709,7 +7751,15 @@ function setReminderTarget(t) {
 }
 
 function toggleReminder() {
-  return reminderState().on ? disableReminder() : enableReminder();
+  if (reminderState().on) return disableReminder();
+  const cap = reminderCapabilityNow();
+  if (cap.action === "install") {
+    if (typeof openIosSheet === "function") openIosSheet();   // 带去装，不是装作能开
+    else reminderSay(cap.note);
+    return;
+  }
+  if (!cap.canEnable) { reminderSay(cap.note); return; }
+  return enableReminder();
 }
 
 // 必须由点击直接调用：iOS 只在用户手势里弹通知权限框，所以第一个 await 就是它。
@@ -7728,14 +7778,19 @@ function reminderFailureText(status, out, what = "开") {
 }
 
 async function enableReminder() {
-  if (!pushSupported()) {
-    reminderSay("这个浏览器收不到提醒" + (isStandalone ? "" : "。iPhone 要先「添加到主屏幕」，再从主屏幕打开"));
-    return;
-  }
+  const cap = reminderCapabilityNow();
+  if (!cap.canEnable) { reminderSay(cap.note); return; }   // 和 paintReminder 用同一个判断
   let perm;
   try { perm = await Notification.requestPermission(); }
   catch (e) { reminderSay("请求通知权限时出错：" + ((e && e.message) || e)); return; }
-  if (perm !== "granted") { reminderSay(`通知权限是「${perm}」。没有权限就收不到提醒`); return; }
+  if (perm !== "granted") {
+    // 不把 "denied" 这种英文原词给家长；说清怎么重开
+    reminderSay(perm === "denied"
+      ? "通知权限被拒绝了。到手机「设置」里找到这个 App（或浏览器），重新允许通知，再回来点「开启提醒」。"
+      : "没有拿到通知权限，收不到提醒。再点一次「开启提醒」，在弹出的框里选允许。");
+    paintReminder();
+    return;
+  }
   if (!getAccessCode()) { reminderSay("先在上面填邀请码"); return; }
 
   const s = reminderState();

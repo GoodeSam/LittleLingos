@@ -585,6 +585,47 @@ check("到点提醒卡片：说清规则，默认去复习，没开时不显示�
   assert.equal(r.platform, true, "不是主屏幕版打开时，没提醒家长 iPhone 要从主屏幕打开");
 });
 
+// 提醒按平台能力诚实呈现（ADR 0009 判据 2 功能 ②）。无头 Chrome = 桌面、没装主屏幕、
+// 浏览器支持通知 → 「没验证过的环境」这一档：允许开，但要标明。
+check("到点提醒在没验证过的环境里：允许开，但说明行标明「没验证过、可能收不到」", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    showTab("settings"); await tick();
+    paintReminder(); await tick();
+    const note = document.getElementById("reminderPlatformNote");
+    const btn = document.getElementById("reminderToggle");
+    const vis = el => el && !el.hidden && el.getClientRects().length > 0;
+    return { noteShown: vis(note), note: note ? note.textContent.trim() : "", btnLabel: btn.textContent.trim(), btnEnabled: !btn.disabled };
+  });
+  assert.equal(r.noteShown, true, "没验证过的环境里说明行没显示");
+  assert.match(r.note, /没验证|未验证|可能收不到/, `说明行：「${r.note}」`);
+  assert.doesNotMatch(r.note, /iPhone 要从主屏幕/, "桌面/安卓环境里还在说 iPhone 那句——说的不是家长眼前的情况");
+  assert.equal(r.btnEnabled, true, "没验证过不等于不能开——按钮该可点");
+  assert.equal(r.btnLabel, "开启提醒");
+});
+
+check("通知权限被拒之后：说清怎么重开，按钮仍可重试，不假装开成", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const realReq = Notification.requestPermission;
+    Notification.requestPermission = async () => "denied";
+    showTab("settings"); await tick();
+    setAccessCode("e2e");
+    await enableReminder(); await tick();
+    const status = document.getElementById("reminderStatus");
+    const btn = document.getElementById("reminderToggle");
+    const out = { status: status ? status.textContent.trim() : "", btnLabel: btn.textContent.trim(), btnEnabled: !btn.disabled, on: !!reminderState().on };
+    Notification.requestPermission = realReq;
+    return out;
+  });
+  assert.match(r.status, /权限/, `状态行：「${r.status}」`);
+  assert.match(r.status, /设置|重新允许|重开/, `没告诉家长怎么重开：「${r.status}」`);
+  assert.doesNotMatch(r.status, /denied/, `把英文原词抄给家长了：「${r.status}」`);
+  assert.equal(r.on, false, "权限被拒还把提醒记成开着的");
+  assert.equal(r.btnLabel, "开启提醒", "按钮该仍是「开启提醒」可重试");
+  assert.equal(r.btnEnabled, true);
+});
+
 check("开启提醒：要权限、订阅、登记；口令和目标页记在手机上，目标页不发给服务器", async (ev) => {
   await ev(REMINDER_FAKES);
   const r = await ev(`(async () => {

@@ -26,6 +26,10 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+let _itemKind = null;
+const itemKind = { create: (deps) => (_itemKind ||= require(join(ROOT, "item-kind.js"))).create(deps) };   // 原 ll:dictionary-shared；延迟到用时再取（ROOT 在下面才定义）
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -83,19 +87,19 @@ test("一个空场景，给的是空列表而不是全部", async () => {
 test("自建场景的标签，没有混进预设场景那套里", async () => {
   // 混进去的话，这些句子会被判定成「有随应用下发的 mp3」，
   // 去播一个不存在的文件，然后静默退回浏览器朗读（C13）。
-  const at = html.indexOf("function classifyItem");
-  assert.ok(at !== -1, "classifyItem not found");
-  const body = html.slice(at, html.indexOf("\n}", at));
-  assert.match(body, /isCustomScenario\(/,
+  // 2026-09-27（ADR 0009 第七块）：分类搬进 item-kind.js，自建场景由 create(deps)
+  // 传进去的 isCustomScenario 判定。验的事没变：自建的不许被当成有下发文件的预设短语。
+  const kind = itemKind.create({ scenarios: () => ({ mine: { icon: "x", name: "我的" } }), isCustomScenario: (t) => t === "mine" });
+  assert.equal(kind.classifyItem({ id: "w1", scenario: "mine" }), "translate",
     "分类时必须先把自建场景摘出去，否则它们会被当成有下发文件的预设短语");
+  assert.equal(kind.isAudioBacked({ id: "w1", scenario: "mine" }), false);
 });
 
 test("自建场景的句子，走的是本机生成那条路", async () => {
-  const at = html.indexOf("function classifyItem");
-  const body = html.slice(at, html.indexOf("\n}", at));
-  const custom = body.indexOf("isCustomScenario(");
-  const preset = body.indexOf("scenarios[item.scenario]");
-  assert.ok(custom !== -1 && preset !== -1 && custom < preset,
+  // 同上：原来验的是源码里两个判断的先后，现在直接验行为——一个标签同时是
+  // 「自建的」和「预设表里有的」时，必须判成自建那条路（本机生成，没有下发文件）。
+  const kind = itemKind.create({ scenarios: () => ({ bath: { icon: "x", name: "洗澡" } }), isCustomScenario: (t) => t === "bath" });
+  assert.equal(kind.classifyItem({ id: "w1", scenario: "bath" }), "translate",
     "自建场景的判断必须排在预设场景之前，否则先被后者认领走");
 });
 

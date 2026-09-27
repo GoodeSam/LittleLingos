@@ -31,6 +31,7 @@ const SOURCES = [
   "review-engine.js",
   "own-words.js",
   "transcript-mine.js",
+  "item-kind.js",
   "scenarios.js",
   "dictionary-words.js",
   "manifest.json",

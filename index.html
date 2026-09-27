@@ -2381,6 +2381,8 @@
 <script src="./own-words.js"></script>
 <!-- 「挑出常说的话」的两个纯函数（ADR 0009 第六块）。 -->
 <script src="./transcript-mine.js"></script>
+<!-- 「这条收藏是哪一种」（ADR 0009 第七块）。 -->
+<script src="./item-kind.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
      万一这个文件没加载成（MIME 不对、被缓存挡住），window.llAudio 就是
@@ -3752,75 +3754,16 @@ function toggleTip(id) {
 // dictionary word) can only ever need ONE edit, here, instead of drifting
 // across every render path that used to hand-roll its own `scenarios[x]`
 // fallback. Unit B (dictionary lookup UI) extends this fragment.
-/* ll:dictionary-shared:start */
-// Single source for how a saved/review item's headline text is built, shared
-// by renderSavedScreen(), renderReviewCard(), and renderSavedChips() so the
-// three can never again disagree on the separator (same drift-prevention
-// motivation as resolveItemLabel() below). `en` is always the bare canonical
-// word/phrase (see buildDictSaveEntry, ll:dictionary-lookup) — a multi-sense
-// dictionary save additionally carries `senseLabel`, a short Chinese gloss
-// that disambiguates it from its sibling sense, appended here as
-// "en · senseLabel". Falls back to bare `en` whenever senseLabel is absent
-// or empty, so a single-sense save (the overwhelming majority of items:
-// every scenario phrase, every AI translation, every single-sense
-// dictionary word) renders exactly as it always has — no stray "· " or
-// "· undefined" ever reaches the DOM.
-function savedHeadline(item) {
-  const en = (item && item.en) ? item.en : "";
-  const label = item && item.senseLabel;
-  return label ? `${en} · ${label}` : en;
-}
-// Classifies a saved/review item into exactly one kind:
-//   "scenario"  — a real phrase from scenarios.js (has a precached mp3)
-//   "translate" — an AI-generated translation save (no mp3, ever)
-//   "dict"      — a curated dictionary-word save (no mp3, ever)
-// Positive allowlist by design (rules/08 Sev-guaranteed-404 fix): a phrase
-// is only ever treated as "scenario" when `scenarios[item.scenario]`
-// actually resolves, so any future non-audio-backed type defaults safely to
-// "translate" without needing to be enumerated here. The one exception is
-// the legacy `t_`-prefixed id: pre-"__translate__" saves (commit a1f7181)
-// could carry a stale/misleading `scenario` value (e.g. "bath", from a since
-// -fixed bug) and must still classify as "translate" so already-saved user
-// data doesn't regress into a 404'ing mp3 request or a mislabeled card.
-function classifyItem(item) {
-  if (!item) return "translate";
-  const id = item.id != null ? String(item.id) : "";
-  if (id.startsWith("t_")) return "translate";
-  if (item.scenario === "__dict__") return "dict";
-  // BEFORE the preset check. A self-made scenario's phrases are voiced one at
-  // a time and kept on the device; classified as "scenario" they would be sent
-  // to ./audio/<id>_normal.mp3 — a file that was never shipped — and fail over
-  // to the browser voice with nothing to show for it (tech-constraints C13).
-  if (typeof isCustomScenario === "function" && isCustomScenario(item.scenario)) return "translate";
-  if (item.scenario && typeof scenarios !== "undefined" && scenarios[item.scenario]) return "scenario";
-  return "translate";
-}
-
-// True only for real scenario phrases, which alone have a pregenerated
-// `<id>_normal.mp3` (rules/05-audio-pipeline.md). Everything else (AI
-// translations, dictionary words, and any future non-audio-backed type)
-// must go straight to speechSynthesis — never construct an Audio() URL for
-// a file that was never generated.
-function isAudioBacked(item) {
-  return classifyItem(item) === "scenario";
-}
-
-// Single label/icon resolver for both renderSavedScreen() and
-// renderReviewCard() so the two can never again disagree on how a saved
-// item is labeled (they previously did: '翻译' vs "AI 翻译").
-function resolveItemLabel(item) {
-  const kind = classifyItem(item);
-  if (kind === "scenario") {
-    const s = scenarios[item.scenario];
-    // id 让渲染端能取 icons.js 的线性图标；icon 仍是自建场景的兜底。
-    return { id: item.scenario, icon: s.icon, name: s.name };
-  }
-  if (kind === "dict") {
-    return { icon: "📖", name: "单词" };
-  }
-  return { icon: "🔤", name: "AI 翻译" };
-}
-/* ll:dictionary-shared:end */
+// 「这条收藏是哪一种」在 item-kind.js（ADR 0009 第七块）。两个依赖传进去，不让它抓全局：
+// scenarios 是 defer 加载的，所以给取值函数；isCustomScenario 在 ll:custom-scenarios 块里。
+const llItemKind = llItemKindLib.create({
+  scenarios: () => (typeof scenarios !== "undefined" ? scenarios : {}),
+  isCustomScenario: (tag) => typeof isCustomScenario === "function" && isCustomScenario(tag),
+});
+// 别名：块外 13 处调用点和几个沙箱测试认的是这几个名字，实现只在模块里。
+const savedHeadline = llItemKind.savedHeadline;
+const isAudioBacked = llItemKind.isAudioBacked;
+const resolveItemLabel = llItemKind.resolveItemLabel;
 
 // ── Saved screen ───────────────────────────────────────
 function renderSavedChips() {

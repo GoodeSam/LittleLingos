@@ -28,18 +28,52 @@ const END = "/* ll:dictionary-shared:end */";
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
+test("这四个函数只在 item-kind.js 里有一份：index.html 里的块删了，留别名给 13 处调用点；主脚本前加载；进了离线清单；模块不抓全局", () => {
+  const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  assert.ok(!html.includes(START), "index.html 里还有 ll:dictionary-shared 块——同一件事两份实现");
+  for (const fn of ["savedHeadline", "classifyItem", "isAudioBacked", "resolveItemLabel"]) {
+    assert.ok(!code.includes(`function ${fn}(`), `index.html 里还定义着 ${fn}()`);
+  }
+  assert.ok(/llItemKind\s*=\s*llItemKindLib\.create\(/.test(code), "index.html 没有用 create(deps) 建实例");
+  for (const fn of ["savedHeadline", "isAudioBacked", "resolveItemLabel"]) {
+    assert.ok(new RegExp(`const ${fn} = llItemKind\\.${fn};`).test(code), `缺别名 const ${fn} = llItemKind.${fn}——块外调用点靠它`);
+  }
+  const tagAt = html.indexOf('<script src="./item-kind.js"></script>');
+  assert.ok(tagAt !== -1 && tagAt < html.indexOf("\n<script>\n"), "item-kind.js 要在主脚本之前加载");
+  const sw = readFileSync(join(ROOT, "sw.js"), "utf8");
+  assert.ok(sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = ["))).includes("item-kind.js"), "sw.js 的 SHELL 里没有它");
+  const stamp = readFileSync(join(ROOT, "scripts/stamp-sw.mjs"), "utf8");
+  assert.ok(stamp.slice(stamp.indexOf("const SOURCES = ["), stamp.indexOf("]", stamp.indexOf("const SOURCES = ["))).includes("item-kind.js"), "stamp-sw.mjs 的 SOURCES 里没有它");
+  const src = readFileSync(join(ROOT, "item-kind.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  for (const bad of ["document.", "window.", "localStorage", "typeof scenarios", "typeof isCustomScenario"]) {
+    assert.ok(!src.includes(bad), `item-kind.js 里出现了「${bad}」——依赖要从 create(deps) 传进来，不许抓全局`);
+  }
+});
+
+test("自建场景里的句子归「翻译」那一类（没有随应用下发的录音），不管它带什么 scenario 标签", () => {
+  // 用一个**同时在预设表里**的标签（bath），否则去掉自建判断也照样落到 translate，
+  // 这条测试就成了空的——第一版正是如此，变异探测把它抓出来了。
+  const ctx = loadModule({ isCustomScenario: (tag) => tag === "bath" });
+  assert.equal(ctx.classifyItem({ id: "w_1", en: "x", scenario: "bath" }), "translate");
+  assert.equal(ctx.isAudioBacked({ id: "w_1", en: "x", scenario: "bath" }), false);
+});
+
 // ── Fixture scenario table (stand-in for the real scenarios.js) ────────
 const FIXTURE_SCENARIOS = {
   bath: { icon: "🛁", name: "洗澡时间", color: "var(--blue)", phrases: {} },
   meal: { icon: "🍚", name: "吃饭时间", color: "var(--warm)", phrases: {} },
 };
 
-function loadModule() {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
-  const ctx = { scenarios: FIXTURE_SCENARIOS, console };
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+// 2026-09-27（ADR 0009 第七块）：这四个函数搬进了 item-kind.js。它的两个隐藏依赖
+// （预设场景表、isCustomScenario）改为 create(deps) 传进去——所以这里不再往沙箱里塞
+// 全局的 scenarios，而是把 FIXTURE 当参数给它。
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+const require = createRequire(import.meta.url);
+function loadModule({ isCustomScenario = () => false } = {}) {
+  const p = join(ROOT, "item-kind.js");
+  assert.ok(existsSync(p), "item-kind.js 还不存在——这四个函数该搬出 index.html 了");
+  const ctx = require(p).create({ scenarios: () => FIXTURE_SCENARIOS, isCustomScenario });
   assert.equal(typeof ctx.isAudioBacked, "function", "module must define isAudioBacked()");
   assert.equal(typeof ctx.resolveItemLabel, "function", "module must define resolveItemLabel()");
   assert.equal(typeof ctx.savedHeadline, "function", "module must define savedHeadline()");

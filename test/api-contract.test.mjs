@@ -25,6 +25,10 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { injectStorage, injectApi } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+let _itemKind = null;
+const itemKind = { create: (deps) => (_itemKind ||= require(join(ROOT, "item-kind.js"))).create(deps) };   // 原 ll:dictionary-shared；延迟到用时再取（ROOT 在下面才定义）
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -177,7 +181,9 @@ function loadDictionary(ctx) {
   });
   vm.runInContext(block("access-code"), ctx);
   vm.runInContext(block("translate-save"), ctx);
-  vm.runInContext(block("dictionary-shared"), ctx);
+  // 2026-09-27（ADR 0009 第七块）：dictionary-shared 块搬进 item-kind.js。
+  // 这里照 index.html 的接法建实例并留别名——跑的仍是产品代码里那一份。
+  Object.assign(ctx, itemKind.create({ scenarios: () => ctx.scenarios || {}, isCustomScenario: () => false }));
   vm.runInContext(block("dictionary-lookup"), ctx);
   assert.equal(typeof ctx.performDictLookup, "function", "页面里那段查词代码不见了");
   ctx.renderDictLookupPanel = (_panel, s) => { states.push(s); };

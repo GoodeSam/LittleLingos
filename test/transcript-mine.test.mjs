@@ -40,18 +40,33 @@ const html = readFileSync(join(ROOT, "index.html"), "utf8");
 const START = "/* ll:transcript-mine:start */";
 const END = "/* ll:transcript-mine:end */";
 
+// 2026-09-27（ADR 0009 第六块）：两个纯函数搬进了 transcript-mine.js，直接 require，不再切块。
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+const require = createRequire(import.meta.url);
 function load() {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1 && e > s,
-    "找不到 ll:transcript-mine 块 —— 还没有实现");
-  const ctx = { console };
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s + START.length, e), ctx);
-  return ctx;
+  const p = join(ROOT, "transcript-mine.js");
+  assert.ok(existsSync(p), "transcript-mine.js 还不存在——这两个纯函数该搬出 index.html 了");
+  return require(p);
 }
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
+
+test("这两个函数只在 transcript-mine.js 里有一份：index.html 里的块删了，调用点走模块，主脚本前加载，进了离线清单", () => {
+  const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  assert.ok(!html.includes(START), "index.html 里还有 ll:transcript-mine 块——同一件事两份实现");
+  for (const fn of ["mineTranscript", "transcriptKey"]) assert.ok(!code.includes(`function ${fn}(`), `index.html 里还定义着 ${fn}()`);
+  assert.ok(/llTranscript\.mineTranscript\(/.test(code), "挑常说的话那处没走模块");
+  const tagAt = html.indexOf('<script src="./transcript-mine.js"></script>');
+  assert.ok(tagAt !== -1 && tagAt < html.indexOf("\n<script>\n"), "transcript-mine.js 要在主脚本之前加载");
+  const sw = readFileSync(join(ROOT, "sw.js"), "utf8");
+  assert.ok(sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = ["))).includes("transcript-mine.js"), "sw.js 的 SHELL 里没有它");
+  const stamp = readFileSync(join(ROOT, "scripts/stamp-sw.mjs"), "utf8");
+  assert.ok(stamp.slice(stamp.indexOf("const SOURCES = ["), stamp.indexOf("]", stamp.indexOf("const SOURCES = ["))).includes("transcript-mine.js"), "stamp-sw.mjs 的 SOURCES 里没有它");
+  const src = readFileSync(join(ROOT, "transcript-mine.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  for (const bad of ["document.", "window.", "localStorage", "fetch("]) assert.ok(!src.includes(bad), `transcript-mine.js 里出现了「${bad}」——它该是纯的`);
+});
 
 // 一段真实形状的转写：口语、没有标点分段规律、夹着语气词和重复。
 const TRANSCRIPT = `

@@ -30,6 +30,7 @@ const SOURCES = [
   "api-client.js",
   "review-engine.js",
   "own-words.js",
+  "transcript-mine.js",
   "scenarios.js",
   "dictionary-words.js",
   "manifest.json",

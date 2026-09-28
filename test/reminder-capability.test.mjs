@@ -14,21 +14,22 @@
 //   6. 乱七八糟的输入：不抛，退到最保守的那档。
 import assert from "node:assert/strict";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
 function load() {
-  const at = html.indexOf("function reminderCapability(");
-  assert.ok(at !== -1, "还没有 reminderCapability()——「这个环境能不能开提醒、对家长说什么」要收在一处");
   const ctx = {};
   vm.createContext(ctx);
-  vm.runInContext(html.slice(at, html.indexOf("\n}", at) + 2), ctx);
+  // 2026-09-28（ADR 0009 第十八块）：搬进 reminder.js；这个函数是纯的，create({}) 就够。
+  Object.assign(ctx, require(join(ROOT, "reminder.js")).create({}));
   return ctx.reminderCapability;
 }
 const env = (o) => ({ isIOS: false, isAndroid: false, isWeChat: false, installPath: "unknown", ...o });

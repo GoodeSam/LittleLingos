@@ -41,6 +41,7 @@ const SOURCES = [
   "audio-loop.js",
   "voice.js",
   "audio-provision.js",
+  "reminder.js",
   "install-env.js",
   "audio-marks.js",
   "access-code.js",

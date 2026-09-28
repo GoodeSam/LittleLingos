@@ -19,22 +19,22 @@
 //      说反了会让家长以为提醒已经关掉，其实还开着。
 import assert from "node:assert/strict";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
 function load() {
-  const at = html.indexOf("function reminderFailureText(");
-  assert.ok(at !== -1, "找不到 reminderFailureText —— 失败提示还没被抽成一个函数");
-  const src = html.slice(at, html.indexOf("\n}", at) + 2);
   const ctx = {};
   vm.createContext(ctx);
-  vm.runInContext(src, ctx);
+  // 2026-09-28（ADR 0009 第十八块）：搬进 reminder.js；这个函数是纯的，create({}) 就够。
+  Object.assign(ctx, require(join(ROOT, "reminder.js")).create({}));
   return ctx.reminderFailureText;
 }
 

@@ -110,7 +110,8 @@ const GOOD_TRANSLATION = { en: "Bath time, sweetie!", zh: "宝贝，洗澡啦！
             { en: "Water's nice and warm.", zh: "水温刚刚好。" }] };
 
 function loadTranslate(ctx) {
-  vm.runInContext(block("access-code"), ctx);
+  // 2026-09-28（ADR 0009 第十三块）：邀请码搬进 access-code.js，仍用真的那一份。
+  Object.assign(ctx, require(join(ROOT, "access-code.js")).create({ storage: ctx.llStorage }));
   vm.runInContext(block("translate-save"), ctx);
   assert.equal(typeof ctx.translateChinese, "function", "页面里那段翻译代码不见了");
 }
@@ -180,7 +181,8 @@ function loadDictionary(ctx) {
                 appendChild() {}, setAttribute() {}, addEventListener() {} }), querySelectorAll: () => [] },
     savedPhrases: [], safeSetItem() {}, updateNavBadge() {}, showOfflineToast() {},
   });
-  vm.runInContext(block("access-code"), ctx);
+  // 2026-09-28（ADR 0009 第十三块）：邀请码搬进 access-code.js，仍用真的那一份。
+  Object.assign(ctx, require(join(ROOT, "access-code.js")).create({ storage: ctx.llStorage }));
   vm.runInContext(block("translate-save"), ctx);
   // 2026-09-27（ADR 0009 第七块）：dictionary-shared 块搬进 item-kind.js。
   // 这里照 index.html 的接法建实例并留别名——跑的仍是产品代码里那一份。
@@ -234,7 +236,8 @@ function loadAudio(ctx) {
     whichHaveAudio: async ids => new Set(ids.filter(i => kept.has(i))),
     refreshAudioMarks() {},
   });
-  vm.runInContext(block("access-code"), ctx);
+  // 2026-09-28（ADR 0009 第十三块）：邀请码搬进 access-code.js，仍用真的那一份。
+  Object.assign(ctx, require(join(ROOT, "access-code.js")).create({ storage: ctx.llStorage }));
   vm.runInContext(block("audio-provision"), ctx);
   assert.equal(typeof ctx.provisionAudio, "function", "页面里那段配声音的代码不见了");
   return kept;

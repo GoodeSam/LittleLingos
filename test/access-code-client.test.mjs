@@ -23,7 +23,6 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import vm from "node:vm";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
@@ -32,8 +31,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:access-code:start */";
-const END = "/* ll:access-code:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -55,12 +52,10 @@ function fakeStorage({ throwOnWrite = false } = {}) {
 }
 
 function loadModule({ storage = fakeStorage() } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
+  // 2026-09-28（ADR 0009 第十三块）：邀请码搬进 access-code.js，存储实例由 create(deps) 传入。
   const ctx = { localStorage: storage, console };
   injectStorage(ctx);
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  Object.assign(ctx, require(join(ROOT, "access-code.js")).create({ storage: ctx.llStorage }));
   for (const fn of ["getAccessCode", "setAccessCode", "accessErrorMessage"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
@@ -118,11 +113,9 @@ test("saving reports whether it will survive a reload, so the UI can say so", ()
 
 test("a missing localStorage does not break the module", () => {
   // Some embedded webviews expose no storage at all.
-  const s = html.indexOf(START), e = html.indexOf(END);
   const ctx = { console };            // no localStorage in this realm at all
-  injectStorage(ctx);
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  injectStorage(ctx);                 // 没有 localStorage 时 storage 整块降级
+  Object.assign(ctx, require(join(ROOT, "access-code.js")).create({ storage: ctx.llStorage }));
   assert.equal(ctx.getAccessCode(), "");
   assert.doesNotThrow(() => ctx.setAccessCode(CODE));
   assert.equal(ctx.getAccessCode(), CODE);
@@ -208,9 +201,7 @@ test("the free paths do not require a code", () => {
   // Preset phrases, saved-item review and the curated word list are resolved
   // on-device. If a code were needed for those, a parent without one would
   // find the whole app dead rather than two features unavailable.
-  const s = html.indexOf(START), e = html.indexOf(END);
-  const rest = html.slice(0, s) + html.slice(e);
-  assert.ok(!/audio\/\$\{[^}]*\}[^)]*llApi\./.test(rest),
+  assert.ok(!/audio\/\$\{[^}]*\}[^)]*llApi\./.test(html),
     "audio playback must not be gated");
   // 2026-09-26（ADR 0009）：带码的请求一律走 llApi.post() / llApi.raw()，数它们的调用点。
   // 4 → 5（2026-09-17，Victor 同意）：第 5 个是推送相关请求共用的 pushApiPost()

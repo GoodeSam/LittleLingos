@@ -2392,6 +2392,8 @@
 <!-- 取声音地址（ADR 0009 第十一块）。 -->
 <script src="./audio-playback.js"></script>
 <script src="./audio-marks.js"></script>
+<script src="./access-code.js"></script>
+<script src="./first-value.js"></script>
 <script src="./install-env.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
@@ -3590,6 +3592,12 @@ function sortedBySavedAtDesc(arr) {
 
 // ── Save ───────────────────────────────────────────────
 /* ll:first-value:start */
+// 这四个纯函数在 first-value.js（llFirstValue）；画界面的两个留在下面。
+var TIME_BANDS = llFirstValue.TIME_BANDS;
+var bandForHour = llFirstValue.bandForHour;
+var pickTodayScenario = llFirstValue.pickTodayScenario;
+var firstSaveNotice = llFirstValue.firstSaveNotice;
+var firstValueCard = llFirstValue.firstValueCard;
 // 家长第一次打开到第一条收藏之间的那条路。
 //
 // 之前推给他的场景是一个日历轮盘：
@@ -3602,66 +3610,10 @@ function sortedBySavedAtDesc(arr) {
 //
 // 这里只有纯逻辑：钟点、日期、已学过什么，都由调用方传进来。
 
-// 时段 → 这个钟点最可能正在发生的事。from 含、to 不含；from > to 表示跨零点。
-// 场景 id 必须存在于 scenarios.js —— 有一条测试拿真实数据逐个核对，
-// 因为手写的 id 列表在场景改名时会静默指向 undefined。
-const TIME_BANDS = [
-  { from: 5,  to: 9,  ids: ["morning", "dress", "teeth", "handwash", "meal"] },
-  { from: 9,  to: 12, ids: ["reading", "music", "art", "blocks", "discover", "praise"] },
-  { from: 12, to: 14, ids: ["meal", "handwash", "nap", "manners"] },
-  { from: 14, to: 17, ids: ["outdoor", "friends", "share", "exercise", "pretend", "shopping"] },
-  { from: 17, to: 20, ids: ["meal", "kitchen", "cleanup", "potty", "emotion"] },
-  { from: 20, to: 23, ids: ["bath", "bedtime", "teeth", "reading"] },
-  // 半夜喂奶、哄睡、孩子发烧的家长是真实存在的。少了这一档，
-  // 凌晨三点打开的人会看到一片空白。
-  { from: 23, to: 5,  ids: ["bedtime", "emotion", "sick", "nap"] },
-];
 
-function bandForHour(hour) {
-  for (const b of TIME_BANDS) {
-    const inside = b.from <= b.to
-      ? (hour >= b.from && hour < b.to)
-      : (hour >= b.from || hour < b.to);   // 跨零点
-    if (inside) return b;
-  }
-  return TIME_BANDS[0];
-}
 
-// 今天推哪个场景。优先此刻用得上的，其次他还没学过的。
-function pickTodayScenario({ hour, dayIndex, savedScenarioIds }) {
-  const band = bandForHour(hour);
-  const learned = new Set(savedScenarioIds || []);
-  const fresh = band.ids.filter(id => !learned.has(id));
-  // 这一档全学过了，就在整档里轮转——总要给出一个，不能给空。
-  // （不跳到别的时段：晚上八点推「超市购物」比推一个学过的睡前场景更差。）
-  const pool = fresh.length ? fresh : band.ids;
-  return pool[Math.abs(dayIndex | 0) % pool.length];
-}
 
-// 收下第一句之后说的那句话。他刚点了一颗星，不知道那颗星意味着什么。
-// 只在第一次说 —— 每次都说就成了噪音。
-function firstSaveNotice(savedCount) {
-  if (savedCount !== 1) return null;
-  // 不带 ⭐：这个项目里实心彩星只表示「已收藏」这一个意思，
-  // 出现在别处会稀释它（test/save-star.test.mjs 守着这条）。
-  return "收好了 —— 明天它会回到「今日复习」等你，你不用记着来找它。";
-}
 
-// 一条收藏都没有时，首页那张卡的内容。
-// 旧文案是「还没有收藏 — 去场景里探索吧！」：「探索」不是一个动作，
-// 他不知道探索完该干什么，也不知道干完能得到什么。
-function firstValueCard() {
-  return {
-    // 「最近收藏」是给已经用了一阵的人看的标题。压在「学第一句」上面，
-    // 这张卡对刚装上的家长在说两件互相矛盾的事。
-    heading: "从这一句开始",
-    text: "挑一句现在就用得上的，收下来 —— 明天它会自己回来找你。",
-    buttonLabel: "学第一句 →",
-    // 「今日推荐」卡在空状态下被隐藏（它和上面这个按钮去的是同一个地方，
-    // 一张卡两个主按钮），但它承载的「去哪、为什么」得搬回这里。
-    nextLine: (name, n) => `接下来：${name} · ${n} 句（按现在的时间推荐）`,
-  };
-}
 
 // 预设场景用 icons.js 里的单色线性图标；自建场景没有对应键，退回它自己的 emoji。
 function scenarioIconInto(el, id, s) {
@@ -6119,78 +6071,12 @@ var hasAudio = llAudioStore.hasAudio;
 var deleteAudio = llAudioStore.deleteAudio;
 var whichHaveAudio = llAudioStore.whichHaveAudio;
 
-/* ll:access-code:start */
-// The client half of the access gate. Two endpoints cost money per call
-// (translate, and dictionary lookups of uncurated words), so the server
-// refuses anything without a code — see netlify/functions/_shared/access.mjs
-// and ADR 0003.
-//
-// The code is typed by the parent and lives only in their browser. It cannot
-// be baked in: this is a public static site and anything in the bundle is
-// readable by anyone, which would make it not a code at all.
-const ACCESS_KEY = "ll_access";
-
-// Held in memory as well as in storage, and the memory copy wins.
-//
-// Storage can refuse a write — private browsing, a full quota, a locked-down
-// webview — and on iOS the installed PWA and Safari keep separate stores, so
-// a code entered in one is simply absent in the other (tech-constraints C9).
-// None of that should stop a parent translating right now. Losing the code on
-// reload is a fair cost; being unable to use the feature at all is not, and
-// it would look like the app is broken rather than unconfigured.
-let accessCodeMemo = null;
-
-function getAccessCode() {
-  if (accessCodeMemo !== null) return accessCodeMemo;
-  return llStorage.readString(ACCESS_KEY, "");   // no storage at all, or reads throw → ""
-}
-
-// Returns whether the code will survive a reload, so the UI can tell a parent
-// they will have to type it again rather than letting them find out later.
-function setAccessCode(code) {
-  // Trim: a pasted code very often carries a trailing space or newline, and
-  // the server compares exactly.
-  accessCodeMemo = String(code == null ? "" : code).trim();
-  return accessCodeMemo ? llStorage.write(ACCESS_KEY, accessCodeMemo) : llStorage.remove(ACCESS_KEY);
-}
-
-// Callers hand this straight to fetch, so it carries the content type too —
-// returning only the access header would drop it and 400 every request.
-// 请求头（Content-Type + 邀请码）现由 api-client.js 统一拼，这里不再有第二份。
-
-// Returns null for anything that is not an access problem. A 500 is a server
-// configuration fault and a 502 is upstream; telling a parent to check their
-// code would send them off to fix the wrong thing.
-function accessErrorMessage(status) {
-  if (status !== 403) return null;
-  return getAccessCode()
-    ? `邀请码不对 — 请到「${ACCESS_CODE_WHERE}」里重新填写`
-    : `这个功能需要邀请码 — 请到「${ACCESS_CODE_WHERE}」里填写，${ACCESS_CODE_SOURCE}`;
-}
-
-// 邀请码填在哪儿、找谁要 —— 事前提示和事后提示的唯一来源。
-// 之前「设置」这个位置被写死在两句文案里：设置项一旦挪出
-// 收藏页，这两句话就开始骗人，而且没有任何测试会红。
-const ACCESS_CODE_WHERE = "设置";
-// ⚠️ Victor：这里要填真实的索取渠道（微信号 / 邮箱 / 一个页面）。
-// 我不替你编一个联系方式——这句话现在只说了「找作者」，没说怎么找到你。
-const ACCESS_CODE_SOURCE = "向 LittleLingos 的作者索取";
-
-// 在他动手之前就说明这里有一道门。
-//
-// 之前这道门是暗的：家长打开、写下一句中文、点「翻译」，然后才被告知需要
-// 邀请码。他在动手之前没有任何提示，而失败的归因很可能是「这软件坏了」。
-//
-// 查词和翻译的条件不一样，所以说的不是同一句话：已经收录的词不联网、
-// 不需要码，把查词整体说成「需要邀请码」会让他以为一个词也查不了。
-function accessGateNotice(feature) {
-  if (getAccessCode()) return null;
-  const tail = `到「${ACCESS_CODE_WHERE}」里填写，${ACCESS_CODE_SOURCE}。`;
-  return feature === "dict"
-    ? `🔑 查新词需要邀请码（已经收录的词不用）—— ${tail}`
-    : `🔑 翻译需要邀请码 —— ${tail}`;
-}
-/* ll:access-code:end */
+// 邀请码在 access-code.js（llAccess）。存储实例传进去，不让它抓全局。
+var llAccess = llAccessLib.create({ storage: llStorage });
+var getAccessCode = llAccess.getAccessCode;
+var setAccessCode = llAccess.setAccessCode;
+var accessErrorMessage = llAccess.accessErrorMessage;
+var accessGateNotice = llAccess.accessGateNotice;
 
 // ── Access code UI (I/O; the logic above stays pure) ────
 function saveAccessCode() {

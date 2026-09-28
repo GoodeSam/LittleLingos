@@ -21,12 +21,12 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import vm from "node:vm";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:first-value:start */";
-const END = "/* ll:first-value:end */";
 
 // 真实的场景数据，不是编的——时段映射如果指向一个不存在的场景 id，
 // 只有拿真数据跑才会发现。
@@ -37,16 +37,9 @@ const scenarios = scenarioCtx.scenarios || scenarioCtx.window.scenarios;
 const scenarioOrder = scenarioCtx.scenarioOrder || scenarioCtx.window.scenarioOrder;
 
 function load() {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1 && e > s,
-    "找不到 ll:first-value 块 —— 首次价值路径还没有实现");
-  const ctx = { scenarios, scenarioOrder, console };
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s + START.length, e), ctx);
-  // 顶层 const 进的是 context 的词法环境，不会挂到 ctx 对象上——
-  // 函数声明会，const 不会。要读它得回到那个环境里求值。
-  ctx.TIME_BANDS = vm.runInContext("TIME_BANDS", ctx);
-  return ctx;
+  // 2026-09-28（ADR 0009 第十三块）：四个纯函数搬进 first-value.js，直接 require。
+  // 画界面的两个（scenarioIconInto / paintIconSlots）仍在 index.html，不在这里测。
+  return require(join(ROOT, "first-value.js"));
 }
 
 const tests = [];

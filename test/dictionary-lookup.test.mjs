@@ -38,6 +38,8 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
 import { injectStorage, injectPersistSaved, injectApi, injectAudio, injectReview, injectDict } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -251,9 +253,8 @@ function makeEnv({
   assert.ok(ss !== -1 && se !== -1, "ll:translate-save markers not found");
   vm.runInContext(html.slice(ss, se), ctx);
 
-  const as = html.indexOf(ACCESS_START), ae = html.indexOf(ACCESS_END);
-  assert.ok(as !== -1 && ae !== -1, `index.html must contain ${ACCESS_START} … ${ACCESS_END} markers`);
-  vm.runInContext(html.slice(as, ae + ACCESS_END.length), ctx);
+  // 2026-09-28（ADR 0009 第十三块）：邀请码搬进 access-code.js，仍用真的那一份。
+  Object.assign(ctx, require(join(ROOT, "access-code.js")).create({ storage: ctx.llStorage }));
   // 2026-09-26（ADR 0009）：查词的网络请求走 llApi（api-client.js），邀请码由它在调用那一刻从这个块的 getAccessCode() 取。
   assert.equal(typeof ctx.llApi.post, "function", "llApi must be injected — the lookup module calls it on every network lookup");
   assert.equal(typeof ctx.getAccessCode, "function", "the access-code block must define getAccessCode() — llApi reads the code through it");

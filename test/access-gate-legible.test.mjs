@@ -20,18 +20,15 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
-import vm from "node:vm";
 import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:access-code:start */";
-const END = "/* ll:access-code:end */";
 
 function load(code = "") {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1 && e > s, "找不到 ll:access-code 块");
   const store = new Map();
   if (code) store.set("ll_access", code);
   const ctx = {
@@ -43,12 +40,8 @@ function load(code = "") {
     },
   };
   injectStorage(ctx);
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s + START.length, e), ctx);
-  // 顶层 const 进的是 context 的词法环境，不会挂到 ctx 对象上——
-  // 函数声明会，const 不会。要读它得回到那个环境里求值。
-  ctx.ACCESS_CODE_WHERE = vm.runInContext("ACCESS_CODE_WHERE", ctx);
-  ctx.ACCESS_CODE_SOURCE = vm.runInContext("ACCESS_CODE_SOURCE", ctx);
+  // 2026-09-28（ADR 0009 第十三块）：搬进 access-code.js，常量也由模块导出，不用再回沙箱求值。
+  Object.assign(ctx, require(join(ROOT, "access-code.js")).create({ storage: ctx.llStorage }));
   return ctx;
 }
 

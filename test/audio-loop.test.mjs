@@ -44,8 +44,6 @@ const createPlayback = (d) => require(join(ROOT, "audio-playback.js")).create(d)
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:audio-loop:start */";
-const END = "/* ll:audio-loop:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -72,7 +70,13 @@ function fakeAudioClass(made) {
     removeEventListener(name, fn) {
       this._handlers[name] = (this._handlers[name] || []).filter(h => h !== fn);
     }
-    play() { this.played.push(this._src); return Promise.resolve(); }
+    // 手机拒了这一段就是这个样子：iOS 在非手势路径上会 reject（NotAllowedError）。
+    // 默认成功；把 rejectNextPlay 打开就模拟被拒。
+    play() {
+      this.played.push(this._src);
+      if (this.rejectNextPlay) { this.rejectNextPlay = false; return Promise.reject(new Error("NotAllowedError")); }
+      return Promise.resolve();
+    }
     pause() { this.paused = true; }
     fire(name) { for (const h of [...(this._handlers[name] || [])]) h({ target: this }); }
   };
@@ -94,8 +98,7 @@ function fakeSpeech() {
 }
 
 async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [], speech = true } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
+  // 2026-09-28（ADR 0009 第十六块）：整块搬进 audio-loop.js，九个依赖由 create(deps) 传入。
   const made = [];
   const timers = [];
   const ctx = {
@@ -131,7 +134,17 @@ async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [], speech 
   Object.assign(ctx, createPlayback({
     getAudio: ctx.getAudio, isAudioBacked: ctx.isAudioBacked, URL: ctx.URL,
   }));
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  Object.assign(ctx, require(join(ROOT, "audio-loop.js")).create({
+    Audio: ctx.Audio,
+    speech: ctx.speechSynthesis || null,
+    Utterance: ctx.SpeechSynthesisUtterance || null,
+    setTimeout: ctx.setTimeout,
+    clearTimeout: ctx.clearTimeout,
+    audioUrlFor: (id) => ctx.audioUrlFor(id),
+    playableUrlFor: (item) => ctx.playableUrlFor(item),
+    stopAllAudio: () => ctx.stopAllAudio(),
+    provisionLoopCues: (q) => ctx.provisionLoopCues && ctx.provisionLoopCues(q),
+  }));
   for (const fn of ["startAudioLoop", "stopAudioLoop", "audioLoopPlaying"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
@@ -293,8 +306,8 @@ test("整个收藏都是预设短语时，不该说「没有可播放的声音�
 
 test("判断一条能不能播这件事，只有一处实现", async () => {
   // 复习卡的播放路径本来就分得清两种来源。循环里重写一遍就写漏了预设短语。
-  const at = html.indexOf(START);
-  const src = html.slice(at, html.indexOf(END));
+  // 2026-09-28（ADR 0009 第十六块）：这一块搬进 audio-loop.js 了。
+  const src = readFileSync(join(ROOT, "audio-loop.js"), "utf8");
   assert.match(src, /playableUrlFor\(/, "循环必须用共用的那个判定");
   assert.ok(!/_normal\.mp3/.test(src),
     "预设短语的路径拼装不该在这个块里再出现一次 —— 两处拼装迟早会分叉");
@@ -413,6 +426,49 @@ test("收藏页把中文提示接到了屏幕上", async () => {
   const at = html.indexOf("function renderSavedScreen");
   const body = html.slice(at, html.indexOf("\nfunction ", at + 10));
   assert.match(body, /loop-cue/, "循环里算出了提示，收藏页却没地方显示它，等于没做");
+});
+
+// ══ 一段放不出来时，整轮不能就此卡死 ═══════════════════════════════════
+// 2026-09-28 搬这一块（ADR 0009 第十六块）时发现：09-11 重做时序时删掉了
+// scheduleNextLoopClip()，两处调用却留在原地——「这一段放不出来就往下走」
+// 这条路踩下去抛 ReferenceError。家长看到的是：连播按钮亮着，声音再也不响，
+// 界面什么都不说，而且他没有任何办法知道为什么。
+
+test("手机拒了某一段（iOS 常有），跳到下一句，不是整轮哑在这里", async () => {
+  const { ctx, made, tick } = await loadModule();
+  const items = [{ id: "a", zh: "洗手" }, { id: "b", zh: "睡觉" }, { id: "c", zh: "吃饭" }];
+  assert.equal(ctx.startAudioLoop(items, () => {}), true);
+  // 同一个元素整轮复用（iOS 那条规矩），所以停了再起拿到的还是它。
+  ctx.stopAudioLoop();
+  const el = made[made.length - 1];
+  el.rejectNextPlay = true;
+  const before = el.played.length;
+  assert.equal(ctx.startAudioLoop(items, () => {}), true);
+  await new Promise(r => queueMicrotask(r));
+  await new Promise(r => queueMicrotask(r));
+  for (let i = 0; i < 3; i++) tick();     // 下一句的中文提示念完，轮到它的英文
+  // 被拒之后要往下走。走不动的话，这个元素不会再被 play 第二次，
+  // 声音从此不再响——而按钮仍然显示「正在连播」。
+  assert.ok(el.played.length > before + 1,
+    `被拒的那一段之后再没有任何一段开始放（played 停在 ${el.played.length - before} 段）—— 整轮哑在这里`);
+});
+
+test("队列里某一句的地址中途没了，跳过它，不是整轮哑在这里", async () => {
+  // 生成好的地址是会被浏览器清掉的（releaseAudioUrls 就是干这个的）。
+  const { ctx, made, tick } = await loadModule({ withAudio: ["a", "b"] });
+  const items = [{ id: "a", zh: "洗手" }, { id: "b", zh: "睡觉" }];
+  const cued = [];
+  assert.equal(ctx.startAudioLoop(items, it => cued.push(it.id)), true);
+  ctx.releaseAudioUrls();                 // 这一轮进行中，地址全没了
+  const el = made[made.length - 1];
+  el.fire("ended");                       // 第一句放完 → 念第二句的中文
+  const before = cued.length;
+  // 第二句也拿不到地址。它必须继续往下推到再下一句（这里就是绕回第一句），
+  // 不能停在一句放不出来的地方 —— 停住的样子是：按钮亮着，永远没有声音。
+  for (let i = 0; i < 6 && cued.length <= before; i++) { tick(); await new Promise(r => queueMicrotask(r)); }
+  assert.ok(cued.length > before,
+    `一句拿不到地址之后就再没有推进过（提示停在第 ${cued.length} 句）—— 整轮哑在这里`);
+  assert.equal(ctx.audioLoopPlaying(), true, "一句没地址就把整轮停掉了");
 });
 
 // ── Runner ───────────────────────────────────────────────

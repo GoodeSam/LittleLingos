@@ -319,6 +319,31 @@ test("真正的存储模块和这一层是接在一起的，不是各写各的",
   assert.match(src, /hasAudio\(|whichHaveAudio\(/, "模块里必须先问过存储再花钱");
 });
 
+// ══ 中文提示：另一把嗓子、另一个键 ═══════════════════════════════════
+// 2026-09-28 变异探测抓出来的缺口：这两条以前只有 e2e 守着，单元层一条都没有。
+
+test("连播的中文提示存在自己的键下，不会盖掉同一句的英文", async () => {
+  // 键一样的话，后生成的中文会把英文那段覆盖掉——家长点英文，听到的是中文。
+  const { ctx, store } = loadModule();
+  const item = { id: "t_9", en: "Time for bed.", zh: "该睡觉了" };
+  assert.equal(await ctx.requestAudio(item), true);
+  const english = await store.getAudio("t_9");
+  assert.ok(english, "对照：英文那段先存好了");
+  assert.equal(await ctx.provisionCue(item), true, "中文提示没生成成功");
+  assert.equal(await store.getAudio("t_9"), english, "英文那段被中文提示盖掉了");
+  assert.ok(await store.getAudio("zh:t_9"), "中文提示没有存在 zh: 前缀的键下");
+});
+
+test("中文提示用固定的中文嗓子生成，不跟着家长挑的英文音色走", async () => {
+  const { ctx, fetchCalls } = loadModule();
+  await ctx.provisionCue({ id: "t_9", en: "Time for bed.", zh: "该睡觉了" });
+  assert.equal(fetchCalls.length, 1, "没有去生成中文提示");
+  const body = JSON.parse(fetchCalls[0][1].body);
+  assert.equal(body.text, "该睡觉了", "送去生成的不是那句中文");
+  assert.equal(body.voice, ctx.CUE_VOICE_ID, "中文提示没用中文那把嗓子");
+  assert.notEqual(body.voice, ctx.getVoice(), "中文提示不该跟着英文音色走");
+});
+
 // ── Runner ───────────────────────────────────────────────
 console.log("audio-provision tests");
 let passed = 0, failed = 0;

@@ -228,6 +228,16 @@ test("英文那句刻意的放慢没有被中文改掉", () => {
   assert.match(src, /rate='-20%'/, "英文的放慢没了");
 });
 
+test("挑了一把名单外的嗓子，界面得知道没挑成——不能悄悄存下去", () => {
+  // 设置里是 `if (!setVoice(opt.id)) return;`：返回值是界面知道「没成」的唯一途径。
+  // 2026-09-28 变异探测抓出来的缺口：把名单校验删掉，没有一条测试会红。
+  const chosen = ALLOWED_VOICES.find(v => v !== DEFAULT_VOICE);
+  const ctx = loadVoice(chosen);
+  assert.equal(ctx.setVoice("en-US-NotOnTheListNeural"), false, "名单外的音色不该报成功");
+  assert.equal(ctx.getVoice(), chosen, "没挑成的话，之前选的那把必须还在");
+  assert.equal(ctx.setVoice(DEFAULT_VOICE), true, "对照：名单内的照常能挑");
+});
+
 console.log("voice choice tests");
 let passed = 0, failed = 0;
 for (const t of tests) {

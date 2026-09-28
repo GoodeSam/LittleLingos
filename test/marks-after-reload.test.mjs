@@ -77,7 +77,7 @@ function loadModule({ present = [] } = {}) {
     isOnline: () => !(ctx.navigator && ctx.navigator.onLine === false),
   }));
   assert.equal(typeof ctx.syncAudioMarks, "function", "module must define syncAudioMarks()");
-  return { ctx, asked };
+  return { ctx, asked, map };
 }
 
 // ══ 1. 重新打开之后，声音还在的那几条仍然标着有声音 ═══════════════════
@@ -112,25 +112,30 @@ test("空列表不去查存储", async () => {
 test("正在生成的那一条，不会被同步改成别的状态", async () => {
   // 同步发生在列表渲染时，而那一刻可能有一条正在生成。把它改掉的话，
   // 家长会看到 ⏳ 无缘无故变成 🔈。
-  const { ctx } = loadModule({ present: [] });
+  const { ctx, asked } = loadModule({ present: [] });
   const inFlight = ctx.requestAudio({ id: "x", en: "Hello." });
   assert.equal(ctx.audioMarkFor("x"), "pending");
   await ctx.syncAudioMarks(["x"]);
   assert.equal(ctx.audioMarkFor("x"), "pending", "同步不该打断正在进行的那一条");
+  // 2026-09-28 变异探测补强：本会话已经知道的，根本不该再去问存储——
+  // 问了就有被存储的答案改写的机会，而且几十条各问一次会让老手机卡顿。
+  assert.deepEqual(asked, [], "已经知道状态的那条又被拿去问存储了");
   await inFlight;
 });
 
 test("刚刚失败过的那一条，同步之后仍然是失败", async () => {
   // 失败是唯一「你可以做点什么」的状态。被同步抹成「还没生成」的话，
   // 家长就不知道那是试过没成的。
-  const { ctx } = loadModule({ present: [] });
   const bad = loadModule({ present: [] });
   bad.ctx.fetch = async () => new Response("x", { status: 502 });
   await bad.ctx.requestAudio({ id: "y", en: "Hello." });
   assert.equal(bad.ctx.audioMarkFor("y"), "failed");
+  // 2026-09-28 变异探测补强：原来这里存储里根本没有 y，「同步会不会把 ⚠ 抹掉」
+  // 这件事无从触发。现在让它在存储里出现（另一个标签页、上一次会话的迟到写入
+  // 都会这样）——本会话刚刚亲眼看着它失败，这个判断得赢过存储。
+  bad.map.set("y", mp3());
   await bad.ctx.syncAudioMarks(["y"]);
-  assert.equal(bad.ctx.audioMarkFor("y"), "failed");
-  void ctx;
+  assert.equal(bad.ctx.audioMarkFor("y"), "failed", "同步把家长正要点的 ⚠ 抹成了 🔈");
 });
 
 // ══ 3. 列表真的调了它 ═════════════════════════════════════════════════

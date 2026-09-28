@@ -36,6 +36,7 @@ const SOURCES = [
   "data-export.js",
   "audio-store.js",
   "audio-playback.js",
+  "custom-scenarios.js",
   "install-env.js",
   "audio-marks.js",
   "access-code.js",

@@ -26,6 +26,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { injectStorage } from "./_storage-helper.mjs";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 let _itemKind = null;
@@ -34,14 +35,12 @@ const itemKind = { create: (deps) => (_itemKind ||= require(join(ROOT, "item-kin
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:custom-scenarios:start */";
-const END = "/* ll:custom-scenarios:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
 function loadModule({ saved = [] } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
+  // 2026-09-28（ADR 0009 第十四块）：整块搬进 custom-scenarios.js。
   const map = new Map();
   const ctx = {
     console, savedPhrases: saved,
@@ -53,7 +52,12 @@ function loadModule({ saved = [] } = {}) {
     safeSetItem: (k, v) => map.set(k, String(v)),
   };
   vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  injectStorage(ctx);
+  Object.assign(ctx, require(join(ROOT, "custom-scenarios.js")).create({
+    storage: ctx.llStorage,
+    getSaved: () => ctx.savedPhrases,
+    persistSaved: () => {},
+  }));
   assert.equal(typeof ctx.phrasesInScenario, "function", "module must define phrasesInScenario()");
   return { ctx };
 }

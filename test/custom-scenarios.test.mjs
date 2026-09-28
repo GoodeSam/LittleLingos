@@ -31,21 +31,21 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { injectStorage, injectPersistSaved } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:custom-scenarios:start */";
-const END = "/* ll:custom-scenarios:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
 function loadModule({ stored = null, saved = [] } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
+  // 2026-09-28（ADR 0009 第十四块）：整块搬进 custom-scenarios.js，
+  // 三个依赖由 create(deps) 传入。收藏列表用 getSaved() 取，不是存一份引用。
   const map = new Map();
   if (stored !== null) map.set("ll_scenarios", JSON.stringify(stored));
   const ctx = {
@@ -62,13 +62,49 @@ function loadModule({ stored = null, saved = [] } = {}) {
   injectStorage(ctx);
   vm.createContext(ctx);
   injectPersistSaved(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  Object.assign(ctx, require(join(ROOT, "custom-scenarios.js")).create({
+    storage: ctx.llStorage,
+    getSaved: () => ctx.savedPhrases,     // 每次现取：列表会被整个换掉
+    persistSaved: () => ctx.persistSaved(),
+  }));
   for (const fn of ["loadCustomScenarios", "createCustomScenario", "deleteCustomScenario",
                     "renameCustomScenario", "isCustomScenario", "customScenarioTag"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
   return { ctx, map };
 }
+
+// ══ 0. 搬家之后必须仍然成立的两件事 ═══════════════════════════════════
+
+test("导完备份换了一整份收藏之后，删场景改的是新的那一份，不是旧的", () => {
+  // 家长恢复备份时，index.html 里是 `savedPhrases = merged` —— 整个换掉，不是原地改。
+  // 模块如果在创建时存了一份数组引用，从此就对着一个没人在看的旧数组干活：
+  // 他删掉场景，界面上的句子仍然挂在那个已经不存在的场景下，点进去是空的。
+  const { ctx } = loadModule({ saved: [] });
+  const sc = ctx.createCustomScenario("去医院", "🏥");
+  const tag = ctx.customScenarioTag(sc.id);
+  const 旧的 = ctx.savedPhrases;
+  ctx.savedPhrases = [{ id: "p1", scenario: tag }, { id: "p2", scenario: "__translate__" }];
+  assert.notEqual(ctx.savedPhrases, 旧的, "前提：这里确实换成了另一个数组");
+  assert.equal(ctx.deleteCustomScenario(sc.id), true);
+  assert.equal(ctx.savedPhrases[0].scenario, "__translate__",
+    "换过收藏列表之后删场景，句子没有退回翻译箱 —— 模块多半存着旧数组的引用");
+  assert.deepEqual([...ctx.phrasesInScenario(tag)], [], "这个场景下不该再有句子");
+});
+
+test("这一块住在自己的文件里，进了离线清单和缓存戳", () => {
+  // 少写一处：离线打开白屏（清单）；改了不生效（缓存戳）。
+  assert.ok(html.includes('<script src="./custom-scenarios.js"></script>'),
+    'index.html 里没有 <script src="./custom-scenarios.js"></script>');
+  assert.equal(html.includes("function createCustomScenario("), false,
+    "index.html 里还留着一份 createCustomScenario —— 两份会打架");
+  const sw = readFileSync(join(ROOT, "sw.js"), "utf8");
+  const shell = sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = [")));
+  assert.ok(shell.includes("custom-scenarios.js"), "sw.js 的 SHELL 里没有它 —— 离线打开会白屏");
+  const stamp = readFileSync(join(ROOT, "scripts/stamp-sw.mjs"), "utf8");
+  const sources = stamp.slice(stamp.indexOf("const SOURCES = ["), stamp.indexOf("]", stamp.indexOf("const SOURCES = [")));
+  assert.ok(sources.includes("custom-scenarios.js"), "stamp-sw.mjs 的 SOURCES 里没有它 —— 改了它缓存戳不变");
+});
 
 // ══ 1. 建一个自己的场景 ═══════════════════════════════════════════════
 

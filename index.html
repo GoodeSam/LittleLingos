@@ -2394,6 +2394,7 @@
 <script src="./audio-marks.js"></script>
 <script src="./access-code.js"></script>
 <script src="./first-value.js"></script>
+<script src="./custom-scenarios.js"></script>
 <script src="./install-env.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
@@ -2527,6 +2528,25 @@ let savedPhrases = safeParseArray("ll_saved");
 function persistSaved() {
   safeSetItem("ll_saved", JSON.stringify(savedPhrases));
 }
+
+// 自建场景（ADR 0009 第十四块）。getSaved 传的是函数不是数组：
+// savedPhrases 在导入备份和删条目时会被整个换掉，存引用会指向旧数组。
+var llCustomScenarios = llCustomScenariosLib.create({
+  storage: llStorage,
+  getSaved: function () { return savedPhrases; },
+  persistSaved: persistSaved,
+});
+var SCENARIOS_KEY = llCustomScenarios.SCENARIOS_KEY;
+var CUSTOM_PREFIX = llCustomScenarios.CUSTOM_PREFIX;
+var DEFAULT_SCENARIO_ICON = llCustomScenarios.DEFAULT_SCENARIO_ICON;
+var customScenarioTag = llCustomScenarios.customScenarioTag;
+var isCustomScenario = llCustomScenarios.isCustomScenario;
+var loadCustomScenarios = llCustomScenarios.loadCustomScenarios;
+var saveCustomScenarios = llCustomScenarios.saveCustomScenarios;
+var createCustomScenario = llCustomScenarios.createCustomScenario;
+var renameCustomScenario = llCustomScenarios.renameCustomScenario;
+var phrasesInScenario = llCustomScenarios.phrasesInScenario;
+var deleteCustomScenario = llCustomScenarios.deleteCustomScenario;
 let usedToday = loadUsedToday();
 
 // Spaced-repetition intervals (days). rv.s = successful review count;
@@ -5349,107 +5369,7 @@ window.addEventListener('online',  () => showOfflineToast('✅ 已恢复网络�
 
 
 // ── Access code ────────────────────────────────────────
-/* ll:custom-scenarios:start */
-// Scenarios a parent makes themselves.
-//
-// The prepared ones cover bedtime, meals, going out. They do not cover this
-// parent's Tuesday — the paediatrician, the grandparents' place, swimming.
-// Those are the moments they actually need words for.
-//
-// THE PHRASES ARE ORDINARY SAVED ITEMS tagged with `custom_<id>`. That is the
-// whole design: they inherit review scheduling, audio generation, the marks,
-// row playback, loop playback and backup, none of which is built again here.
-//
-// The tag is deliberately NOT a key in the preset `scenarios` object. An item
-// found there is classified as audio-backed and sent to
-// ./audio/<id>_normal.mp3 — a file that does not exist for these — where it
-// would fail over to the browser voice with nothing to show for it
-// (tech-constraints C13).
-const SCENARIOS_KEY = "ll_scenarios";
-const CUSTOM_PREFIX = "custom_";
-const DEFAULT_SCENARIO_ICON = "📌";
-
-function customScenarioTag(id) { return CUSTOM_PREFIX + id; }
-function isCustomScenario(tag) {
-  return typeof tag === "string" && tag.startsWith(CUSTOM_PREFIX);
-}
-
-// Anything unreadable is treated as "no scenarios yet" rather than an error.
-// A parent whose storage got mangled should find an app that works and an
-// empty list, not one that will not open.
-function loadCustomScenarios() {
-  const list = llStorage.readJSON(SCENARIOS_KEY, null);
-  if (!Array.isArray(list)) return [];
-  // A half-written entry would render as a scenario with no name — a tile a
-  // parent cannot identify and cannot fix.
-  return list.filter(x => x && typeof x.id === "string" && x.id
-                       && typeof x.name === "string" && x.name.trim());
-}
-
-function saveCustomScenarios(list) {
-  safeSetItem(SCENARIOS_KEY, JSON.stringify(list));
-}
-
-const normName = n => String(n == null ? "" : n).trim();
-
-function createCustomScenario(name, icon) {
-  const clean = normName(name);
-  if (!clean) return null;
-  const list = loadCustomScenarios();
-  // Two scenarios with one name leaves the parent unable to tell which of
-  // them a phrase should go into.
-  if (list.some(x => normName(x.name) === clean)) return null;
-  const sc = {
-    id: "s_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
-    name: clean,
-    icon: normName(icon) || DEFAULT_SCENARIO_ICON,
-    createdAt: Date.now(),
-  };
-  list.push(sc);
-  saveCustomScenarios(list);
-  return sc;
-}
-
-function renameCustomScenario(id, name) {
-  const clean = normName(name);
-  if (!clean) return false;
-  const list = loadCustomScenarios();
-  const sc = list.find(x => x.id === id);
-  if (!sc) return false;
-  if (list.some(x => x.id !== id && normName(x.name) === clean)) return false;
-  // The id never changes: every phrase in this scenario points at it, and a
-  // new id would orphan all of them.
-  sc.name = clean;
-  saveCustomScenarios(list);
-  return true;
-}
-
-// Deleting a scenario is tidying, not destruction. Each phrase inside cost a
-// generation to voice and carries months of review progress, so they move to
-// the general translated bucket and stay reachable in 收藏.
-// The saved phrases belonging to one scenario, or all of them when no
-// scenario is given. A self-made scenario is not a new screen — it is the 收藏
-// list with one filter on it, so everything a parent can already do to a saved
-// phrase keeps working inside a scenario without being built twice.
-function phrasesInScenario(tag) {
-  if (!tag) return savedPhrases;
-  return savedPhrases.filter(p => p && p.scenario === tag);
-}
-
-function deleteCustomScenario(id) {
-  const list = loadCustomScenarios();
-  const at = list.findIndex(x => x.id === id);
-  if (at === -1) return false;
-  const tag = customScenarioTag(id);
-  for (const p of savedPhrases) {
-    if (p && p.scenario === tag) p.scenario = "__translate__";
-  }
-  persistSaved();
-  list.splice(at, 1);
-  saveCustomScenarios(list);
-  return true;
-}
-/* ll:custom-scenarios:end */
+// 自建场景搬进 custom-scenarios.js（ADR 0009 第十四块）。实例化在 persistSaved 之后（见上）。
 
 /* ll:translate-save:start */
 // Identity and saving for a translation and the alternatives it comes with.

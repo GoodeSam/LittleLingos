@@ -104,6 +104,14 @@ after the gate:
 netlify deploy --prod --no-build
 ```
 
+## Release identity
+
+There is no hand-maintained version number. A release is identified by the `CACHE` stamp in
+`sw.js` (`ll-xxxxxxxx`, a hash of everything in the precached shell). `scripts/deploy-prod.mjs`
+tags the deployed commit `deploy-<stamp>` after confirming the live site serves that stamp,
+so "which code is on a parent's phone" is `curl -s https://littlelingos.netlify.app/sw.js | grep -o 'll-[0-9a-f]*'`
+→ `git show deploy-<stamp>`.
+
 ## Service-worker cache refresh
 
 `sw.js`'s `CACHE` constant is a content hash over every precached asset

@@ -102,6 +102,7 @@ step("L0 · asking a parent for their own words (test/own-words.test.mjs)", () =
 step("L0 · mining a transcript for habits (test/transcript-mine.test.mjs)", () => run("node", ["test/transcript-mine.test.mjs"]));
 step("L0 · one voice, not several (test/voice-consistency.test.mjs)", () => run("node", ["test/voice-consistency.test.mjs"]));
 step("L0 · translating adult content (test/adult-translate.test.mjs)", () => run("node", ["test/adult-translate.test.mjs"]));
+step("L0 · first-run default age (test/default-age.test.mjs)", () => run("node", ["test/default-age.test.mjs"]));
 step("L0 · choosing the reading voice (test/voice-choice.test.mjs)", () => run("node", ["test/voice-choice.test.mjs"]));
 step("L0 · candidate-one navigation (test/nav-candidate1.test.mjs)", () => run("node", ["test/nav-candidate1.test.mjs"]));
 step("L0 · design tokens + adult look (test/design-tokens.test.mjs)", () => run("node", ["test/design-tokens.test.mjs"]));

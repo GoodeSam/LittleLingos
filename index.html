@@ -1952,9 +1952,9 @@
   </div>
   <div class="age-tabs" id="ageTabs">
     <div class="age-tab" role="button" tabindex="0" data-age="0-1" onclick="switchAge('0-1')">0–1岁</div>
-    <div class="age-tab active" role="button" tabindex="0" data-age="1-2" onclick="switchAge('1-2')">1–2岁</div>
+    <div class="age-tab" role="button" tabindex="0" data-age="1-2" onclick="switchAge('1-2')">1–2岁</div>
     <div class="age-tab" role="button" tabindex="0" data-age="2-3" onclick="switchAge('2-3')">2–3岁</div>
-    <div class="age-tab" role="button" tabindex="0" data-age="3-6" onclick="switchAge('3-6')">3–6岁</div>
+    <div class="age-tab active" role="button" tabindex="0" data-age="3-6" onclick="switchAge('3-6')">3–6岁</div>
   </div>
   <div class="tier-tabs" id="tierTabs">
     <div class="tier-tab active" role="button" tabindex="0" data-tier="all"        onclick="filterTier('all')">全部</div>
@@ -2300,9 +2300,9 @@
            成人档走的是另一套提示词——照实翻译，不迁就年龄。 -->
       <div class="translate-label">说给谁听</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <div class="age-opt active" role="button" tabindex="0" data-tage="1-2" onclick="selectTranslateAge(this,'1-2')">1–2岁</div>
+        <div class="age-opt" role="button" tabindex="0" data-tage="1-2" onclick="selectTranslateAge(this,'1-2')">1–2岁</div>
         <div class="age-opt" role="button" tabindex="0" data-tage="2-3" onclick="selectTranslateAge(this,'2-3')">2–3岁</div>
-        <div class="age-opt" role="button" tabindex="0" data-tage="3-6" onclick="selectTranslateAge(this,'3-6')">3–6岁</div>
+        <div class="age-opt active" role="button" tabindex="0" data-tage="3-6" onclick="selectTranslateAge(this,'3-6')">3–6岁</div>
         <div class="age-opt" role="button" tabindex="0" data-tage="adult" onclick="selectTranslateAge(this,'adult')">成人</div>
       </div>
     </div>
@@ -2350,9 +2350,9 @@
   <h3>宝宝现在多大？</h3>
   <div class="age-options">
     <div class="age-opt" role="button" tabindex="0" data-age="0-1" onclick="selectAge(this,'0-1')">0–1 岁</div>
-    <div class="age-opt active" role="button" tabindex="0" data-age="1-2" onclick="selectAge(this,'1-2')">1–2 岁</div>
+    <div class="age-opt" role="button" tabindex="0" data-age="1-2" onclick="selectAge(this,'1-2')">1–2 岁</div>
     <div class="age-opt" role="button" tabindex="0" data-age="2-3" onclick="selectAge(this,'2-3')">2–3 岁</div>
-    <div class="age-opt" role="button" tabindex="0" data-age="3-6" onclick="selectAge(this,'3-6')">3–6 岁</div>
+    <div class="age-opt active" role="button" tabindex="0" data-age="3-6" onclick="selectAge(this,'3-6')">3–6 岁</div>
   </div>
 </div>
 
@@ -2484,11 +2484,12 @@ const llApi = llApiLib.createApiClient({
   clearTimeout: (t) => clearTimeout(t),
 });
 
-// A missing/corrupt/invalid stored value falls back to the pre-existing
-// default ("1-2"); llStorage never throws.
+// A missing/corrupt/invalid stored value falls back to the default;
+// llStorage never throws.
+// 2026-09-28 Victor 定：默认 3–6 岁（原来是 1–2 岁）。存过的选择照旧生效。
 function loadStoredAge() {
   const v = llStorage.readString(llStorage.KEYS.age, "");
-  return AGE_KEYS.includes(v) ? v : "1-2";
+  return AGE_KEYS.includes(v) ? v : "3-6";
 }
 
 let currentAge = loadStoredAge();
@@ -5954,7 +5955,7 @@ function llStartApp() {
 
   // Sync the DOM (age-tab / age-picker age-opt / badge label, and the
   // translate screen's own age-opt row) to the restored `currentAge` — the
-  // markup's hardcoded "1-2 active" default only matches first-run with no
+  // markup's hardcoded "3-6 active" default only matches first-run with no
   // `ll_age` stored. setCurrentAge() already calls renderScenarioGrid() and
   // renderTodayStrip(), so no separate calls to those are needed here.
   setCurrentAge(currentAge);

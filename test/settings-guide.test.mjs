@@ -98,8 +98,8 @@ test("说明里提到的四个标签，和底部导航上真的那四个字一�
 
 test("说明里画的四种声音标记，和收藏列表里真用的图标一样", () => {
   const { src } = guide();
-  const S = "/* ll:audio-marks:start */", E = "/* ll:audio-marks:end */";
-  const marks = html.slice(html.indexOf(S), html.indexOf(E));
+  // 2026-09-28（ADR 0009 第十二块）：声音标记搬进 audio-marks.js。
+  const marks = readFileSync(join(ROOT, "audio-marks.js"), "utf8");
   const icons = [...new Set([...marks.matchAll(/icon:\s*"([^"]+)"/g)].map(m => m[1]))];
   assert.equal(icons.length, 4, `收藏列表的声音标记读出了 ${icons.length} 种，读法可能坏了：${icons}`);
   for (const i of icons) assert.ok(src.includes(i), `说明里没有 ${i} 这个标记——家长在列表里看得到它，却查不到它什么意思`);

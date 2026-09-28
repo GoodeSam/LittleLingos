@@ -1265,7 +1265,11 @@ check("场景卡的「▶ 朗读」也归 audio-controller 管：加载中→播
     const s1 = window.llAudio.state();
     out.owns = s1.owner === btn && s1.mode === "clip";
     out.labelWhileLoadingOrPlaying = btn.textContent.trim();
-    await new Promise(res => setTimeout(res, 1200));       // 等它真响起来并走一段
+    // 等它真响起来并走出一点进度。固定等 1.2 秒在机器忙的时候不够——
+    // 全量跑的时候这条偶发红过一次（2026-09-28），单独跑却是绿的。
+    // 改成等到「进度条真的动了」为止，最多等 6 秒。
+    const fillMoved = () => parseFloat(fill.style.width) > 0;
+    for (let i = 0; i < 60 && !fillMoved(); i++) await new Promise(res => setTimeout(res, 100));
     const s2 = window.llAudio.state();
     out.playingNotLoading = s2.owner === btn && !s2.loading && !s2.paused;
     out.labelPlaying = btn.textContent.trim();

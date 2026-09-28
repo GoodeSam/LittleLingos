@@ -2391,6 +2391,8 @@
 <script src="./audio-store.js"></script>
 <!-- 取声音地址（ADR 0009 第十一块）。 -->
 <script src="./audio-playback.js"></script>
+<script src="./audio-marks.js"></script>
+<script src="./install-env.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
      万一这个文件没加载成（MIME 不对、被缓存挡住），window.llAudio 就是
@@ -5328,51 +5330,9 @@ function findPhrase(id) {
 // vm-extract and exercise them directly — same idiom as the ll:voice-input
 // module above. No navigator/window/DOM reads inside either function; call
 // sites pass in navigator.userAgent and the actual SW state.
-/* ll:install-env:start */
-function detectInstallEnvironment(ua) {
-  // Total: any non-string (undefined, null, a number, an object, garbage)
-  // collapses to "", which matches nothing below and resolves to the safe
-  // 'unknown' path instead of throwing inside .test().
-  const safeUa = typeof ua === "string" ? ua : "";
-  const isIOS = /iphone|ipad|ipod/i.test(safeUa);
-  const isAndroid = /android/i.test(safeUa);
-  // Case-insensitive: some X5 builds vary MicroMessenger's casing.
-  const isWeChat = /micromessenger/i.test(safeUa);
-  let installPath;
-  if (isWeChat) installPath = "wechat"; // iOS or Android — same honest-fallback path
-  else if (isIOS) installPath = "ios-safari";
-  else if (isAndroid) installPath = "android-prompt";
-  else installPath = "unknown"; // default for garbage/desktop/unrecognized UAs
-  return { isIOS, isAndroid, isWeChat, installPath };
-}
-
-// Derives whether the app can honestly claim "offline ready" from the
-// ACTUAL registration outcome, replacing the assumption that register()
-// succeeding just because it was called (the bug this fixes:
-// `.register('./sw.js').catch(() => {})` swallowed every failure silently).
-// `registrationState` is one of 'pending' | 'success' | 'failed'; anything
-// else defaults to 'pending' (the conservative "don't claim readiness,
-// don't alarm the parent yet" state — a real answer is still in flight).
-// Controller presence is the ground truth for "can this device actually
-// serve cached assets right now" — independent of whether THIS particular
-// register() call resolved or rejected, so a transient failure on an
-// already-controlled page never false-alarms a parent who is already
-// offline-capable.
-function deriveOfflineReadiness(state) {
-  const s = state && typeof state === "object" ? state : {};
-  const supported = s.supported === true;
-  const registrationState = ["pending", "success", "failed"].includes(s.registrationState)
-    ? s.registrationState : "pending";
-  const hasController = s.hasController === true;
-
-  if (!supported) {
-    return { offlineReady: false, status: "unsupported", showFailureToast: false };
-  }
-  const offlineReady = hasController;
-  const showFailureToast = registrationState === "failed" && !hasController;
-  return { offlineReady, status: registrationState, showFailureToast };
-}
-/* ll:install-env:end */
+// 搬到 install-env.js（llInstallEnv）。别名给块外调用点用（var：沙箱里 const 不挂上下文）。
+var detectInstallEnvironment = llInstallEnv.detectInstallEnvironment;
+var deriveOfflineReadiness = llInstallEnv.deriveOfflineReadiness;
 
 const installEnv = detectInstallEnvironment(navigator.userAgent);
 
@@ -5875,61 +5835,14 @@ function toggleAudioLoop(items, onCue) {
 }
 /* ll:audio-loop:end */
 
-/* ll:audio-marks:start */
-// What a saved row says about its voice.
-//
-// Everything else in ADR 0003 is invisible. A parent taps 收藏, something
-// happens for three seconds, and then they hear either a real recorded voice
-// or the browser's own — and cannot tell which. Airplane mode does not settle
-// it either, because browser speech works offline too. So the row says it.
-//
-// Four states, four icons, deliberately distinguishable at a glance:
-//   🔊 ready   — the clip is on this phone; plays with no signal, costs nothing
-//   ⏳ pending — being generated right now; tapping would only pay twice
-//   ⚠  failed  — no clip; TAPPABLE, and the only state where the parent can act
-//   🔈 none    — not attempted yet, or restored from a backup (backups carry no
-//                audio, ADR 0003); also tappable, to fill it in
-//
-// Keeping ⏳ and ⚠ apart is the whole point of having four rather than two: a
-// parent staring at a spinner that will never resolve has no way to know they
-// were supposed to do something.
-function audioMarkView(item) {
-  if (!item || !item.id) return { icon: "🔈", label: "暂无声音", canRetry: false };
-
-  // Preset phrases ship with the app as ./audio/<id>_normal.mp3 and never go
-  // through per-item generation — asking the device store about them always
-  // answers "none", which would paint a whole screen of them as silent.
-  // 🔊 doubles as the play control. Reported from real use: only the review
-  // card at the top could be played, so every row below it held a clip that
-  // had been paid for and could never be heard. A speaker icon already invites
-  // a tap; adding a separate play button next to it would ask the parent to
-  // work out the difference between the two.
-  const playable = item => ({
-    // Says both what it is and what tapping does — a screen reader user gets
-    // no icon, so the label carries the whole message.
-    icon: "🔊", label: "已有声音 — 点一下听这一句", canRetry: false,
-    onTap: () => playReviewAudio(item),
-  });
-
-  if (typeof isAudioBacked === "function" && isAudioBacked(item)) {
-    return playable(item);
-  }
-
-  const state = typeof audioMarkFor === "function" ? audioMarkFor(item.id) : "none";
-  if (state === "ready")   return playable(item);
-  if (state === "pending") return { icon: "⏳", label: "正在生成声音", canRetry: false };
-  if (state === "failed") {
-    return {
-      icon: "⚠", label: "没有声音 — 点一下重试", canRetry: true,
-      onTap: () => retryAudio(item),
-    };
-  }
-  return {
-    icon: "🔈", label: "暂无声音 — 点一下生成", canRetry: true,
-    onTap: () => retryAudio(item),
-  };
-}
-/* ll:audio-marks:end */
+// 声音标记怎么显示在 audio-marks.js（llAudioMarks）。四个依赖传进去，不让它抓全局。
+var llAudioMarks = llAudioMarksLib.create({
+  audioMarkFor: (id) => audioMarkFor(id),
+  isAudioBacked: (item) => llItemKind.isAudioBacked(item),
+  retryAudio: (item) => retryAudio(item),
+  playReviewAudio: (item) => playReviewAudio(item),
+});
+var audioMarkView = llAudioMarks.audioMarkView;
 
 // 取声音地址在 audio-playback.js（llPlayback）。三个依赖传进去，不让它抓全局。
 var llPlayback = llPlaybackLib.create({

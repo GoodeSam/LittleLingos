@@ -33,6 +33,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+const require = createRequire(import.meta.url);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -48,8 +51,7 @@ const B = { id: "t_2", en: "Wash your hands.", scenario: "__translate__" };
 const PRESET = { id: "bedtime_01", en: "Time for bed.", scenario: "bedtime" };
 
 function loadModule({ marks = {}, presetIds = ["bedtime_01"] } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
+  // 2026-09-28（ADR 0009 第十二块）：搬进 audio-marks.js，四个依赖由 create(deps) 传入。
   const retried = [], played = [];
   const ctx = {
     console,
@@ -60,8 +62,10 @@ function loadModule({ marks = {}, presetIds = ["bedtime_01"] } = {}) {
     // covered by test/audio-playback.test.mjs and dictionary-review.test.mjs.
     playReviewAudio: (item, btn) => played.push({ item, btn }),
   };
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  Object.assign(ctx, require(join(ROOT, "audio-marks.js")).create({
+    audioMarkFor: ctx.audioMarkFor, isAudioBacked: ctx.isAudioBacked,
+    retryAudio: ctx.retryAudio, playReviewAudio: ctx.playReviewAudio,
+  }));
   return { ctx, retried, played };
 }
 

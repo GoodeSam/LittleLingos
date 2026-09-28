@@ -17,6 +17,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+const require = createRequire(import.meta.url);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -28,11 +31,8 @@ const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
 function loadModule() {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
-  const ctx = { console };
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  // 2026-09-28（ADR 0009 第十二块）：这一块搬进 install-env.js，直接 require。
+  const ctx = require(join(ROOT, "install-env.js"));
   assert.equal(typeof ctx.detectInstallEnvironment, "function",
     "module must define detectInstallEnvironment()");
   assert.equal(typeof ctx.deriveOfflineReadiness, "function",

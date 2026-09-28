@@ -2151,7 +2151,7 @@
         </ul>
         <p><strong>放到一半想停</strong>：按钮上写着 ⏸ 的时候再点一下就是暂停，声音停在那里；再点一次从停的地方接着放，不是从头。场景卡上的进度条也停在原处。</p>
         <p>没有生成好的句子，会先用手机自带的声音念，音色会不一样，屏幕上会提示一次。<strong>用手机自带声音念的那种没法接着放</strong>：点第二下是停下来，再点是从头念一遍。</p>
-        <p>收藏页顶上的【连续播放全部】会把收藏里<strong>已经有声音的</strong>句子一句接一句放（还没生成出声音的会跳过）：第一句直接放英文，之后每句先念中文提示，停几秒让你自己试着说，再放英文。适合做饭、洗碗、开车时听。</p>
+        <p>收藏页顶上的【连续播放全部】会把收藏里<strong>已经有声音的</strong>句子一句接一句放（还没生成出声音的会跳过）：第一句直接放英文，之后每句先念中文提示，停几秒让你自己试着说，再放英文。放的时候按一下是<strong>暂停</strong>，再按一下从停的地方接着放，不会从头来。适合做饭、洗碗、开车时听。</p>
       </div>
     </details>
 
@@ -3904,7 +3904,8 @@ function renderSavedScreen() {
   loopBtn.type = 'button';
   loopBtn.className = 'loop-btn';
   const paintLoopBtn = () => {
-    loopBtn.textContent = audioLoopPlaying() ? '⏸ 停止连续播放' : '连续播放全部';
+    // 三种状态：在放 / 暂停着 / 没放。2026-09-28：按钮自己那一下是暂停，再按接着放。
+    loopBtn.textContent = audioLoopPlaying() ? '⏸ 暂停连续播放' : audioLoopPaused() ? '▶ 继续连续播放' : '连续播放全部';
     loopBtn.setAttribute('aria-label', loopBtn.textContent);
   };
   paintLoopBtn();
@@ -3926,7 +3927,7 @@ function renderSavedScreen() {
       const anyAudio = rows.some(r => playableUrlFor(r));
       if (!anyAudio) showOfflineToast('还没有可播放的声音 — 收藏的句子生成好之后就能连续播');
     }
-    if (!audioLoopPlaying()) paintLoopCue(null);
+    if (!audioLoopPlaying() && !audioLoopPaused()) paintLoopCue(null);   // 暂停着的时候那句中文留着
     paintLoopBtn();
   };
   list.appendChild(loopBtn);
@@ -5392,6 +5393,7 @@ var startAudioLoop = llAudioLoop.startAudioLoop;
 var stopAudioLoop = llAudioLoop.stopAudioLoop;
 var toggleAudioLoop = llAudioLoop.toggleAudioLoop;
 var loopAudible = llAudioLoop.loopAudible;
+var audioLoopPaused = llAudioLoop.audioLoopPaused;
 
 // 声音标记怎么显示在 audio-marks.js（llAudioMarks）。四个依赖传进去，不让它抓全局。
 var llAudioMarks = llAudioMarksLib.create({

@@ -78,6 +78,11 @@
     var loopOnCue = null;
     var loopPhase = "en";                // "zh" 正在念中文 | "en" 正在放英文
     var loopCueGuard = null;
+    // 暂停着（按钮自己那一下）。和「停掉」不同：队列、位置、当前阶段都留着，
+    // 再按一下从停的地方接着放。2026-09-28 真机报上来：原来第二下是停掉，
+    // 第三下从第一句重来——家长在第七句被叫走，回来得从头听六句。
+    var loopPaused = false;
+    var pausedDuring = null;             // "element" 元素放到一半 | "speech-cue" 手机在念中文 | "gap" 中文念完的停顿里
 
     function audioLoopPlaying() { return loopOn; }
     // 此刻有没有真的在出声。和 audioLoopPlaying() 不同：那个是「这一轮开着」，
@@ -229,8 +234,48 @@
       }, LOOP_PAUSE_MS);
     }
 
+    // 暂停：声音停住，位置留着。记下停在哪一步，接着放时才知道该怎么续。
+    function pauseAudioLoop() {
+      if (!loopOn) return;
+      pausedDuring = loopCueGuard ? "speech-cue" : (loopTimer ? "gap" : "element");
+      loopOn = false;
+      loopPaused = true;
+      clearLoopCueGuard();
+      if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
+      if (loopEl) { try { loopEl.pause(); } catch (e) {} }
+      silenceLoopCue();
+    }
+
+    // 接着放。元素放到一半的（英文，或 Azure 生成的中文提示）：从停的地方续；
+    // 手机在念中文提示时暂停的：那句中文重新念一遍（合成语音没有可靠的接着念）；
+    // 停在中文念完的停顿里的：直接放这句的英文。
+    function resumeAudioLoop() {
+      if (!loopPaused || !loopQueue.length) return false;
+      loopPaused = false;
+      loopOn = true;
+      var item = loopQueue[loopIndex];
+      var how = pausedDuring; pausedDuring = null;
+      if (how === "speech-cue") { cueLoopItem(item); startLoopCue(item); return true; }
+      if (how === "gap") { loopPhase = "en"; playCurrentLoopClip(); return true; }
+      var p = loopEl ? loopEl.play() : null;
+      if (p && typeof p.catch === "function") p.catch(function () { if (loopOn) advanceAndCue(); });
+      return true;
+    }
+
+    function audioLoopPaused() { return loopPaused; }
+
+    // 暂停期间收藏列表变没变：变了就不能接着旧队列，会放出一句已经删掉的。
+    function sameQueue(items) {
+      var next = (items || []).filter(function (it) { return playableUrlFor(it); }).map(function (it) { return it && it.id; });
+      if (next.length !== loopQueue.length) return false;
+      for (var i = 0; i < next.length; i++) if (next[i] !== loopQueue[i].id) return false;
+      return true;
+    }
+
     function stopAudioLoop() {
       loopOn = false;
+      loopPaused = false;
+      pausedDuring = null;
       loopPhase = "en";
       clearLoopCueGuard();
       if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
@@ -241,7 +286,11 @@
     }
 
     function toggleAudioLoop(items, onCue) {
-      if (loopOn) { stopAudioLoop(); return false; }
+      if (loopOn) { pauseAudioLoop(); return false; }
+      if (loopPaused && sameQueue(items)) {
+        loopOnCue = typeof onCue === "function" ? onCue : loopOnCue;   // 列表重画后回调换了一份
+        return resumeAudioLoop();
+      }
       return startAudioLoop(items, onCue);
     }
 
@@ -264,6 +313,9 @@
       startLoopCue: startLoopCue,
       afterLoopCue: afterLoopCue,
       stopAudioLoop: stopAudioLoop,
+      pauseAudioLoop: pauseAudioLoop,
+      resumeAudioLoop: resumeAudioLoop,
+      audioLoopPaused: audioLoopPaused,
       toggleAudioLoop: toggleAudioLoop,
     };
   }

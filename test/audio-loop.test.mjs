@@ -74,6 +74,7 @@ function fakeAudioClass(made) {
     // 默认成功；把 rejectNextPlay 打开就模拟被拒。
     play() {
       this.played.push(this._src);
+      this.paused = false;
       if (this.rejectNextPlay) { this.rejectNextPlay = false; return Promise.reject(new Error("NotAllowedError")); }
       return Promise.resolve();
     }
@@ -318,6 +319,10 @@ test("判断一条能不能播这件事，只有一处实现", async () => {
 test("收藏页有一个一键连续播放的入口", async () => {
   assert.match(html, /toggleAudioLoop\(|startAudioLoop\(/,
     "算得出来但没人点，等于没做");
+  // 2026-09-28：按钮要分得清三种状态——没放 / 在放 / 暂停着。暂停着的时候写「继续」，
+  // 不然家长按了一下停住，看着还是「连续播放全部」，以为要从头来。
+  assert.match(html, /audioLoopPaused\(\)/, "收藏页没有问模块「是不是暂停着」，按钮画不出「继续」");
+  assert.match(html, /继续/, "暂停之后按钮上没有「继续」");
   const at = html.indexOf("function renderSavedScreen");
   const body = html.slice(at, html.indexOf("\nfunction ", at + 10));
   assert.match(body, /AudioLoop/, "入口要在收藏页上，那是家长复习时待的地方");
@@ -426,6 +431,73 @@ test("收藏页把中文提示接到了屏幕上", async () => {
   const at = html.indexOf("function renderSavedScreen");
   const body = html.slice(at, html.indexOf("\nfunction ", at + 10));
   assert.match(body, /loop-cue/, "循环里算出了提示，收藏页却没地方显示它，等于没做");
+});
+
+// ══ 暂停要真的是暂停：再按一下从停的地方接着放 ═══════════════════════
+// 2026-09-28 真机报上来的：连播按一下停住，再按一下从第一句重来。家长在第七句
+// 被叫走，回来得从头听六句。和 09-22 那次「⏸ 变重播」是同一类问题。
+// 「停掉」（别的播放键让路、切页面、从通知进来兜底）仍然是停掉——只有按钮自己
+// 那一下是暂停。
+
+// 起播并推进到第二句正在放英文的状态；返回元素
+async function playingSecondClip(ctx, made, tick, items) {
+  assert.equal(ctx.startAudioLoop(items, () => {}), true);
+  const el = made[made.length - 1];
+  el.fire("ended");                           // 第一句放完 → 念第二句的中文
+  for (let i = 0; i < 3; i++) tick();         // 中文念完、停顿过去 → 放第二句的英文
+  await new Promise(r => queueMicrotask(r));
+  assert.equal(el.played.at(-1), "blob:b", "对照：现在该在放第二句的英文");
+  return el;
+}
+const THREE = [{ id: "a", zh: "洗手" }, { id: "b", zh: "睡觉" }, { id: "c", zh: "吃饭" }];
+
+test("放到第二句时按一下：声音停住，但位置留着——是暂停，不是停掉", async () => {
+  const { ctx, made, tick } = await loadModule();
+  const el = await playingSecondClip(ctx, made, tick, THREE);
+  assert.equal(ctx.toggleAudioLoop(THREE, () => {}), false, "第二下该返回「没在放」");
+  assert.equal(el.paused, true, "按了暂停声音还在响");
+  assert.equal(ctx.audioLoopPlaying(), false);
+  assert.equal(ctx.audioLoopPaused(), true, "模块不知道自己是暂停着的——按钮就没法写「继续」");
+});
+
+test("再按一下：从暂停的地方接着放第二句，不从第一句重来", async () => {
+  const { ctx, made, tick } = await loadModule();
+  const cued = [];
+  const el = await playingSecondClip(ctx, made, tick, THREE);
+  ctx.toggleAudioLoop(THREE, it => cued.push(it.id));       // 暂停
+  const before = el.played.length;
+  assert.equal(ctx.toggleAudioLoop(THREE, it => cued.push(it.id)), true, "第三下该接着放");
+  await new Promise(r => queueMicrotask(r));
+  assert.equal(el.paused, false, "按了继续，声音没响");
+  assert.equal(el.src, "blob:b", "接着放的不是暂停时那一句——从头重来了");
+  assert.equal(el.played.slice(before).filter(u => u === "blob:a").length, 0, "又从第一句开始放了");
+  assert.deepEqual(cued, [], "接着放的时候不该重新提示第一句");
+  assert.equal(ctx.audioLoopPlaying(), true);
+  assert.equal(ctx.audioLoopPaused(), false);
+});
+
+test("暂停在中文提示念到一半（手机合成）：接着放时把这句中文重新念一遍，再放它的英文", async () => {
+  const { ctx, made, speech } = await loadModule();
+  ctx.startAudioLoop(THREE, () => {});
+  const el = made[made.length - 1];
+  el.fire("ended");                           // 第一句放完 → 手机开始念第二句的中文
+  assert.equal(speech.spoken.length, 1, "对照：中文提示该在念");
+  ctx.toggleAudioLoop(THREE, () => {});       // 暂停：念到一半
+  assert.ok(speech.cancels >= 1, "暂停了中文还在念");
+  ctx.toggleAudioLoop(THREE, () => {});       // 继续
+  assert.equal(speech.spoken.length, 2, "接着放的时候没有把念到一半的中文重新念一遍");
+  assert.equal(String(speech.spoken.at(-1).text), "睡觉", "重新念的不是第二句的中文");
+});
+
+test("暂停期间收藏列表变了（删了一句）：再按是按新列表从头开始，不是接着旧队列", async () => {
+  const { ctx, made, tick } = await loadModule();
+  const cued = [];
+  const el = await playingSecondClip(ctx, made, tick, THREE);
+  ctx.toggleAudioLoop(THREE, () => {});       // 暂停
+  const TWO = [THREE[0], THREE[2]];           // 第二句被删了
+  assert.equal(ctx.toggleAudioLoop(TWO, it => cued.push(it.id)), true);
+  assert.equal(el.src, "blob:a", "列表变了却还接着旧队列——会放出一句已经删掉的");
+  assert.deepEqual(cued, ["a"]);
 });
 
 // ══ 从通知点开去连播：得知道此刻有没有真的在出声 ═══════════════════════

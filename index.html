@@ -2397,6 +2397,8 @@
 <script src="./custom-scenarios.js"></script>
 <script src="./translate-save.js"></script>
 <script src="./audio-loop.js"></script>
+<script src="./voice.js"></script>
+<script src="./audio-provision.js"></script>
 <script src="./install-env.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
@@ -5440,248 +5442,15 @@ var primeAudioUrl = llPlayback.primeAudioUrl;
 var playableUrlFor = llPlayback.playableUrlFor;
 var releaseAudioUrls = llPlayback.releaseAudioUrls;
 
-/* ll:audio-provision:start */
-// Between "a parent saved a phrase" and "that phrase has a voice on their
-// phone". Depends on ll:audio-store below for the device half. See ADR 0003.
-//
-// The save lands FIRST and instantly; the voice catches up here, in the
-// background. The phrase text is the irreplaceable part — audio is an
-// enhancement, and making a parent wait three seconds on every save (or worse,
-// losing the save because the network was down) would be paying for audio with
-// the one thing the app is actually for. The job is 「别让我发起」 (jtbd.md);
-// friction at save time works directly against it.
-//
-// Nothing in here ever throws at its caller. saveTranslation() and
-// saveDictSense() call in and carry on.
-const audioPending = new Set();
-const audioFailed = new Set();
-const audioReady = new Set();
-
-// What the list should draw next to a row. Four states rather than two,
-// because "still working on it" and "this one has no sound" send a parent to
-// different places: one is worth waiting for, the other is worth tapping.
-//   none · pending ⏳ · ready 🔊 · failed ⚠
-function audioMarkFor(id) {
-  if (audioPending.has(id)) return "pending";
-  if (audioReady.has(id)) return "ready";
-  if (audioFailed.has(id)) return "failed";
-  return "none";
-}
-
-// Generate one clip and keep it. Returns whether the phrase now HAS audio —
-// including the case where it already did, which is a success that costs
-// nothing. Never rejects.
-//
-// Every early return below is money not spent. This is billed per character
-// and fires on every save, so a request that was always going to fail (no
-// code, no signal) is pure waste, and a clip that already exists is the entire
-// reason the design stores them at all.
-// Split in two on purpose. Everything up to the claim is SYNCHRONOUS: two
-// taps on 收藏 land in the same tick, and if the claim happened after an
-// await both would sail past it and pay twice. It is also why the list can
-// draw ⏳ the instant this is called rather than a frame later.
-function requestAudio(item) {
-  if (!item || !item.id || !item.en) return Promise.resolve(false);
-  const id = item.id;
-  if (audioPending.has(id)) return Promise.resolve(false);
-  if (audioReady.has(id)) return Promise.resolve(true);
-  audioPending.add(id);
-  audioFailed.delete(id);
-  return provisionAudio(item, id);
-}
-
-// 要花钱的语音生成只有这一个出口：付费端点、凭据、音色，三件事写在一处。
-// 存句子和设置里的试听都走它——两个地方各自去拼凭据和音色，
-// 迟早有一处会漏掉其中一样。
-function ttsFetch(text, voice) {
-  return llApi.raw("/api/tts", { text, voice });   // 要读二进制回复，走不归类的那个口
-}
-
-// 连播里的中文提示，按需生成一次就存在设备上。键用 "zh:" 开头，clipKey 认得
-// 这个前缀，会用中文那把嗓子分键——所以家长换英文音色不会把中文提示作废。
-//
-// 不 await：连播一开始就把整队都排上，这一轮没备好的那几句先退回手机自带的
-// 合成，转一圈回来就有了。每句只花一次钱。
-const cuePending = new Set();
-async function provisionCue(item) {
-  const zh = item && typeof item.zh === "string" ? item.zh.trim() : "";
-  if (!zh || !item || !item.id) return false;
-  const key = "zh:" + item.id;
-  if (cuePending.has(key)) return false;
-  cuePending.add(key);
-  try {
-    if (await hasAudio(key)) { await primeAudioUrl(key); return true; }
-    if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
-    if (!getAccessCode()) return false;
-    const res = await ttsFetch(zh, CUE_VOICE_ID);
-    if (!res.ok) return false;
-    const stored = await putAudio(key, await res.blob());
-    if (!stored) return false;
-    await primeAudioUrl(key);
-    return true;
-  } catch {
-    return false;
-  } finally {
-    cuePending.delete(key);
-  }
-}
-function provisionLoopCues(items) {
-  for (const it of items || []) { provisionCue(it); }
-}
-
-async function provisionAudio(item, id) {
-  try {
-    // A restored backup, a re-saved phrase, a fresh page load — all of these
-    // ask about clips that are already on the device.
-    if (await hasAudio(id)) { audioReady.add(id); return true; }
-
-    // Known to fail: don't pay the timeout to find out.
-    if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
-    if (!getAccessCode()) return false;
-
-
-    // Only the English goes out. The Chinese is what the parent typed; it is
-    // useless for speech and every field sent needlessly is exposure earned
-    // for nothing.
-    const res = await ttsFetch(item.en, getVoice());
-    if (!res.ok) return false;
-    // Generated and paid for, but not stored, is worse than not generated —
-    // it looks like it worked. putAudio() reporting false is the only way to
-    // tell the difference.
-    const stored = await putAudio(id, await res.blob());
-    if (!stored) return false;
-    audioReady.add(id);
-    return true;
-  } catch {
-    // Offline mid-request, DNS failure, a body that never arrived.
-    return false;
-  } finally {
-    audioPending.delete(id);
-    if (!audioReady.has(id)) audioFailed.add(id);
-    // The mark is stale the instant this settles — a spinner that never
-    // becomes a speaker is indistinguishable from one that failed.
-    //
-    // Wrapped because this runs in a finally: a throw here would replace the
-    // return value above, and requestAudio() is called WITHOUT await from both
-    // save paths — so that rejection would have nobody to catch it. The
-    // module's promise never to throw at its caller cannot depend on the
-    // renderer behaving.
-    if (typeof refreshAudioMarks === "function") {
-      try { refreshAudioMarks(); } catch {}
-    }
-  }
-}
-
-/* ll:voice:start */
-// 家长挑哪一把嗓子念给孩子听。这一段刻意只碰 localStorage，不碰 DOM，
-// 好让 test/voice-choice.test.mjs 在一个空的沙箱里跑它。
-//
-// 名单必须和 netlify/functions/tts.mjs 的 ALLOWED_VOICES 一致——那边挡下
-// 名单外的音色，这边列出名单内的，测试比对两份，对不上就红。
-// 分组是按 Azure 的代次分的，越靠上越接近真人。这不是我们的主观排序：
-// Dragon HD 是最新一代，Multilingual 次之，原版是 2019 年那一批。
-// 名单里每一个都在 2026-09-10 用本项目这套 SSML 真打过一次 Azure eastus，
-// 都回了可播的 mp3。
-const VOICE_OPTIONS = [
-  { id: "en-US-JennyNeural", label: "Jenny · 原版", desc: "温暖女声 · 场景里的预设句子用的就是这把", group: "默认" },
-
-  { id: "en-US-Jenny:DragonHDLatestNeural",   label: "Jenny · 新版", desc: "同一把嗓子的最新一代",   group: "最新一代 · 最接近真人" },
-  { id: "en-US-Ava:DragonHDLatestNeural",     label: "Ava",     desc: "女声 · 从容",       group: "最新一代 · 最接近真人" },
-  { id: "en-US-Emma:DragonHDLatestNeural",    label: "Emma",    desc: "女声 · 轻快",       group: "最新一代 · 最接近真人" },
-  { id: "en-US-Andrew:DragonHDLatestNeural",  label: "Andrew",  desc: "男声 · 从容",       group: "最新一代 · 最接近真人" },
-  { id: "en-US-Brian:DragonHDLatestNeural",   label: "Brian",   desc: "男声 · 温和",       group: "最新一代 · 最接近真人" },
-  { id: "en-US-Steffan:DragonHDLatestNeural", label: "Steffan", desc: "男声 · 沉稳",       group: "最新一代 · 最接近真人" },
-
-  { id: "en-US-ChristopherMultilingualNeural", label: "Christopher · 新版", desc: "男声 · 沉稳清晰", group: "新一代" },
-  { id: "en-US-SerenaMultilingualNeural",      label: "Serena",      desc: "女声 · 柔和",     group: "新一代" },
-  { id: "en-US-DavisMultilingualNeural",       label: "Davis",       desc: "男声 · 平实",     group: "新一代" },
-
-  { id: "en-US-ChristopherNeural", label: "Christopher · 原版", desc: "男声 · 2019 年那一代，和上面的新版是同一把嗓子", group: "原版" },
-];
-const DEFAULT_VOICE_ID = VOICE_OPTIONS[0].id;
-// 连播里每句英文之前先念一遍中文，让家长自己先想一次。这句中文原来是手机
-// 自带的语音合成念的——国产浏览器和微信里音质很差，有的干脆没有中文嗓子。
-// 现在也走 Azure。它是固定的，不进音色选择器：那是给英文句子挑嗓子的地方。
-// 必须和 netlify/functions/tts.mjs 的 CUE_VOICE 一字不差，测试守着这一条。
-const CUE_VOICE_ID = "zh-CN-XiaoxiaoMultilingualNeural";
-const VOICE_KEY = "ll_voice";
-
-// 手机里存着一个已经下架的音色时，退回默认——而不是从此每句话都生成失败。
-function getVoice() {
-  const v = llStorage.readString(VOICE_KEY, null);
-  return VOICE_OPTIONS.some(o => o.id === v) ? v : DEFAULT_VOICE_ID;
-}
-function setVoice(id) {
-  if (!VOICE_OPTIONS.some(o => o.id === id)) return false;
-  llStorage.write(VOICE_KEY, id);     // 存不进去也算选了（这一会话有效），和原来一致
-  return true;
-}
-/* ll:voice:end */
-
-// Voice a translation the moment it arrives, before it is saved.
-//
-// Reported from real use: the translate screen and the review screen sounded
-// like different people. Both clips come from the same Azure voice with
-// identical prosody — the translate screen simply had no clip at all and fell
-// back to browser speech, because generation used to happen at save time. So
-// the parent heard the machine voice FIRST, on the very screen where they
-// decide whether the phrase is any good, and the real one only afterwards.
-//
-// The id is minted HERE rather than in saveTranslation(). That is the whole
-// trick: the clip is stored under the id the saved item will carry, so saving
-// costs nothing more. Minting a second id at save time would orphan the clip
-// and pay for the same sentence twice.
-//
-// The cost of this choice, stated plainly: every translation is now a
-// generation, including the ones glanced at and discarded. Translate ten, keep
-// one, and nine clips were paid for and never wanted. The alternative was
-// making the parent wait three seconds the first time they tap play.
-function provisionTranslation(result) {
-  if (!result || !result.en) return Promise.resolve(false);
-  // Ids for the main sentence AND its alternatives. Existing ones are kept: a
-  // re-render must not throw away the clip just made. Only the main sentence
-  // is voiced here — the alternatives wait for a tap, or one translation
-  // becomes four or five generations, most never listened to.
-  assignTranslationIds(result);
-  return requestAudio(result).then(ok => {
-    // Storing the clip is not enough. Until its address is prepared, the play
-    // path finds nothing and falls back to the browser voice — the clip sits
-    // on the device, unheard, and the parent hears two different voices for
-    // the same sentence with no way to tell why.
-    if (ok && typeof primeAudioUrl === "function") primeAudioUrl(result.id);
-    return ok;
-  });
-}
-
-// Read the device back into memory. audioMarkFor() answers from these three
-// Sets, and they live only as long as the page does — so on a fresh launch
-// every saved phrase claimed to have no sound while its clip sat in storage.
-// Playback still worked, because the list primes addresses from storage
-// directly, which made it worse rather than better: a row saying it was silent
-// that spoke when tapped.
-//
-// Asks about the whole list in one go. Dozens of single lookups is what makes
-// a list stutter on an older phone.
-//
-// Deliberately does NOT overwrite what this session already knows. A render
-// can land while one clip is mid-generation, and turning that ⏳ into 🔈 —
-// or erasing a ⚠ the parent was about to tap — would be the sync inventing a
-// state neither storage nor this session believes in.
-async function syncAudioMarks(ids) {
-  const unknown = (ids || []).filter(
-    id => id && !audioReady.has(id) && !audioPending.has(id) && !audioFailed.has(id));
-  if (!unknown.length) return;
-  const have = await whichHaveAudio(unknown);
-  for (const id of have) audioReady.add(id);
-}
-
-// A tap on the ⚠ mark. Clears the memory of the last failure so the attempt
-// is genuinely made again rather than short-circuited.
-function retryAudio(item) {
-  if (item && item.id) audioFailed.delete(item.id);
-  return requestAudio(item);
-}
-/* ll:audio-provision:end */
+// 音色搬进 voice.js、配声音搬进 audio-provision.js（ADR 0009 第十七块）。
+// 音色实例在这里（audio-store 紧接着要用 getVoice）；配声音的实例在 llAccess 之后（见下）。
+var llVoice = llVoiceLib.create({ storage: llStorage });
+var VOICE_OPTIONS = llVoice.VOICE_OPTIONS;
+var DEFAULT_VOICE_ID = llVoice.DEFAULT_VOICE_ID;
+var CUE_VOICE_ID = llVoice.CUE_VOICE_ID;
+var VOICE_KEY = llVoice.VOICE_KEY;
+var getVoice = llVoice.getVoice;
+var setVoice = llVoice.setVoice;
 
 // 存音频在 audio-store.js（llAudioStore）。两个依赖传进去，不让它抓全局：
 // 音色用取值函数（getVoice 在 ll:voice 块里，取的时候才有值）。
@@ -5705,6 +5474,33 @@ var whichHaveAudio = llAudioStore.whichHaveAudio;
 
 // 邀请码在 access-code.js（llAccess）。存储实例传进去，不让它抓全局。
 var llAccess = llAccessLib.create({ storage: llStorage });
+
+// 配声音（ADR 0009 第十七块）。放在 llAccess / llAudioStore 之后，它们都是它的依赖。
+// assignTranslationIds / refreshAudioMarks / primeAudioUrl 在本文件别处定义，
+// 包一层函数再传——调用时才查。
+var llProvision = llProvisionLib.create({
+  api: llApi,
+  getAccessCode: function () { return getAccessCode(); },
+  getVoice: function () { return getVoice(); },
+  cueVoiceId: CUE_VOICE_ID,
+  hasAudio: function (id) { return hasAudio(id); },
+  putAudio: function (id, blob) { return putAudio(id, blob); },
+  whichHaveAudio: function (ids) { return whichHaveAudio(ids); },
+  primeAudioUrl: function (id) { return primeAudioUrl(id); },
+  assignTranslationIds: function (r) { return assignTranslationIds(r); },
+  refreshAudioMarks: function () { if (typeof refreshAudioMarks === "function") refreshAudioMarks(); },
+  isOnline: function () { return !(typeof navigator !== "undefined" && navigator.onLine === false); },
+});
+var audioMarkFor = llProvision.audioMarkFor;
+var requestAudio = llProvision.requestAudio;
+var ttsFetch = llProvision.ttsFetch;
+var provisionLoopCues = llProvision.provisionLoopCues;
+var provisionTranslation = llProvision.provisionTranslation;
+var syncAudioMarks = llProvision.syncAudioMarks;
+var retryAudio = llProvision.retryAudio;
+// 下面两个产品代码不直接叫，但 e2e 从页面上直接驱动它们。
+var provisionAudio = llProvision.provisionAudio;
+var provisionCue = llProvision.provisionCue;
 var getAccessCode = llAccess.getAccessCode;
 var setAccessCode = llAccess.setAccessCode;
 var accessErrorMessage = llAccess.accessErrorMessage;

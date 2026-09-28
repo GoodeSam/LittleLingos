@@ -39,6 +39,8 @@ const SOURCES = [
   "custom-scenarios.js",
   "translate-save.js",
   "audio-loop.js",
+  "voice.js",
+  "audio-provision.js",
   "install-env.js",
   "audio-marks.js",
   "access-code.js",

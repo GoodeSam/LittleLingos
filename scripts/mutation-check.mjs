@@ -86,7 +86,8 @@ const MUTANTS = [
   {
     name: "并发认领挪回 await 之后",
     why: "同一 tick 里的两次点击会各花一次钱 —— 这个 bug 真实发生过",
-    find: `  audioPending.add(id);\n  audioFailed.delete(id);\n  return provisionAudio(item, id);`,
+    file: "audio-provision.js",   // ADR 0009 第十七块搬过来的
+    find: `      audioPending.add(id);\n      audioFailed.delete(id);\n      return provisionAudio(item, id);`,
     with: `  audioFailed.delete(id);\n  return provisionAudio(item, id).then(r => { audioPending.add(id); return r; });`,
     kills: "test/audio-provision.test.mjs",
   },
@@ -101,7 +102,8 @@ const MUTANTS = [
   {
     name: "标记不再从本机存储回填",
     why: "关掉 App 再打开，每条都谎称没有声音，而片段就在手机里",
-    find: `  const have = await whichHaveAudio(unknown);\n  for (const id of have) audioReady.add(id);`,
+    file: "audio-provision.js",   // ADR 0009 第十七块搬过来的
+    find: `      const have = await whichHaveAudio(unknown);\n      for (const id of have) audioReady.add(id);`,
     with: `  void unknown;`,
     kills: "test/marks-after-reload.test.mjs",
   },

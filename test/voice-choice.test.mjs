@@ -17,9 +17,11 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 const { default: handler, ALLOWED_VOICES, DEFAULT_VOICE, CUE_VOICE } =
@@ -56,10 +58,7 @@ async function withStub(fn) {
 const ssmlOf = calls => String(calls[0][1].body);
 
 // 客户端那一小段单独抽出来在沙箱里跑
-const START = "/* ll:voice:start */", END = "/* ll:voice:end */";
 function loadVoice(stored) {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1 && e > s, "找不到 ll:voice 块");
   const store = new Map();
   if (stored) store.set("ll_voice", stored);
   const ctx = { console, localStorage: {
@@ -68,9 +67,8 @@ function loadVoice(stored) {
     removeItem: k => store.delete(k),
   } };
   injectStorage(ctx);
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s + START.length, e), ctx);
-  ctx.VOICE_OPTIONS = vm.runInContext("VOICE_OPTIONS", ctx);
+  // 2026-09-28（ADR 0009 第十七块）：搬进 voice.js，常量也由模块导出，不用再回沙箱求值。
+  Object.assign(ctx, require(join(ROOT, "voice.js")).create({ storage: ctx.llStorage }));
   return ctx;
 }
 
@@ -143,12 +141,24 @@ test("手机里存着一个下架的音色，自己退回默认，不是从此�
   assert.notEqual(ok.getVoice(), DEFAULT_VOICE, "存着的有效选择被忽略了");
 });
 
-test("生成新句子的声音时，把家长挑的那把一起发出去", () => {
-  const at = html.indexOf("async function provisionAudio");
-  assert.ok(at !== -1, "找不到生成声音的地方");
-  const body = html.slice(at, html.indexOf("\nasync function ", at + 10));
-  assert.match(body, /ttsFetch\(item\.en,\s*getVoice\(\)\)/,
-    "只发了句子没发音色——家长挑完还是原来那把嗓子");
+test("生成新句子的声音时，把家长挑的那把一起发出去", async () => {
+  // 2026-09-28（ADR 0009 第十七块）：原来读源码找 ttsFetch(item.en, getVoice())；
+  // 现在把真的 audio-provision.js 接上真的 voice.js 跑一遍——挑了非默认的一把，
+  // 请求里带的必须就是它。措辞变了骗不过去，音色没传到也骗不过去。
+  const chosen = ALLOWED_VOICES.find(v => v !== DEFAULT_VOICE);
+  const ctx = loadVoice(chosen);
+  const sent = [];
+  const prov = require(join(ROOT, "audio-provision.js")).create({
+    api: { raw: async (_path, body) => { sent.push(body); return { ok: true, blob: async () => new Blob([new Uint8Array(4)]) }; } },
+    getAccessCode: () => "code",
+    getVoice: () => ctx.getVoice(),
+    cueVoiceId: ctx.CUE_VOICE_ID,
+    hasAudio: async () => false,
+    putAudio: async () => true,
+  });
+  await prov.provisionAudio({ id: "t_1", en: "Hello." }, "t_1");
+  assert.equal(sent.length, 1, "没有去生成声音");
+  assert.equal(sent[0].voice, chosen, "只发了句子没发音色——家长挑完还是原来那把嗓子");
 });
 
 test("名字里带冒号的新一代音色，一路走到 Azure 都不能被改坏", async () => {

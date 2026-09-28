@@ -43,8 +43,6 @@ const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:audio-provision:start */";
-const END = "/* ll:audio-provision:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -65,8 +63,6 @@ function fakeStore({ present = [] } = {}) {
 }
 
 function loadModule({ store = fakeStore(), code = CODE, onLine = true, fetchImpl } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
   const fetchCalls = [], primed = [];
   const ctx = {
     ...store, console, queueMicrotask, setTimeout, Blob,
@@ -96,7 +92,22 @@ function loadModule({ store = fakeStore(), code = CODE, onLine = true, fetchImpl
     getSaved: () => ctx.savedPhrases || [],
     getAge: () => ctx.translateAge,
   }));
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  // 2026-09-28（ADR 0009 第十七块）：音色与配声音搬进 voice.js / audio-provision.js，仍跑真代码。
+  // 依赖用 ctx.x 现取（不是存一份引用）：有的测试会在中途换掉 ctx 上的假件。
+  Object.assign(ctx, require(join(ROOT, "voice.js")).create({ storage: ctx.llStorage }));
+  Object.assign(ctx, require(join(ROOT, "audio-provision.js")).create({
+    api: ctx.llApi,
+    getAccessCode: () => ctx.getAccessCode(),
+    getVoice: () => ctx.getVoice(),
+    cueVoiceId: ctx.CUE_VOICE_ID,
+    hasAudio: (id) => ctx.hasAudio(id),
+    putAudio: (id, b) => ctx.putAudio(id, b),
+    whichHaveAudio: (ids) => ctx.whichHaveAudio(ids),
+    primeAudioUrl: (id) => (ctx.primeAudioUrl ? ctx.primeAudioUrl(id) : undefined),
+    assignTranslationIds: (r) => (ctx.assignTranslationIds ? ctx.assignTranslationIds(r) : undefined),
+    refreshAudioMarks: () => ctx.refreshAudioMarks && ctx.refreshAudioMarks(),
+    isOnline: () => !(ctx.navigator && ctx.navigator.onLine === false),
+  }));
   assert.equal(typeof ctx.provisionTranslation, "function", "module must define provisionTranslation()");
   return { ctx, store, fetchCalls, primed };
 }

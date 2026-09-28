@@ -153,7 +153,9 @@ test("说明里叫得出名字的按钮，界面上真有，字一模一样", ()
 function ttsCallSites() {
   // 扫整个内联脚本，不只扫某一个模块：设置里的试听就在模块外面，第一版只扫
   // audio-provision，把它漏了——「代码里有几种就得讲几种」这句承诺当时是空的。
-  const script = betweenMarkers("<script>", "</script>", "内联脚本").src;
+  // 2026-09-28（ADR 0009 第十七块）：生成声音的两处调用搬进 audio-provision.js 了，
+  // 「扫全部产品代码」现在意味着 index.html 加上每一个模块文件——APP_SOURCE 就是这个。
+  const script = APP_SOURCE;
   // 排除 `function ttsFetch(text, voice)` 这行定义本身，只要调用点。
   return [...script.matchAll(/(?<!function )ttsFetch\(([^,]+),/g)].map(m => m[1].trim());
 }

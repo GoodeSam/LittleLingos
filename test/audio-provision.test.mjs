@@ -38,8 +38,6 @@ const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:audio-provision:start */";
-const END = "/* ll:audio-provision:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -71,8 +69,6 @@ function loadModule({
   fetchImpl,
   render,
 } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
   const fetchCalls = [];
   const renders = [];
   const ctx = {
@@ -100,7 +96,22 @@ function loadModule({
   injectStorage(ctx);
   vm.createContext(ctx);
   injectApi(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  // 2026-09-28（ADR 0009 第十七块）：音色与配声音搬进 voice.js / audio-provision.js，仍跑真代码。
+  // 依赖用 ctx.x 现取（不是存一份引用）：有的测试会在中途换掉 ctx 上的假件。
+  Object.assign(ctx, require(join(ROOT, "voice.js")).create({ storage: ctx.llStorage }));
+  Object.assign(ctx, require(join(ROOT, "audio-provision.js")).create({
+    api: ctx.llApi,
+    getAccessCode: () => ctx.getAccessCode(),
+    getVoice: () => ctx.getVoice(),
+    cueVoiceId: ctx.CUE_VOICE_ID,
+    hasAudio: (id) => ctx.hasAudio(id),
+    putAudio: (id, b) => ctx.putAudio(id, b),
+    whichHaveAudio: (ids) => ctx.whichHaveAudio(ids),
+    primeAudioUrl: (id) => (ctx.primeAudioUrl ? ctx.primeAudioUrl(id) : undefined),
+    assignTranslationIds: (r) => (ctx.assignTranslationIds ? ctx.assignTranslationIds(r) : undefined),
+    refreshAudioMarks: () => ctx.refreshAudioMarks && ctx.refreshAudioMarks(),
+    isOnline: () => !(ctx.navigator && ctx.navigator.onLine === false),
+  }));
   for (const fn of ["requestAudio", "audioMarkFor", "retryAudio"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
@@ -295,10 +306,17 @@ test("翻译和查词两个收藏动作，都会去补声音", async () => {
 test("真正的存储模块和这一层是接在一起的，不是各写各的", async () => {
   // 这一层在测试里用的是假的存储。生产代码里它必须调用真的那个
   // （ll:audio-store），否则两边可以各自绿着而拼不到一起。
-  const s = html.indexOf(START), e = html.indexOf(END);
-  const src = html.slice(s, e);
-  assert.match(src, /putAudio\(/, "必须把生成结果交给真正的存储模块");
-  assert.match(src, /hasAudio\(|whichHaveAudio\(/, "必须先问过存储模块再决定要不要花钱");
+  // 2026-09-28（ADR 0009 第十七块）：接缝搬到了 index.html 里 create(deps) 那一处——
+  // 传进去的三个口必须是真的 audio-store 别名，不能是别的什么。
+  const at = html.indexOf("llProvisionLib.create({");
+  assert.ok(at !== -1, "index.html 里没有把 audio-provision 实例化的地方");
+  const wiring = html.slice(at, html.indexOf("});", at));
+  assert.match(wiring, /putAudio: function \(id, blob\) \{ return putAudio\(id, blob\); \}/, "必须把生成结果交给真正的存储模块");
+  assert.match(wiring, /hasAudio: function \(id\) \{ return hasAudio\(id\); \}/, "必须先问过存储模块再决定要不要花钱");
+  assert.match(wiring, /whichHaveAudio: function \(ids\) \{ return whichHaveAudio\(ids\); \}/, "重开之后回填标记也得问真的存储");
+  const src = readFileSync(join(ROOT, "audio-provision.js"), "utf8");
+  assert.match(src, /putAudio\(/, "模块里必须真的调用 putAudio");
+  assert.match(src, /hasAudio\(|whichHaveAudio\(/, "模块里必须先问过存储再花钱");
 });
 
 // ── Runner ───────────────────────────────────────────────

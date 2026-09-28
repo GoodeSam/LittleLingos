@@ -180,9 +180,10 @@ test("删一句话时，它的中文提示也一起删", () => {
 test("界面和服务端说的是同一把中文嘴", async () => {
   // 两边对不上，中文提示会一直生成失败，而且没有任何东西会红。
   const { CUE_VOICE } = await import("../netlify/functions/tts.mjs");
-  const m = html.match(/const CUE_VOICE_ID = "([^"]+)"/);
-  assert.ok(m, "客户端没有指定中文提示用哪把嗓子");
-  assert.equal(m[1], CUE_VOICE, "界面和服务端说的不是同一把中文嘴");
+  // 2026-09-28（ADR 0009 第十七块）：搬进 voice.js，直接问模块，不再读源码。
+  const client = require(join(ROOT, "voice.js")).create({}).CUE_VOICE_ID;
+  assert.ok(client, "客户端没有指定中文提示用哪把嗓子");
+  assert.equal(client, CUE_VOICE, "界面和服务端说的不是同一把中文嘴");
 });
 
 console.log("voice consistency tests");

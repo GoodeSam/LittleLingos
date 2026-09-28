@@ -94,6 +94,18 @@ test("导完备份换了一整份收藏之后，点的那条改的是新的那�
   assert.equal(ctx.answerById("old", true), false, "旧列表里的条目不该还能被改到");
 });
 
+test("今天到期的几句，最近收的排在最前面——不是按存进去的先后", () => {
+  // 复习卡和今日队列都靠这个顺序。2026-09-28 变异探测发现：把排序拿掉，
+  // 全套 64 层没有一条会红——「最近收的在前」这句产品承诺此前没人守着。
+  const { ctx } = loadModule([
+    item("earliest", { savedAt: 100 }),
+    item("latest",   { savedAt: 300 }),
+    item("middle",   { savedAt: 200 }),
+  ]);
+  assert.deepEqual([...ctx.dueReviews()].map(p => p.id), ["latest", "middle", "earliest"],
+    "到期列表没有按最近收的在前排——家长先看到的是最老的那句");
+});
+
 // ══ 1. 改的必须是被点的那一条 ═════════════════════════════════════════
 
 test("点第几行就改第几行——不是列表里的第一条", async () => {

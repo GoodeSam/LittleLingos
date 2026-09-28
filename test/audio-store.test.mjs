@@ -38,6 +38,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+const require = createRequire(import.meta.url);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -47,6 +50,38 @@ const END = "/* ll:audio-store:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
+
+test("存音频只在 audio-store.js 里有一份：index.html 里的块删了，9 处调用点走别名，主脚本前加载，进了离线清单", () => {
+  const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  assert.ok(!html.includes(START), "index.html 里还有 ll:audio-store 块——同一件事两份实现");
+  for (const fn of ["putAudio", "getAudio", "hasAudio", "clipKey", "whichHaveAudio"]) {
+    assert.ok(!code.includes(`function ${fn}(`), `index.html 里还定义着 ${fn}()`);
+    assert.ok(new RegExp(`var ${fn} = llAudioStore\\.${fn};`).test(code), `缺别名 var ${fn} = llAudioStore.${fn}（必须 var）`);
+  }
+  assert.ok(/llAudioStore\s*=\s*llAudioStoreLib\.create\(/.test(code), "index.html 没有用 create(deps) 建实例");
+  const tagAt = html.indexOf('<script src="./audio-store.js"></script>');
+  assert.ok(tagAt !== -1 && tagAt < html.indexOf("\n<script>\n"), "audio-store.js 要在主脚本之前加载");
+  const sw = readFileSync(join(ROOT, "sw.js"), "utf8");
+  assert.ok(sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = ["))).includes("audio-store.js"), "sw.js 的 SHELL 里没有它");
+  const stamp = readFileSync(join(ROOT, "scripts/stamp-sw.mjs"), "utf8");
+  assert.ok(stamp.slice(stamp.indexOf("const SOURCES = ["), stamp.indexOf("]", stamp.indexOf("const SOURCES = ["))).includes("audio-store.js"), "stamp-sw.mjs 的 SOURCES 里没有它");
+  const src = readFileSync(join(ROOT, "audio-store.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  for (const bad of ["document.", "window.", "localStorage", "typeof getVoice", "typeof indexedDB"]) {
+    assert.ok(!src.includes(bad), `audio-store.js 里出现了「${bad}」——依赖要从 create(deps) 传进来`);
+  }
+});
+
+test("换了音色之后，同一句话存的是另一把嗓子那一份，不会互相覆盖", async () => {
+  // clipKey 用当前音色分键；这一条原来靠块里 typeof getVoice 抓全局，现在靠传进来的函数。
+  let voice = "v-a";
+  const { ctx } = loadModule({ getVoice: () => voice, defaultVoiceId: "v-default" });
+  await ctx.putAudio(ID, clip());
+  voice = "v-b";
+  assert.equal(await ctx.hasAudio(ID), false, "换了嗓子之后不该读到上一把嗓子那一份");
+  await ctx.putAudio(ID, clip());
+  voice = "v-a";
+  assert.equal(await ctx.hasAudio(ID), true, "换回来应当还在");
+});
 
 // ── A fake IndexedDB ────────────────────────────────────────────────────
 // Faithful to the parts this module actually depends on: requests settle
@@ -113,12 +148,12 @@ function fakeIndexedDB({ failOpen = false, failWrite = false } = {}) {
   };
 }
 
-function loadModule({ idb = fakeIndexedDB() } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
-  const ctx = { indexedDB: idb, console, queueMicrotask, DOMException, Blob, setTimeout };
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+// 2026-09-28（ADR 0009 第十块）：存音频这一块搬进 audio-store.js。
+// 它的两个依赖（IndexedDB、当前音色）改为 create(deps) 传进来。
+function loadModule({ idb = fakeIndexedDB(), getVoice = null, defaultVoiceId = null, voiceIds = [], cueVoiceId = null } = {}) {
+  const p = join(ROOT, "audio-store.js");
+  assert.ok(existsSync(p), "audio-store.js 还不存在——这一块该搬出 index.html 了");
+  const ctx = require(p).create({ indexedDB: idb, getVoice, defaultVoiceId, voiceIds, cueVoiceId });
   for (const fn of ["putAudio", "getAudio", "hasAudio", "deleteAudio", "whichHaveAudio"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
@@ -199,10 +234,8 @@ test("数据库打不开时，一切降级为「没有声音」而不是报错",
 });
 
 test("浏览器里压根没有 IndexedDB 这个东西时也不崩", async () => {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  const ctx = { console, queueMicrotask, DOMException, Blob, setTimeout }; // 没有 indexedDB
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  // 2026-09-28：改为不给 create() 传 indexedDB——和「这个浏览器没有它」是同一件事。
+  const { ctx } = loadModule({ idb: null });
   assert.equal(await ctx.putAudio(ID, clip()), false);
   assert.equal(await ctx.getAudio(ID), null);
   assert.equal(await ctx.hasAudio(ID), false);

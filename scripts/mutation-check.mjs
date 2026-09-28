@@ -45,6 +45,7 @@ const MUTANTS = [
   {
     name: "CSV 不再输出场景行",
     why: "表格恢复会丢掉每一个自建场景，而句子还带着指向它的标签",
+    file: "data-export.js",   // 2026-09-28：这段搬进模块了（ADR 0009 第九块）
     find: `rowType: "scenario", id: sc.id, name: sc.name,`,
     with: `rowType: "phrase", id: sc.id, name: sc.name,`,
     kills: "test/scenario-restore-fidelity.test.mjs",
@@ -52,6 +53,7 @@ const MUTANTS = [
   {
     name: "场景行输出了，但不带名字",
     why: "没有名字的场景会被过滤掉 —— 半个字段的损失和整行丢失后果一样",
+    file: "data-export.js",   // 2026-09-28：这段搬进模块了（ADR 0009 第九块）
     find: `rowType: "scenario", id: sc.id, name: sc.name,`,
     with: `rowType: "scenario", id: sc.id, name: "",`,
     kills: "test/scenario-restore-fidelity.test.mjs",
@@ -59,6 +61,7 @@ const MUTANTS = [
   {
     name: "只改了导出，忘了改导入",
     why: "这是最典型的半做对 —— 文件里有场景行，导入方视而不见",
+    file: "data-export.js",   // 2026-09-28：这段搬进模块了（ADR 0009 第九块）
     find: `if (type === "scenario") {`,
     with: `if (type === "scenario" && false) {`,
     kills: "test/scenario-restore-fidelity.test.mjs",
@@ -66,6 +69,7 @@ const MUTANTS = [
   {
     name: "同名场景合并了，但不返回别名表",
     why: "两台设备各建一个「去医院」时，一边的句子会静默掉进通用桶",
+    file: "data-export.js",   // 2026-09-28：这段搬进模块了（ADR 0009 第九块）
     find: `aliases["custom_" + sc.id] = "custom_" + keptId;`,
     with: `void keptId;`,
     kills: "test/scenario-restore-fidelity.test.mjs",

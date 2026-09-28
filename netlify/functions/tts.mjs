@@ -38,7 +38,11 @@ const AZURE_TIMEOUT_MS = 10000;
 // 名单是白名单而不是黑名单：这个值会被拼进 SSML 的 XML 属性里，任意字符串
 // 直接拼进去就是一个注入口。名单外的一律在打给 Azure 之前挡下——请求发出去
 // 之后才拒绝，钱一样花掉了。
-export const DEFAULT_VOICE = "en-US-JennyNeural";
+// 2026-09-28 Victor 定：默认 Andrew（选项 A：接受预设片段仍是 Jenny 女声）。
+// 只在请求没带音色时用；客户端总是带着家长挑的那把来。
+export const DEFAULT_VOICE = "en-US-Andrew:DragonHDLatestNeural";
+// 1204 条预设片段是用它生成的文件。
+export const PRESET_VOICE = "en-US-JennyNeural";
 // 中文提示固定用这一把：新一代，吐字清楚，念短句稳。它不跟着家长挑的英文
 // 音色走——那是两种语言，各用各的嘴。
 export const CUE_VOICE = "zh-CN-XiaoxiaoMultilingualNeural";
@@ -47,12 +51,12 @@ export const CUE_VOICE = "zh-CN-XiaoxiaoMultilingualNeural";
 // ——带 prosody 的音频一致比不带的长。名字里带冒号是 Azure 新一代音色的写法，
 // 这里是精确字符串比对，冒号不需要特别处理。
 export const ALLOWED_VOICES = [
-  DEFAULT_VOICE,                          // Jenny 原版：1204 条预设片段用的就是它
+  DEFAULT_VOICE,                          // Andrew（最新一代）：默认
+  PRESET_VOICE,                           // Jenny 原版：1204 条预设片段用的就是它
   // 最新一代（Dragon HD）：目前最接近真人的一批
   "en-US-Jenny:DragonHDLatestNeural",
   "en-US-Ava:DragonHDLatestNeural",
   "en-US-Emma:DragonHDLatestNeural",
-  "en-US-Andrew:DragonHDLatestNeural",
   "en-US-Brian:DragonHDLatestNeural",
   "en-US-Steffan:DragonHDLatestNeural",
   // 新一代（Multilingual）：比原版自然，Christopher 只有这一代有

@@ -19,12 +19,13 @@
     // 名单里每一个都在 2026-09-10 用本项目这套 SSML 真打过一次 Azure eastus，
     // 都回了可播的 mp3。
     var VOICE_OPTIONS = [
-      { id: "en-US-JennyNeural", label: "Jenny · 原版", desc: "温暖女声 · 场景里的预设句子用的就是这把", group: "默认" },
+      // 2026-09-28 Victor 定：默认 Andrew。预设片段仍是 Jenny（女声）——收藏的句子是男声、
+      // 场景里的是女声，这个代价 Victor 知道并接受（选项 A）。想配成一个声音的家长挑 Jenny 就行。
+      { id: "en-US-Andrew:DragonHDLatestNeural",  label: "Andrew",  desc: "男声 · 从容 · 默认", group: "默认 · 最新一代" },
 
       { id: "en-US-Jenny:DragonHDLatestNeural",   label: "Jenny · 新版", desc: "同一把嗓子的最新一代",   group: "最新一代 · 最接近真人" },
       { id: "en-US-Ava:DragonHDLatestNeural",     label: "Ava",     desc: "女声 · 从容",       group: "最新一代 · 最接近真人" },
       { id: "en-US-Emma:DragonHDLatestNeural",    label: "Emma",    desc: "女声 · 轻快",       group: "最新一代 · 最接近真人" },
-      { id: "en-US-Andrew:DragonHDLatestNeural",  label: "Andrew",  desc: "男声 · 从容",       group: "最新一代 · 最接近真人" },
       { id: "en-US-Brian:DragonHDLatestNeural",   label: "Brian",   desc: "男声 · 温和",       group: "最新一代 · 最接近真人" },
       { id: "en-US-Steffan:DragonHDLatestNeural", label: "Steffan", desc: "男声 · 沉稳",       group: "最新一代 · 最接近真人" },
 
@@ -32,9 +33,13 @@
       { id: "en-US-SerenaMultilingualNeural",      label: "Serena",      desc: "女声 · 柔和",     group: "新一代" },
       { id: "en-US-DavisMultilingualNeural",       label: "Davis",       desc: "男声 · 平实",     group: "新一代" },
 
+      { id: "en-US-JennyNeural", label: "Jenny · 原版", desc: "温暖女声 · 场景里的预设句子用的就是这把", group: "原版" },
       { id: "en-US-ChristopherNeural", label: "Christopher · 原版", desc: "男声 · 2019 年那一代，和上面的新版是同一把嗓子", group: "原版" },
     ];
     var DEFAULT_VOICE_ID = VOICE_OPTIONS[0].id;
+    // 1204 条预设片段是提前用它生成的文件；09-10 之前存的音频也是它，键不带后缀。
+    // 默认换了它不跟着换——audio-store 的裸键规则钉在这把上，老数据一个字节不动。
+    var PRESET_VOICE_ID = "en-US-JennyNeural";
     // 连播里每句英文之前先念一遍中文，让家长自己先想一次。这句中文原来是手机
     // 自带的语音合成念的——国产浏览器和微信里音质很差，有的干脆没有中文嗓子。
     // 现在也走 Azure。它是固定的，不进音色选择器：那是给英文句子挑嗓子的地方。
@@ -56,6 +61,7 @@
     return {
       VOICE_OPTIONS: VOICE_OPTIONS,
       DEFAULT_VOICE_ID: DEFAULT_VOICE_ID,
+      PRESET_VOICE_ID: PRESET_VOICE_ID,
       CUE_VOICE_ID: CUE_VOICE_ID,
       VOICE_KEY: VOICE_KEY,
       getVoice: getVoice,

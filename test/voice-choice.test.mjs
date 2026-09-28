@@ -179,12 +179,32 @@ test("名字里带冒号的新一代音色，一路走到 Azure 都不能被改�
   }));
 });
 
-test("默认那把仍然是预设片段用的那把", () => {
-  // 1204 条预设片段是提前用它生成的文件。默认换成别的，家长自己存的句子
-  // 就会和场景里的句子听着不是一个人在说话。
-  assert.equal(DEFAULT_VOICE, "en-US-JennyNeural");
+test("默认是 Andrew；预设片段那把（Jenny）仍在名单里、标着它是预设用的", () => {
+  // 【改过的测试】原来这条守的是「默认 = 预设片段那把（Jenny）」，理由是默认换成别的，
+  // 家长自己存的句子就会和场景里的句子听着不是一个人在说话。
+  // 2026-09-28 Victor 选 A：默认改成 Andrew，**接受**预设是女声、收藏的句子是男声。
+  // 这条测试改为守新的决定；那个代价没有消失，写在这里让后来的人看得见。
+  assert.equal(DEFAULT_VOICE, "en-US-Andrew:DragonHDLatestNeural", "服务端的默认不是 Andrew");
   const ctx = loadVoice();
+  assert.equal(ctx.getVoice(), "en-US-Andrew:DragonHDLatestNeural", "没挑过的家长听到的不是 Andrew");
   assert.equal(ctx.VOICE_OPTIONS[0].id, DEFAULT_VOICE, "默认那把要排在第一个");
+  const jenny = ctx.VOICE_OPTIONS.find(v => v.id === "en-US-JennyNeural");
+  assert.ok(jenny, "预设片段用的那把（Jenny）从名单里没了——想把收藏和场景配成一个声音的家长选不回去");
+  assert.match(jenny.desc, /预设/, "名单里没告诉家长 Jenny 就是场景预设句子用的那把");
+  assert.equal(ctx.PRESET_VOICE_ID, "en-US-JennyNeural", "模块得说清楚预设片段是哪把嗓子——老数据的键靠它");
+});
+
+test("换了默认之后，老数据一个字节不动：预设那把的音频仍在裸键下，Andrew 的存在自己的键下", () => {
+  // 存音频的键：「预设那把」不加后缀（09-10 之前存的都是它），别的加 @音色。
+  // 默认换成 Andrew 之后这条规则不能跟着换——跟着换的话，没挑过音色的家长会拿
+  // Jenny 的旧片段当 Andrew 放，界面说是男声、放出来是女声。
+  const store = require(join(ROOT, "audio-store.js"));
+  const ctx = loadVoice();
+  const mk = (voice) => store.create({ indexedDB: null, getVoice: () => voice, defaultVoiceId: ctx.PRESET_VOICE_ID, voiceIds: ctx.VOICE_OPTIONS.map(v => v.id) });
+  assert.equal(mk("en-US-JennyNeural").clipKey("b01"), "b01", "挑回 Jenny 的家长读不到 09-10 之前存的那份了");
+  assert.notEqual(mk(ctx.getVoice()).clipKey("b01"), "b01", "没挑过音色的家长会把 Jenny 的旧片段当 Andrew 放");
+  // index.html 真的是这么接的：裸键那把传的是预设音色，不是当前默认
+  assert.match(html, /defaultVoiceId:\s*PRESET_VOICE_ID/, "index.html 把当前默认当成了裸键那把——老数据会串味");
 });
 
 test("每一把都归了组，家长才知道哪些更接近真人", () => {

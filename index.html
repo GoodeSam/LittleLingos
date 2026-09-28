@@ -5421,6 +5421,7 @@ var releaseAudioUrls = llPlayback.releaseAudioUrls;
 var llVoice = llVoiceLib.create({ storage: llStorage });
 var VOICE_OPTIONS = llVoice.VOICE_OPTIONS;
 var DEFAULT_VOICE_ID = llVoice.DEFAULT_VOICE_ID;
+var PRESET_VOICE_ID = llVoice.PRESET_VOICE_ID;
 var CUE_VOICE_ID = llVoice.CUE_VOICE_ID;
 var VOICE_KEY = llVoice.VOICE_KEY;
 var getVoice = llVoice.getVoice;
@@ -5431,7 +5432,7 @@ var setVoice = llVoice.setVoice;
 var llAudioStore = llAudioStoreLib.create({
   indexedDB: typeof indexedDB !== "undefined" ? indexedDB : null,
   getVoice: () => (typeof getVoice === "function" ? getVoice() : null),
-  defaultVoiceId: typeof DEFAULT_VOICE_ID === "string" ? DEFAULT_VOICE_ID : null,
+  defaultVoiceId: PRESET_VOICE_ID,   // 裸键那把是预设/老数据的音色（Jenny），不是当前默认——2026-09-28 默认改 Andrew 后两者分开
   voiceIds: typeof VOICE_OPTIONS !== "undefined" && Array.isArray(VOICE_OPTIONS) ? VOICE_OPTIONS.map(o => o.id) : [],
   cueVoiceId: typeof CUE_VOICE_ID === "string" ? CUE_VOICE_ID : null,
 });

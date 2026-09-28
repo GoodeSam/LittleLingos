@@ -27,6 +27,8 @@ const { createStorage } = require(join(ROOT, "storage.js"));
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
+const flush = () => new Promise(res => setTimeout(res, 0));
+
 // 一个假的世界：真 storage，假网络、假浏览器零件、可驱动的时钟。
 function world({ responses = [], stored = null } = {}) {
   const map = new Map();
@@ -61,25 +63,39 @@ function world({ responses = [], stored = null } = {}) {
     } }) },
     pushKey: () => new Uint8Array(4),
     crypto: globalThis.crypto,
-    setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    setTimeout: (fn, ms) => { timers.push({ fn, ms, at: now + ms }); return timers.length; },
     clearTimeout: id => { if (timers[id - 1]) timers[id - 1].fn = null; },
   });
-  // 只跑还活着的计时器（被 clearTimeout 掉的不算）
+  // 时钟有时间轴：advance(ms) 让时间往前走，到点的计时器按先后依次触发。
+  // 「攒 1.5 秒」这件事只有在时间轴上才验得出来——同步连点三下看不出差别。
+  let now = 0;
+  const advance = async (ms) => {
+    now += ms;
+    for (;;) {
+      const due = timers.filter(t => t.fn && t.at <= now).sort((x, y) => x.at - y.at)[0];
+      if (!due) break;
+      const fn = due.fn; due.fn = null; fn(); await flush();
+    }
+  };
+  // 只跑最早那个还活着的计时器（被 clearTimeout 掉的不算），不管时间
   const tick = () => { const live = timers.filter(t => t.fn); const t = live.shift(); if (!t) return false; const fn = t.fn; t.fn = null; fn(); return true; };
-  return { r, storage, online, posts, said, timers, tick, cacheOps, map };
+  return { r, storage, online, posts, said, timers, tick, advance, cacheOps, map };
 }
 const ON = { on: true, secret: "s3cret", endpoint: "https://push.example/0", target: "review" };
-const flush = () => new Promise(res => setTimeout(res, 0));
 
-test("一轮复习连点三下，只在 1.5 秒后同步一次，不是每点一下打一次服务器", async () => {
+test("一轮复习每秒点一下、点了五下：只在最后一下之后 1.5 秒同步一次，不是每 1.5 秒打一次", async () => {
+  // 2026-09-28 变异探测抓出来的：原来这条是同步连点三下，「防抖」和「每下各排一个」
+  // 在那种输入下发出去的请求数一样（第一次同步成功就把待同步清掉了）。
+  // 差别只在复习持续超过 1.5 秒时才出现——所以按真实节奏来：每秒一下。
   const w = world({ stored: ON });
-  w.r.reminderNoteReview(); w.r.reminderNoteReview(); w.r.reminderNoteReview();
-  assert.equal(w.posts.length, 0, "点完立刻就发了——一轮复习会打几十次服务器");
-  assert.ok(w.timers.some(t => t.fn && t.ms === 1500), "没有排一个 1.5 秒后的同步");
-  w.tick(); await flush();
-  assert.equal(w.posts.length, 1, `发了 ${w.posts.length} 次，应当只有一次`);
+  for (let i = 0; i < 5; i++) { w.r.reminderNoteReview(); await w.advance(1000); }
+  assert.equal(w.posts.length, 0, `还在复习中就发了 ${w.posts.length} 次——没等家长点完`);
+  await w.advance(1500);
+  assert.equal(w.posts.length, 1, `发了 ${w.posts.length} 次，应当只有最后一下之后的那一次`);
   assert.equal(w.posts[0].body.action, "review");
   assert.ok(typeof w.posts[0].body.at === "number", "没带上复习时间");
+  await w.advance(10000);
+  assert.equal(w.posts.length, 1, "后面又发了——同一轮复习不该同步第二次");
 });
 
 test("复习时断网：先攒着，联网后补发，不丢", async () => {

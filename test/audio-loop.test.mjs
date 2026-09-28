@@ -428,6 +428,21 @@ test("收藏页把中文提示接到了屏幕上", async () => {
   assert.match(body, /loop-cue/, "循环里算出了提示，收藏页却没地方显示它，等于没做");
 });
 
+// ══ 从通知点开去连播：得知道此刻有没有真的在出声 ═══════════════════════
+// iOS 上 App 本来关着时不让直接出声（C6）：起播 1.5 秒后要看一眼有没有声音，
+// 没有就停掉并告诉家长点哪里。2026-09-28 发现 openFromPush 里直接读模块私有的 loopEl，
+// 第十六块搬走之后那里是 ReferenceError——连播在 iOS 上会显示「停止」却一片安静。
+
+test("连播起来之后模块能回答「此刻在出声」；停了之后答「没有」", async () => {
+  const { ctx } = await loadModule();
+  assert.equal(typeof ctx.loopAudible, "function", "模块没有「此刻在出声吗」这个问法");
+  assert.equal(ctx.loopAudible(), false, "还没起播就说在出声");
+  ctx.startAudioLoop([{ id: "a", zh: "洗手" }], () => {});
+  assert.equal(ctx.loopAudible(), true, "起播了却说没在出声——从通知进来会被当成 iOS 拦了而停掉");
+  ctx.stopAudioLoop();
+  assert.equal(ctx.loopAudible(), false, "停了还说在出声");
+});
+
 // ══ 一段放不出来时，整轮不能就此卡死 ═══════════════════════════════════
 // 2026-09-28 搬这一块（ADR 0009 第十六块）时发现：09-11 重做时序时删掉了
 // scheduleNextLoopClip()，两处调用却留在原地——「这一段放不出来就往下走」

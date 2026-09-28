@@ -2834,10 +2834,13 @@ function showOwnWordsResult(entry) {
   // 会退回浏览器合成音，跟翻译页一直以来的行为一样。
   if (r.id) {
     try { primeAudioUrl(r.id); } catch {}
-    if (typeof audioPending !== "undefined" && audioPending.has(r.id)) {
+    // 2026-09-28 修：原来这里读 audioPending 这个 Set，第十七块把它搬进
+    // audio-provision.js 成了私有变量；typeof 守卫把 ReferenceError 吞掉，分支静默
+    // 死了——生成完没人再备地址，小喇叭永远只能退回手机自带朗读。改问公开接口。
+    if (audioMarkFor(r.id) === "pending") {
       // 生成还在路上：等它结束再备一次，家长过几秒再点就能听到真嗓子。
       const waitThenPrime = () => {
-        if (audioPending.has(r.id)) { setTimeout(waitThenPrime, 500); return; }
+        if (audioMarkFor(r.id) === "pending") { setTimeout(waitThenPrime, 500); return; }
         try { primeAudioUrl(r.id); } catch {}
       };
       setTimeout(waitThenPrime, 500);
@@ -5387,6 +5390,7 @@ var loopCueId = llAudioLoop.loopCueId;
 var startAudioLoop = llAudioLoop.startAudioLoop;
 var stopAudioLoop = llAudioLoop.stopAudioLoop;
 var toggleAudioLoop = llAudioLoop.toggleAudioLoop;
+var loopAudible = llAudioLoop.loopAudible;
 
 // 声音标记怎么显示在 audio-marks.js（llAudioMarks）。四个依赖传进去，不让它抓全局。
 var llAudioMarks = llAudioMarksLib.create({
@@ -5867,7 +5871,7 @@ function openFromPush(to) {
     if (!audioLoopPlaying()) btn.click();
     if (!audioLoopPlaying()) return;
     setTimeout(() => {
-      if (loopEl && !loopEl.paused) return;
+      if (loopAudible()) return;   // 2026-09-28 修：loopEl 已是 audio-loop.js 的私有变量，这里原来会抛
       stopAudioLoop();
       renderSavedScreen();
       showOfflineToast("点「连续播放全部」开始播放");

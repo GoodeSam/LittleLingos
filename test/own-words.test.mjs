@@ -248,6 +248,38 @@ test("结果里带着这句话自己的 id —— 少了它就只有浏览器声
   assert.equal(r.id, "t_1700000001", "结果卡不知道该放哪一段音频");
 });
 
+test("结果卡画出来时声音还在生成：生成完了要再备一次地址，家长过几秒再点听到的是真嗓子", () => {
+  // 2026-09-28 真机报上来的（preview `7ed1cf2`）：「我说的话」翻完点小喇叭没声音。
+  // 病根：第十七块把 audioPending 搬进 audio-provision.js 成了私有变量，这里
+  // `typeof audioPending !== "undefined"` 的守卫把 ReferenceError 吞掉——分支静默死了，
+  // 不抛错、不红：生成完了没人再备地址，播放键永远拿不到真嗓子，只能退回手机自带
+  // 朗读，而 iPhone 主屏幕版的自带朗读常常是哑的。
+  const product = html.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+  const at = product.indexOf("function showOwnWordsResult");
+  const src = product.slice(at, product.indexOf("\n}\n", at) + 3);
+  const el = () => ({ setAttribute() {}, append() {}, appendChild() {}, insertBefore() {}, querySelector: () => null, classList: { add() {}, remove() {} }, dataset: {} });
+  const primed = [], timers = [];
+  let mark = "pending";
+  const ctx = {
+    console,
+    document: { getElementById: () => el(), createElement: () => el() },
+    llOwnWords: load(),
+    primeAudioUrl: (id) => { primed.push(id); },
+    audioMarkFor: () => mark,                       // 模块的公开接口，不是它的私有 Set
+    setTimeout: (fn) => { timers.push(fn); return timers.length; },
+    playClipOrSpeak: () => {},
+  };
+  vm.createContext(ctx);
+  vm.runInContext(src, ctx);
+  ctx.showOwnWordsResult({ id: "t_9", zh: "该睡觉了", en: "Time for bed.", source: "ai" });
+  assert.deepEqual(primed, ["t_9"], "画卡片时该先试一次备地址");
+  // 生成结束了
+  mark = "ready";
+  for (let i = 0; i < 5 && timers.length; i++) { const fn = timers.shift(); fn(); }
+  assert.deepEqual(primed, ["t_9", "t_9"],
+    "声音生成完了没有再备一次地址——播放键永远拿不到真嗓子，只能退回手机自带朗读");
+});
+
 test("结果卡上有朗读按钮，跟现成句子上的那个一个样子", () => {
   const product = html
     .replace(/\/\*[\s\S]*?\*\//g, "")

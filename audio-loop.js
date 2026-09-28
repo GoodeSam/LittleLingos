@@ -80,6 +80,10 @@
     var loopCueGuard = null;
 
     function audioLoopPlaying() { return loopOn; }
+    // 此刻有没有真的在出声。和 audioLoopPlaying() 不同：那个是「这一轮开着」，
+    // 这个是「元素在放」——iOS 上 App 本来关着时会开着却不出声（C6），从通知
+    // 点开去连播的那条路要靠它分辨。
+    function loopAudible() { return !!(loopEl && !loopEl.paused); }
 
     // Tell the screen which phrase is up, then say its Chinese if the device can.
     // The screen comes first: a phone with no zh voice must still show the cue,
@@ -246,6 +250,7 @@
       LOOP_CUE_MIN_MS: LOOP_CUE_MIN_MS,
       LOOP_CUE_MAX_MS: LOOP_CUE_MAX_MS,
       audioLoopPlaying: audioLoopPlaying,
+      loopAudible: loopAudible,
       cueLoopItem: cueLoopItem,
       speakLoopCue: speakLoopCue,
       loopCueId: loopCueId,

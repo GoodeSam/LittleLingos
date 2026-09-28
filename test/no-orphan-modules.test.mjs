@@ -101,6 +101,29 @@ test("每个模块导出的函数，产品代码里都真的有人调用", () =>
     orphans.join("\n  "));
 });
 
+test("index.html 里 typeof 守着的每个名字都有主人：本文件定义的、浏览器的、或 defer 脚本名单里的", () => {
+  // 2026-09-28 真机报上来的一类问题：`typeof audioPending !== "undefined"` 守着一个
+  // 已经搬进模块、成了私有变量的名字。守卫把 ReferenceError 吞掉——分支静默死掉，
+  // 不抛错、不红。孤儿检查看的是「造了没人用」，看不见「用了却没人造」；这条补上。
+  const guarded = [...new Set([...html.matchAll(/typeof\s+([A-Za-z_$][\w$]*)\s*(?:!==|===)\s*["'](?:undefined|function|object)["']/g)].map(m => m[1]))];
+  assert.ok(guarded.length >= 20, `只找到 ${guarded.length} 个 typeof 守卫，读法可能坏了`);
+  const defined = new Set([...html.matchAll(/^(?:var|let|const|function|async function)\s+([A-Za-z_$][\w$]*)/gm)].map(m => m[1]));
+  const browser = new Set(["window", "document", "navigator", "localStorage", "indexedDB", "speechSynthesis", "SpeechSynthesisUtterance",
+    "Audio", "caches", "Notification", "PushManager", "crypto", "URL", "Blob", "fetch", "AbortController", "Intl", "history", "location",
+    "structuredClone", "requestIdleCallback", "queueMicrotask", "MediaRecorder", "setTimeout", "clearTimeout", "performance", "Response",
+    "TextEncoder", "TextDecoder", "FileReader", "globalThis", "IntersectionObserver", "ResizeObserver", "visualViewport", "CSS", "DOMParser"]);
+  // defer 加载的外部脚本、或本文件里局部变量恰好用 typeof 看类型的：写明为什么
+  const KNOWN = {
+    llIcon: "icons.js（defer）挂在 window 上，主脚本跑到时可能还没到",
+    scenarios: "scenarios.js（defer）的全局，同上",
+    scenarioOrder: "scenarios.js（defer）的全局，同上",
+    meta: "loadUsedToday() 里的局部变量，typeof 看的是类型不是存在",
+  };
+  const orphans = guarded.filter(n => !defined.has(n) && !browser.has(n) && !(n in KNOWN));
+  assert.deepEqual(orphans, [],
+    "这些名字被 typeof 守着，但 index.html 里没人定义它——多半是搬进模块成了私有变量，守卫让分支静默死掉了：\n  " + orphans.join("\n  "));
+});
+
 test("豁免名单里的每一条，都仍然真的是孤儿", () => {
   // 名单会过期。某个函数后来被接上了，却还挂在这里的话，
   // 名单就从「说明」退化成了噪音。

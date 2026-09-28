@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
-const css = html.slice(0, html.indexOf("</style>"));
+const css = readFileSync(join(ROOT, "app.css"), "utf8");   // 2026-09-28：样式搬进 app.css
 const rule = (sel) => {
   const m = css.match(new RegExp(sel.replace(/[.\[\]]/g, "\\$&") + "\\s*\\{[^}]*\\}"));
   return m ? m[0] : "";

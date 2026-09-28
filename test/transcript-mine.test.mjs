@@ -204,7 +204,7 @@ test("那一行看得出来是能点开的", () => {
   // 橙卡和一张白色句子卡中间——读起来像一句说明文字，不像控件。
   //
   // 一个点得到但看不出能点的东西，等于不存在。
-  const css = html.slice(0, html.indexOf("</style>"));
+  const css = readFileSync(join(ROOT, "app.css"), "utf8");   // 2026-09-28：样式搬进 app.css
   const rule = css.match(/\.transcript-summary\s*\{[^}]*\}/);
   assert.ok(rule, "找不到那一行的样式");
 

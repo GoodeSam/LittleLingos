@@ -22,7 +22,9 @@ import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const html = readFileSync(join(ROOT, "index.html"), "utf8");
+// 2026-09-28（ADR 0009 CSS 外置）：样式搬进 app.css。这个文件按选择器在源码里定位 CSS 规则，
+// 原来样式在 <head> 里、排在标记之前；这里把 app.css 接在前面，顺序和外置前一样，查找语义不变。
+const html = readFileSync(join(ROOT, "app.css"), "utf8") + "\n" + readFileSync(join(ROOT, "index.html"), "utf8");
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -72,7 +74,8 @@ test("二级页面盖不住这排标签", () => {
                          html.indexOf(".nav-item"));
   const zm = nav.match(/z-index:\s*(\d+)/);
   assert.ok(zm, "导航没有设 z-index —— 会被二级页面盖住");
-  const screenCss = html.slice(html.indexOf("    .screen {"), html.indexOf(".screen.open"));
+  // 2026-09-28：样式搬进 app.css 后没有那 4 格缩进了，按行首找
+  const screenCss = html.slice(html.indexOf("\n.screen {"), html.indexOf(".screen.open"));
   const sz = screenCss.match(/z-index:\s*(\d+)/);
   assert.ok(sz, "找不到二级页面的 z-index");
   assert.ok(Number(zm[1]) > Number(sz[1]),
@@ -91,7 +94,7 @@ test("导航钉在屏幕底部，不跟着内容滚走", () => {
 test("每一页最下面的内容都不会被这排标签压住", () => {
   // 导航一旦浮起来，就不再占位置了。每一屏都要自己让出这块高度，
   // 否则最后一句话、最后一个按钮会永远藏在标签底下点不到。
-  const css = html.slice(0, html.indexOf("</style>"));
+  const css = readFileSync(join(ROOT, "app.css"), "utf8");   // 2026-09-28：样式搬进 app.css
   assert.match(css, /--nav-h:\s*\d+px/,
     "导航高度没有一个单独的来源 —— 留白和导航各写一份，改一处就会错位");
   const uses = (css.match(/var\(--nav-h\)/g) || []).length;
@@ -101,7 +104,7 @@ test("每一页最下面的内容都不会被这排标签压住", () => {
 
 test("首页也让出了这块高度", () => {
   // 首页原来靠 margin-top:auto 把导航推到底，导航浮起来之后那招失效了。
-  const css = html.slice(0, html.indexOf("</style>"));
+  const css = readFileSync(join(ROOT, "app.css"), "utf8");   // 2026-09-28：样式搬进 app.css
   const home = css.match(/#homeScreen\s*\{[^}]*\}/);
   assert.ok(home, "首页没有自己的样式规则 —— 没地方让出导航的高度");
   assert.match(home[0], /padding-bottom[^;]*var\(--nav-h\)/,

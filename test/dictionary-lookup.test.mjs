@@ -42,7 +42,9 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const html = readFileSync(join(ROOT, "index.html"), "utf8");
+// 2026-09-28（ADR 0009 CSS 外置）：样式搬进 app.css。这个文件按选择器在源码里定位 CSS 规则，
+// 原来样式在 <head> 里、排在标记之前；这里把 app.css 接在前面，顺序和外置前一样，查找语义不变。
+const html = readFileSync(join(ROOT, "app.css"), "utf8") + "\n" + readFileSync(join(ROOT, "index.html"), "utf8");
 const swSrc = readFileSync(join(ROOT, "sw.js"), "utf8");
 
 const START = "/* ll:dictionary-lookup:start */";

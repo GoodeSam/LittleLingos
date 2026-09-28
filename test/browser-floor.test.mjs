@@ -26,7 +26,12 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const FLOOR = 86; // 微信 X5
 
 // 逐个文件扫。sw.js 也算——service worker 挂了不该拖垮页面，但它自己得能解析。
-const FILES = ["index.html", "icons.js", "scenarios.js", "dictionary-words.js", "sw.js"];
+// 2026-09-28（ADR 0009）：清单从 stamp-sw.mjs 的 SOURCES 现取——原来手写 5 个文件，
+// 拆出来的 24 个模块一个都没扫；样式也搬进了 app.css。凡是会发到手机上的都得扫。
+const stampSrc = readFileSync(join(ROOT, "scripts/stamp-sw.mjs"), "utf8");
+const at = stampSrc.indexOf("const SOURCES = [");
+const FILES = [...new Set([...stampSrc.slice(at, stampSrc.indexOf("]", at)).matchAll(/"([^"]+)"/g)].map(m => m[1]).concat(["sw.js"]))]
+  .filter(f => /\.(html|m?js|css|json)$/.test(f));   // 图标之类的二进制不是代码，扫它只会撞上乱码
 // 注释里提到某个特性不会让任何东西坏掉，所以扫之前先把注释剥掉——
 // 否则一句「这里原来用的是 color-mix()」就能把这一层弄红。
 function stripComments(src) {
@@ -77,7 +82,7 @@ test("视口高度留了老写法兜底", () => {
   // 100dvh 在安卓上更准（地址栏收起来时不会把最后一行顶出去），但它要
   // Chrome 108。写了 dvh 就必须在同一条规则里先写一遍 vh，否则老内核
   // 拿不到任何高度。
-  const src = SRC["index.html"];
+  const src = SRC["app.css"];   // 2026-09-28：样式搬进 app.css
   const blocks = src.match(/\{[^{}]*\}/g) || [];
   const bad = blocks.filter(b => /\d(dvh|svh|lvh)/.test(b) && !/\d+vh/.test(b));
   assert.deepEqual(bad.map(b => b.slice(0, 60)), [], "有 dvh 却没有 vh 兜底");

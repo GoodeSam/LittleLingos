@@ -5,7 +5,7 @@
 // index.html 三处（顶层常量、ll:review-engine 块、查词重查那一段各写了一份 s=0/due=now）。
 // P01「复习间隔按一周重算」一旦定了规格，改一个文件就够——前提是只有一个文件管这件事。
 //
-// 硬约束：间隔表 [1,3,7,14,30] 和数据格式 rv:{s,due} 一个都不动——改了会让家长的
+// 2026-09-28 P01 落地：间隔表改为 [1,2,4,7]（ADR 0007：保持期一周），数据格式 rv:{s,due} 不动——
 // 复习节奏悄悄变。这个文件是纯的：时间从外面传进来，不碰 Date.now / window / 存储。
 // 普通脚本 + CommonJS 出口（同 storage.js）：首页一开就要数「今天到期几句」。
 //
@@ -37,20 +37,35 @@ function load() {
   return lib;
 }
 
-test("间隔表一个数没变：1、3、7、14、30 天——改了家长的复习节奏会悄悄变", () => {
+test("间隔表是 P01 定的 1、2、4、7 天（ADR 0007：保持期一周）——再改要像 P01 一样先定规格", () => {
+  // 【改过的测试】原来钉的是 [1,3,7,14,30]，理由是「改了家长的复习节奏会悄悄变」。
+  // 2026-09-28 Victor 按建议定了 P01 规格：新表 [1,2,4,7]；已有进度不动；超出最后一档按 7 天；
+  // 14、30 退掉。这条现在钉新表——意图没变：表只能经过明确决定才动。
   const { INTERVALS } = load();
-  assert.deepEqual([...INTERVALS], [1, 3, 7, 14, 30]);
+  assert.deepEqual([...INTERVALS], [1, 2, 4, 7]);
   assert.ok(Object.isFrozen(INTERVALS), "间隔表要冻结");
 });
 
-test("点【记住了】：往后排，一次比一次久；到最后一档停在 30 天，不越界", () => {
+test("点【记住了】：往后排，一次比一次久；到最后一档停在 7 天，不越界——任何一句都不会超过一周不回来", () => {
   const { nextSchedule } = load();
   const now = 1_000_000_000_000;
   let rv = { s: 0, due: now };
   const seen = [];
   for (let i = 0; i < 7; i++) { rv = nextSchedule(rv, true, now); seen.push({ s: rv.s, days: (rv.due - now) / DAY }); }
-  assert.deepEqual(seen.map(x => x.days), [1, 3, 7, 14, 30, 30, 30], "第 6、7 次该停在 30 天");
-  assert.deepEqual(seen.map(x => x.s), [1, 2, 3, 4, 5, 5, 5], "档位到 5 就不再涨");
+  assert.deepEqual(seen.map(x => x.days), [1, 2, 4, 7, 7, 7, 7], "第 5 次起该停在 7 天");
+  assert.deepEqual(seen.map(x => x.s), [1, 2, 3, 4, 4, 4, 4], "档位到 4 就不再涨");
+});
+
+test("换表之前存的进度一个不动：旧表下已到 14/30 天档的句子，不答题 due 照旧；答对了才按新表最后一档排", () => {
+  // P01 规格第二、三条：不做迁移。家长手机上 s=5、due 在 20 天后的那句，换表之后仍是 20 天后到期
+  // （不会突然一批到期把她淹了）；她真答对那次起，才收到新表——s 收到 4、7 天后再来。
+  const { nextSchedule, isDue, INTERVALS } = load();
+  const now = 1_000_000_000_000;
+  const old = { s: 5, due: now + 20 * DAY };            // 旧表最后一档存下来的样子
+  assert.equal(isDue({ rv: old }, now), false, "换表把旧进度当成了到期——一批句子会同时涌回来");
+  const next = nextSchedule(old, true, now);
+  assert.equal(next.s, INTERVALS.length, "超出新表的档位没有收回到最后一档");
+  assert.equal((next.due - now) / DAY, 7, "答对之后没有按新表最后一档（7 天）排");
 });
 
 test("点【还要练】：回到起点，今天就再来", () => {

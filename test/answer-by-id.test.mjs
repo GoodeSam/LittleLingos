@@ -39,7 +39,7 @@ const html = readFileSync(join(ROOT, "index.html"), "utf8");
 const START = "/* ll:review-engine:start */";
 const END = "/* ll:review-engine:end */";
 
-const INTERVALS = [1, 3, 7, 14, 30];
+const INTERVALS = [1, 2, 4, 7];   // 2026-09-28 P01：与 review-engine.js 一致
 const DAY = 86400000;
 
 const tests = [];

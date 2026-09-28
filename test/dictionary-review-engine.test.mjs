@@ -39,7 +39,7 @@ function test(name, fn) { tests.push({ name, fn }); }
 // The value this suite assumes REVIEW_INTERVALS to be — verified against
 // the real source below so this file itself can never become a silent
 // second interval table.
-const ASSUMED_REVIEW_INTERVALS = [1, 3, 7, 14, 30];
+const ASSUMED_REVIEW_INTERVALS = [1, 2, 4, 7];   // 2026-09-28 P01：与 review-engine.js 一致
 
 function makeEnv({ savedPhrases = [] } = {}) {
   const calls = { safeSetItem: [], updateNavBadge: 0, renderReviewStrip: 0, renderReviewCard: 0, renderReviewArea: 0 };

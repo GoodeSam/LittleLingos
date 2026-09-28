@@ -105,6 +105,7 @@ step("L0 · translating adult content (test/adult-translate.test.mjs)", () => ru
 step("L0 · first-run default age (test/default-age.test.mjs)", () => run("node", ["test/default-age.test.mjs"]));
 step("L0 · stylesheet lives in app.css (test/app-css.test.mjs)", () => run("node", ["test/app-css.test.mjs"]));
 step("L0 · app state has one owner (test/app-state.test.mjs)", () => run("node", ["test/app-state.test.mjs"]));
+step("L0 · every production deploy leaves a tag (test/deploy-tag.test.mjs)", () => run("node", ["test/deploy-tag.test.mjs"]));
 step("L0 · choosing the reading voice (test/voice-choice.test.mjs)", () => run("node", ["test/voice-choice.test.mjs"]));
 step("L0 · candidate-one navigation (test/nav-candidate1.test.mjs)", () => run("node", ["test/nav-candidate1.test.mjs"]));
 step("L0 · design tokens + adult look (test/design-tokens.test.mjs)", () => run("node", ["test/design-tokens.test.mjs"]));

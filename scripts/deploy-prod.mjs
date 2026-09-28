@@ -75,6 +75,28 @@ if (expected === before) {
   process.exit(0);
 }
 
+// 发完、线上确认换了，就在仓库里留一个 tag：deploy-<缓存戳>（沿用 07-26 那三个的约定）。
+// 「这一版是哪个提交」从此不靠人记：家长手机上 sw.js 里的戳 → `git show deploy-<戳>`。
+// 只在确认之后打——部署命令成功但线上没换的话，tag 会指着一个没上线的提交，比没有更糟。
+// 打不成不算部署失败（线上已经换了），但要说人话让操作者手动补。
+function tagDeploy(stamp) {
+  const tag = `deploy-${stamp}`;
+  try {
+    const head = run("git", ["rev-parse", "HEAD"]).trim();
+    let existing = "";
+    try { existing = run("git", ["rev-parse", "--verify", "--quiet", `${tag}^{commit}`]).trim(); } catch {}
+    if (existing && existing !== head) {
+      console.log(`  ⚠️ tag ${tag} 已经指着 ${existing.slice(0, 7)}，不是这次的 ${head.slice(0, 7)}——同一个戳两个提交，不覆盖；自己查一下`);
+      return;
+    }
+    if (!existing) run("git", ["tag", "-a", tag, "-m", `production deploy ${new Date().toISOString().slice(0, 10)}`]);
+    run("git", ["push", "origin", tag], { stdio: "pipe" });
+    console.log(`  ✓ 已打 tag ${tag}（${head.slice(0, 7)}）并推到远端`);
+  } catch (e) {
+    console.log(`  ⚠️ 部署已上线，但 tag 没打成（${(e && e.message || e).toString().split("\n")[0]}）——手动打：git tag -a ${tag} -m "production deploy" && git push origin ${tag}`);
+  }
+}
+
 console.log("\n── 确认线上换了没有 ──");
 let got = null;
 for (let i = 1; i <= 10; i++) {
@@ -84,6 +106,7 @@ for (let i = 1; i <= 10; i++) {
     console.log(`\n✓ 线上现在是 ${expected}`);
     console.log("  ⚠️ 缓存戳变了：已安装的 PWA 下次联网打开会更新，" +
                 "随应用下发的音频会被清掉重新下载（IndexedDB 里生成的片段不受影响）");
+    tagDeploy(expected);
     process.exit(0);
   }
   if (i < 10) run("/bin/sleep", ["3"]);

@@ -46,7 +46,8 @@
         // Says both what it is and what tapping does — a screen reader user gets
         // no icon, so the label carries the whole message.
         icon: "🔊", label: "已有声音 — 点一下听这一句", canRetry: false,
-        onTap: () => playReviewAudio(item),
+        // 按钮一起交出去：它是播放的「主人」——重画、再点暂停都靠它认。不传的话播放函数直接 return。
+        onTap: (btn) => playReviewAudio(item, btn),
       });
 
       if (typeof isAudioBacked === "function" && isAudioBacked(item)) {

@@ -1521,6 +1521,38 @@ check("复习卡：翻开英文后点一个词，释义在英文那一行底下�
   assert.equal(r.buttonsOk, true, "评分按钮被面板挤矮了");
 });
 
+// 2026-09-28 真机报上来的：收藏行的 🔊 点了没声音（连播却有）。09-27 把 playReviewAudio 改成
+// 必须带按钮之后，行里的 🔊 一直没把按钮传过去——播放模块认不出主人，直接 return。
+// 两层单元测试都是假件、都没断言按钮传到了，所以只有在真浏览器里点一下才看得见。
+check("收藏列表：点一行的 🔊，播放模块接到的主人就是那个按钮，放的是录音", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    stopAllAudio();
+    openScenario("bath"); switchAge("0-1"); await tick();
+    const p = scenarios.bath.phrases["0-1"][0];
+    if (!savedPhrases.some(x => x.id === p.id)) toggleSave(p.id);
+    showTab("saved"); await tick();
+    const row = Array.from(document.querySelectorAll("#savedScreen .saved-item"))
+      .find(rw => rw.querySelector(".saved-item-zh") && rw.querySelector(".saved-item-zh").innerText.includes(p.zh));
+    if (!row) return { noRow: true };
+    const mark = row.querySelector(".saved-item-audio");
+    if (!mark) return { noMark: true };
+    const tag = mark.tagName;
+    mark.click();
+    await new Promise(res => setTimeout(res, 300));
+    const st = window.llAudio.state();
+    const out = { tag, ownerIsMark: st.owner === mark, mode: st.mode,
+                  unavailable: mark.classList.contains("unavailable") || /暂不可用/.test(mark.textContent) };
+    stopAllAudio();
+    return out;
+  });
+  assert.ok(!r.noRow && !r.noMark, "收藏页里找不到那一行或它的 🔊");
+  assert.equal(r.tag, "BUTTON", "有声音的那一行，🔊 应该是个按钮");
+  assert.equal(r.unavailable, false, "点了 🔊 却显示「暂不可用」——按钮没传给播放模块");
+  assert.equal(r.ownerIsMark, true, "点了 🔊，播放模块的主人不是它——什么都没放");
+  assert.equal(r.mode, "clip", `该放的是录音，实际 mode=${r.mode}`);
+});
+
 check("收藏列表：点「显示英文」之后，英文里的词能点，释义在那一行底下；别的行不受影响", async (ev) => {
   await ev(WORD_TAP_FETCH);
   const r = await ev(async () => {

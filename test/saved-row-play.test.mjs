@@ -71,13 +71,18 @@ function loadModule({ marks = {}, presetIds = ["bedtime_01"] } = {}) {
 
 // ══ 1. 不只是最上面那一条 ═════════════════════════════════════════════
 
-test("有声音的行，点一下就能听", async () => {
+test("有声音的行，点一下就能听——而且把被点的那个按钮交给播放模块", async () => {
   const { ctx, played } = loadModule({ marks: { [A.id]: "ready" } });
   const v = ctx.audioMarkView(A);
   assert.ok(v.onTap, "有声音却点不动，等于那次生成白花了钱");
-  await v.onTap();
+  const btn = { textContent: "🔊" };
+  await v.onTap(btn);
   assert.equal(played.length, 1);
   assert.equal(played[0].item, A, "放的必须是这一行，不是别的哪一行");
+  // 2026-09-28 真机报上来的：收藏行的 🔊 点了没声音。09-27 播放改走 audio-controller 之后
+  // playReviewAudio 必须带按钮（它是播放的「主人」，按钮重画、再点暂停都靠它认），
+  // 行里的 🔊 一直没传——播放函数拿到 undefined 就直接 return。这里原来只数了次数。
+  assert.equal(played[0].btn, btn, "被点的按钮没传给播放模块——它认不出主人，什么都不会放");
 });
 
 test("列表里第几行都一样能点，不只是第一行", async () => {

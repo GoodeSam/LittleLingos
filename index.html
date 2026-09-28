@@ -4022,7 +4022,9 @@ function renderSavedScreen() {
         } else {
           // Playing: stays synchronous, and does NOT re-render — redrawing the
           // list mid-playback would throw away the element that is speaking.
-          view.onTap();
+          // 2026-09-28 修：把这个按钮交给播放模块当主人。没传的话 playReviewAudio 直接 return，
+          // 收藏行的 🔊 从 09-27 起一直是哑的（连播照常，因为它不走这条路）。
+          view.onTap(mark);
         }
       };
     }
@@ -5400,7 +5402,7 @@ var llAudioMarks = llAudioMarksLib.create({
   audioMarkFor: (id) => audioMarkFor(id),
   isAudioBacked: (item) => llItemKind.isAudioBacked(item),
   retryAudio: (item) => retryAudio(item),
-  playReviewAudio: (item) => playReviewAudio(item),
+  playReviewAudio: (item, btn) => playReviewAudio(item, btn),
 });
 var audioMarkView = llAudioMarks.audioMarkView;
 

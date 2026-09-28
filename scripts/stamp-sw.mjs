@@ -35,6 +35,7 @@ const SOURCES = [
   "dict-logic.js",
   "data-export.js",
   "audio-store.js",
+  "audio-playback.js",
   "scenarios.js",
   "dictionary-words.js",
   "manifest.json",

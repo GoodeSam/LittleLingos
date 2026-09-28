@@ -2389,6 +2389,8 @@
 <script src="./data-export.js"></script>
 <!-- 存音频（ADR 0009 第十块）。 -->
 <script src="./audio-store.js"></script>
+<!-- 取声音地址（ADR 0009 第十一块）。 -->
+<script src="./audio-playback.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
      万一这个文件没加载成（MIME 不对、被缓存挡住），window.llAudio 就是
@@ -5929,103 +5931,17 @@ function audioMarkView(item) {
 }
 /* ll:audio-marks:end */
 
-/* ll:audio-playback:start */
-// Handing a stored clip to the player. Depends on ll:audio-store below.
-//
-// The reason this is a module and not two lines inside playReviewAudio():
-// reading from IndexedDB is asynchronous, and on iOS an audio element that
-// starts playing after an await may no longer count as "started by that tap" —
-// Safari can refuse it silently. Paying for these clips only to have them
-// refused is the one outcome worth designing around. So the Blob becomes a
-// playable address when the card RENDERS, and the tap stays synchronous,
-// exactly as it already is for the 1204 preset phrases.
-//
-// ⚠️ UNVERIFIED: that iOS rule is the premise of this design and it has not
-// been tested on a device. If someone later wants to simplify this into "read
-// it when tapped", that has to be checked on a real iPhone first — a green
-// test suite here says nothing about it.
-//
-// Each address holds its clip in memory until released. The review card shows
-// one phrase at a time and releases the previous one, so at most a couple are
-// alive; without releasing, an afternoon of reviewing would leave dozens of
-// copies of the same audio held open.
-const audioUrlCache = new Map();
-const audioUrlPending = new Map();
-
-// Each live address pins its clip in memory (~52KB). The saved list primes
-// every row, so without a ceiling a large library would hold all of it open at
-// once. Eviction is oldest-first; the Map keeps insertion order.
-const AUDIO_URL_CAP = 120;
-
-// Synchronous by design — see above. Returns null when nothing is ready, and
-// the caller falls back to speech synthesis exactly as it does today.
-function audioUrlFor(id) {
-  if (!id) return null;
-  return audioUrlCache.get(id) || null;
-}
-
-// Called at render time, never at tap time.
-async function primeAudioUrl(id) {
-  if (!id) return null;
-  const cached = audioUrlCache.get(id);
-  if (cached) return cached;
-  // A card re-rendering while its first prime is still in flight must join it
-  // rather than start a second read and hold a second copy.
-  const inFlight = audioUrlPending.get(id);
-  if (inFlight) return inFlight;
-
-  const job = (async () => {
-    try {
-      const blob = await getAudio(id);
-      if (!blob) return null;
-      const url = URL.createObjectURL(blob);
-      audioUrlCache.set(id, url);
-      while (audioUrlCache.size > AUDIO_URL_CAP) {
-        const oldest = audioUrlCache.keys().next().value;
-        if (oldest === id) break;               // never evict the one just made
-        try { URL.revokeObjectURL(audioUrlCache.get(oldest)); } catch {}
-        audioUrlCache.delete(oldest);
-      }
-      return url;
-    } catch {
-      // No store, no clip, a read that failed — all the same to the caller:
-      // this phrase has no recorded voice, and speech synthesis takes over.
-      return null;
-    } finally {
-      audioUrlPending.delete(id);
-    }
-  })();
-  audioUrlPending.set(id, job);
-  return job;
-}
-
-// Where THIS item's recording comes from, whatever its origin. Two sources
-// exist and nothing outside this function should have to know which is which:
-// preset phrases ship with the app as ./audio/<id>_normal.mp3, while saved
-// translations and dictionary words are voiced one at a time and kept on the
-// device (ADR 0003).
-//
-// It lives here because the loop got this wrong by rewriting it: it filtered
-// on audioUrlFor() alone, so a library made entirely of preset phrases was
-// judged to have nothing playable at all. One implementation, so the two
-// playback paths cannot drift apart again.
-//
-// Synchronous, like audioUrlFor() and for the same iOS reason.
-function playableUrlFor(item) {
-  if (!item || !item.id) return null;
-  if (typeof isAudioBacked === "function" && isAudioBacked(item)) {
-    return `./audio/${item.id}_normal.mp3`;
-  }
-  return audioUrlFor(item.id);
-}
-
-function releaseAudioUrls() {
-  for (const url of audioUrlCache.values()) {
-    try { URL.revokeObjectURL(url); } catch {}
-  }
-  audioUrlCache.clear();
-}
-/* ll:audio-playback:end */
+// 取声音地址在 audio-playback.js（llPlayback）。三个依赖传进去，不让它抓全局。
+var llPlayback = llPlaybackLib.create({
+  getAudio: (id) => llAudioStore.getAudio(id),
+  isAudioBacked: (item) => llItemKind.isAudioBacked(item),
+  URL: typeof URL !== "undefined" ? URL : null,
+});
+// 别名：块外 22 处调用点认的是这些名字（var，沙箱里 const 不挂上下文）。
+var audioUrlFor = llPlayback.audioUrlFor;
+var primeAudioUrl = llPlayback.primeAudioUrl;
+var playableUrlFor = llPlayback.playableUrlFor;
+var releaseAudioUrls = llPlayback.releaseAudioUrls;
 
 /* ll:audio-provision:start */
 // Between "a parent saved a phrase" and "that phrase has a voice on their

@@ -37,6 +37,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const createPlayback = (d) => require(join(ROOT, "audio-playback.js")).create(d);   // 原 ll:audio-playback
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -123,12 +126,11 @@ async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [], speech 
   const sp = speech ? fakeSpeech() : null;
   if (sp) { ctx.speechSynthesis = sp.synth; ctx.SpeechSynthesisUtterance = sp.Utterance; }
   vm.createContext(ctx);
-  // 先跑 ll:audio-playback（定义 audioUrlFor / primeAudioUrl / playableUrlFor），
-  // 再跑本块。
-  const ps = html.indexOf("/* ll:audio-playback:start */");
-  const pe = html.indexOf("/* ll:audio-playback:end */");
-  assert.ok(ps !== -1 && pe !== -1, "ll:audio-playback markers not found");
-  vm.runInContext(html.slice(ps, pe), ctx);
+  // 2026-09-28（ADR 0009 第十一块）：audioUrlFor / primeAudioUrl / playableUrlFor
+  // 搬进 audio-playback.js。仍然用**真的**那一份，只是改成 create(deps) 注入。
+  Object.assign(ctx, createPlayback({
+    getAudio: ctx.getAudio, isAudioBacked: ctx.isAudioBacked, URL: ctx.URL,
+  }));
   vm.runInContext(html.slice(s, e + END.length), ctx);
   for (const fn of ["startAudioLoop", "stopAudioLoop", "audioLoopPlaying"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);

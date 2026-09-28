@@ -262,8 +262,14 @@ test("playReviewAudio source no longer branches on the raw t_ id-prefix denylist
   // 「这一条的声音从哪儿来」——答案仍必须来自共用的 playableUrlFor()，
   // 而它内部走的就是 isAudioBacked() 那个白名单。意图没变，验的位置跟着代码走。
   assert.match(fnSrc, /playableUrlFor\(item\)/, "playReviewAudio must ask the shared playableUrlFor() where the audio comes from");
-  const pf = html.slice(html.indexOf("function playableUrlFor"), html.indexOf("\n}", html.indexOf("function playableUrlFor")));
-  assert.match(pf, /isAudioBacked\(/, "playableUrlFor must gate on the shared isAudioBacked() allowlist");
+  // 2026-09-28（ADR 0009 第十一块）：playableUrlFor 搬进 audio-playback.js，白名单由
+  // create(deps) 传进去。改成跑真模块验行为——预设走下发的 mp3，别的不走。
+  const pb = require(join(ROOT, "audio-playback.js")).create({
+    getAudio: async () => null, isAudioBacked: (item) => item.id === "b11",
+    URL: { createObjectURL: () => "blob:x", revokeObjectURL: () => {} },
+  });
+  assert.equal(pb.playableUrlFor({ id: "b11" }), "./audio/b11_normal.mp3", "预设短语必须走随应用下发的 mp3");
+  assert.equal(pb.playableUrlFor({ id: "t_1" }), null, "不在白名单里的不许去构造 mp3 地址（那是保证 404 的）");
 });
 
 // ── C3: Severity-C user-select fixes (raw-text assertions, sw.test.mjs style) ──

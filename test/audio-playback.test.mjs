@@ -33,6 +33,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+const require = createRequire(import.meta.url);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -43,6 +46,34 @@ const END = "/* ll:audio-playback:end */";
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
+test("取声音地址只在 audio-playback.js 里有一份：index.html 里的块删了，22 处调用点走别名，主脚本前加载，进了离线清单", () => {
+  const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  assert.ok(!html.includes(START), "index.html 里还有 ll:audio-playback 块——同一件事两份实现");
+  for (const fn of ["audioUrlFor", "primeAudioUrl", "playableUrlFor", "releaseAudioUrls"]) {
+    assert.ok(!code.includes(`function ${fn}(`), `index.html 里还定义着 ${fn}()`);
+    assert.ok(new RegExp(`var ${fn} = llPlayback\\.${fn};`).test(code), `缺别名 var ${fn} = llPlayback.${fn}（必须 var）`);
+  }
+  assert.ok(/llPlayback\s*=\s*llPlaybackLib\.create\(/.test(code), "index.html 没有用 create(deps) 建实例");
+  const tagAt = html.indexOf('<script src="./audio-playback.js"></script>');
+  assert.ok(tagAt !== -1 && tagAt < html.indexOf("\n<script>\n"), "audio-playback.js 要在主脚本之前加载");
+  const sw = readFileSync(join(ROOT, "sw.js"), "utf8");
+  assert.ok(sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = ["))).includes("audio-playback.js"), "sw.js 的 SHELL 里没有它");
+  const stamp = readFileSync(join(ROOT, "scripts/stamp-sw.mjs"), "utf8");
+  assert.ok(stamp.slice(stamp.indexOf("const SOURCES = ["), stamp.indexOf("]", stamp.indexOf("const SOURCES = ["))).includes("audio-playback.js"), "stamp-sw.mjs 的 SOURCES 里没有它");
+  const src = readFileSync(join(ROOT, "audio-playback.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  for (const bad of ["document.", "window.", "localStorage", "typeof isAudioBacked", "indexedDB"]) {
+    assert.ok(!src.includes(bad), `audio-playback.js 里出现了「${bad}」——依赖要从 create(deps) 传进来`);
+  }
+});
+
+test("预设句子走随应用下发的 mp3，别的走本机存的那一份", () => {
+  // playableUrlFor 的分叉：这一条原来靠块里 typeof isAudioBacked 抓全局，现在靠传进来的函数。
+  const preset = loadModule({ isAudioBacked: () => true }).ctx;
+  assert.equal(preset.playableUrlFor({ id: "b11" }), "./audio/b11_normal.mp3");
+  const own = loadModule({ isAudioBacked: () => false }).ctx;
+  assert.equal(own.playableUrlFor({ id: "t_1" }), null, "没准备过的本机条目该是 null（调用方去退回朗读）");
+});
+
 const ID = "t_1725300000000";
 const mp3 = () => new Blob([new Uint8Array(64).fill(0xff)], { type: "audio/mpeg" });
 
@@ -51,23 +82,21 @@ function fakeStore({ present = [ID], failGet = false } = {}) {
   return { getAudio: async id => (failGet ? null : (map.get(id) ?? null)) };
 }
 
-function loadModule({ store = fakeStore() } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
+// 2026-09-28（ADR 0009 第十一块）：这一块搬进了 audio-playback.js，三个依赖
+// （取音频、判断有没有预录 mp3、造/回收临时地址）改为 create(deps) 传进来。
+function loadModule({ store = fakeStore(), isAudioBacked = () => false } = {}) {
+  const p = join(ROOT, "audio-playback.js");
+  assert.ok(existsSync(p), "audio-playback.js 还不存在——这一块该搬出 index.html 了");
   const made = [], revoked = [];
   let seq = 0;
-  const ctx = {
-    ...store,
-    console,
-    queueMicrotask,
-    Blob,
+  const ctx = require(p).create({
+    getAudio: store.getAudio,
+    isAudioBacked,
     URL: {
       createObjectURL: b => { const u = `blob:fake/${++seq}`; made.push({ url: u, blob: b }); return u; },
       revokeObjectURL: u => revoked.push(u),
     },
-  };
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  });
   for (const fn of ["primeAudioUrl", "audioUrlFor", "releaseAudioUrls"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
@@ -219,14 +248,12 @@ test("预设短语仍然走它自己那条路", async () => {
   //
   // 这一条是回归护栏，不约束新模块——它在改动前后都该是绿的。
   // 用空壳探测时它会「通过」，那是设计如此，不是假绿。
-  const at = html.indexOf("function playReviewAudio");
-  const body = html.slice(at, html.indexOf("\n}", at));
-  // 判断本身收进了 playableUrlFor()，所以在这里验它，而不是在调用点。
-  const at2 = html.indexOf("function playableUrlFor");
-  assert.ok(at2 !== -1, "playableUrlFor not found");
-  const pf = html.slice(at2, html.indexOf("\n}", at2));
-  assert.match(pf, /isAudioBacked\(/, "预设短语的判断不能被去掉");
-  assert.match(pf, /_normal\.mp3/, "预设短语仍然直接播随应用下发的那个文件");
+  // 2026-09-28（ADR 0009 第十一块）：判断收进了模块，这里改成跑它验行为。
+  const { ctx } = loadModule({ isAudioBacked: (item) => item.id === "b11" });
+  assert.equal(ctx.playableUrlFor({ id: "b11" }), "./audio/b11_normal.mp3",
+    "预设短语该直接播随应用下发的那个文件，不走 IndexedDB");
+  assert.equal(ctx.playableUrlFor({ id: "t_1" }), null,
+    "不是预设短语的，没准备过就该是 null（调用方去退回朗读）");
 });
 
 // ── Runner ───────────────────────────────────────────────

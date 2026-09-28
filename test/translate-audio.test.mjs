@@ -35,9 +35,11 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { injectStorage, injectApi } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
@@ -89,10 +91,11 @@ function loadModule({ store = fakeStore(), code = CODE, onLine = true, fetchImpl
   // provisionTranslation() 现在调用 assignTranslationIds()，它在 ll:translate-save
   // 里。那是一小段纯同步的判定，属于同一个行为契约 —— 按上一轮定下的分界线
   // 跑真代码，而不是手写一份会漂移的桩。
-  const ts = html.indexOf("/* ll:translate-save:start */");
-  const te = html.indexOf("/* ll:translate-save:end */");
-  assert.ok(ts !== -1 && te !== -1, "ll:translate-save markers not found");
-  vm.runInContext(html.slice(ts, te), ctx);
+  // 2026-09-28（ADR 0009 第十五块）：搬进 translate-save.js，仍跑真代码。
+  Object.assign(ctx, require(join(ROOT, "translate-save.js")).create({
+    getSaved: () => ctx.savedPhrases || [],
+    getAge: () => ctx.translateAge,
+  }));
   vm.runInContext(html.slice(s, e + END.length), ctx);
   assert.equal(typeof ctx.provisionTranslation, "function", "module must define provisionTranslation()");
   return { ctx, store, fetchCalls, primed };
@@ -233,9 +236,11 @@ test("收藏用的是翻译时那个身份，不另铸一个", async () => {
   assert.match(entry, /saveTranslatedPhrase\(r\)/,
     "必须把翻译结果整个交出去 —— 只传字段的话 id 就丢了");
 
-  const at2 = html.indexOf("function saveTranslatedPhrase");
+  // 2026-09-28（ADR 0009 第十五块）：共用实现搬进 translate-save.js。
+  const src = readFileSync(join(ROOT, "translate-save.js"), "utf8");
+  const at2 = src.indexOf("function saveTranslatedPhrase");
   assert.ok(at2 !== -1, "saveTranslatedPhrase not found");
-  const shared = html.slice(at2, html.indexOf("\n}", at2));
+  const shared = src.slice(at2, src.indexOf("\n    }", at2));
   assert.match(shared, /id:\s*entry\.id/,
     "共用实现必须沿用传进来的 id，另铸一个会让那段声音成为孤儿，同一句话付两次钱");
 });

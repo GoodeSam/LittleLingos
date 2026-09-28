@@ -54,24 +54,33 @@ test("同一毫秒里铸出来的两个 id 不会撞", () => {
     scenarios: {},
   };
   vm.createContext(ctx);
-  vm.runInContext(fragment("translate-save"), ctx);
-  assert.equal(typeof ctx.assignTranslationIds, "function", "找不到铸 id 的地方");
+  // 2026-09-28（ADR 0009 第十五块）：铸 id 搬进 translate-save.js。
+  // Date 钉死那一招对模块同样有效——模块里用的是全局 Date，require 进来的是宿主 realm 的，
+  // 所以这里改用一个只在本次调用期间生效的替身。
+  const realNow = Date.now;
+  Date.now = () => 1725300000000;
+  try {
+    Object.assign(ctx, require(join(ROOT, "translate-save.js")).create({ getSaved: () => ctx.savedPhrases }));
+    assert.equal(typeof ctx.assignTranslationIds, "function", "找不到铸 id 的地方");
 
-  const a = { en: "Time for bed." };
-  const b = { en: "Good night." };
-  ctx.assignTranslationIds(a);
-  ctx.assignTranslationIds(b);
-  assert.ok(a.id && b.id, "没有铸出 id");
-  assert.notEqual(a.id, b.id, `同一毫秒的两句共用了一个 id：${a.id}`);
+    const a = { en: "Time for bed." };
+    const b = { en: "Good night." };
+    ctx.assignTranslationIds(a);
+    ctx.assignTranslationIds(b);
+    assert.ok(a.id && b.id, "没有铸出 id");
+    assert.notEqual(a.id, b.id, `同一毫秒的两句共用了一个 id：${a.id}`);
 
-  // 连铸 50 个也不能有重复
-  const ids = new Set();
-  for (let i = 0; i < 50; i++) {
-    const r = { en: "x" + i };
-    ctx.assignTranslationIds(r);
-    ids.add(r.id);
+    // 连铸 50 个也不能有重复
+    const ids = new Set();
+    for (let i = 0; i < 50; i++) {
+      const r = { en: "x" + i };
+      ctx.assignTranslationIds(r);
+      ids.add(r.id);
+    }
+    assert.equal(ids.size, 50, `50 句里只铸出了 ${ids.size} 个不同的 id`);
+  } finally {
+    Date.now = realNow;
   }
-  assert.equal(ids.size, 50, `50 句里只铸出了 ${ids.size} 个不同的 id`);
 });
 
 // 2026-09-28（ADR 0009 第十块）：存音频搬进 audio-store.js。下面三条原来是读源码，

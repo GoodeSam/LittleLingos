@@ -29,9 +29,12 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
+import { APP_SOURCE } from "./_app-source.mjs";   // index.html + 它加载的每个模块
 import { injectStorage, injectApi } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
@@ -266,10 +269,19 @@ test("翻译和查词两个收藏动作，都会去补声音", async () => {
   // 翻译那条现在经由共用的 saveTranslatedPhrase()，所以验的是整条链：
   // 入口 → 共用实现 → 补声音。只验入口有 requestAudio( 的话，重构一次就
   // 会误报；只验共用实现有的话，入口不调它也发现不了。
+  // 2026-09-28（ADR 0009 第十五块）：共用的保存实现搬进 translate-save.js，
+  // 这条链现在跨文件了 —— 所以问的是整个应用，不是 index.html 这一个文件。
+  // 注释必须先剥掉：2026-09-28 变异探测发现，把 requestAudio( 那行整个删掉，
+  // 这条断言照样绿 —— 因为它上面那句注释里就写着 requestAudio()。
+  const CODE = APP_SOURCE.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
   const reaches = (fnName, hop) => {
-    const at = html.indexOf(fnName);
+    const at = CODE.indexOf(fnName);
     assert.ok(at !== -1, `${fnName} 没找到`);
-    const body = html.slice(at, html.indexOf("\n}", at));
+    const close = Math.min(...["\n}", "\n    }"].map(m => {
+      const i = CODE.indexOf(m, at);
+      return i === -1 ? Infinity : i;
+    }));
+    const body = CODE.slice(at, close);
     return new RegExp(hop.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\(").test(body);
   };
   assert.ok(reaches("function saveTranslation", "saveTranslatedPhrase"),

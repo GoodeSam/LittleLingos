@@ -22,6 +22,7 @@
 //      当前这一次操作照常完成，不因为存不进去而中断。
 //   5. 删掉一个键（比如清邀请码）：删得掉就删，删不掉不炸。
 import assert from "node:assert/strict";
+import { APP_SOURCE } from "./_app-source.mjs";   // index.html + 它加载的每个模块（见该文件开头）
 import { createRequire } from "node:module";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -170,8 +171,9 @@ test("index.html 在主脚本之前加载它（收藏在页面一解析就要读
 });
 
 test("收藏这一份数据只有一处写入：谁改了收藏都叫 persistSaved()，不许各写各的", () => {
-  const html = readFileSync(join(ROOT, "index.html"), "utf8");
-  const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  // 2026-09-28（ADR 0009）：写收藏的代码散在 index.html 和几个模块里了，
+  // 「只有一处写入」问的是整个应用，不是某一个文件。
+  const code = APP_SOURCE.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
   const writes = code.match(/safeSetItem\(\s*"ll_saved"/g) || [];
   assert.equal(writes.length, 1,
     `收藏有 ${writes.length} 处直接写入——改数据格式时必然漏掉一处（09-22 那类 bug 的根）。只允许 persistSaved() 里那一处`);

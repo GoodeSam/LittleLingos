@@ -29,14 +29,14 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { injectPersistSaved } from "./_storage-helper.mjs";   // 真正的 persistSaved()，从 index.html 切出来
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:translate-save:start */";
-const END = "/* ll:translate-save:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -52,8 +52,7 @@ const RESULT = () => ({
 });
 
 function loadModule({ saved = [] } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
+  // 2026-09-28（ADR 0009 第十五块）：整块搬进 translate-save.js。
   const calls = { safeSetItem: [], updateNavBadge: 0, requested: [] };
   const ctx = {
     console,
@@ -65,12 +64,40 @@ function loadModule({ saved = [] } = {}) {
   };
   vm.createContext(ctx);
   injectPersistSaved(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  Object.assign(ctx, require(join(ROOT, "translate-save.js")).create({
+    getSaved: () => ctx.savedPhrases,
+    getAge: () => ctx.translateAge,
+    persistSaved: () => ctx.persistSaved(),
+    onSaved: () => ctx.updateNavBadge(),
+    requestAudio: (item) => ctx.requestAudio(item),
+  }));
   for (const fn of ["assignTranslationIds", "saveTranslatedPhrase"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
   return { ctx, calls, saved: ctx.savedPhrases };
 }
+
+// ══ 0. 搬家之后必须仍然成立的两件事（ADR 0009 第十五块）═══════════════
+
+test("家长中途换了年龄档，新收的句子记的是新档位，不是打开应用时那个", () => {
+  // translateAge 在两处被重新赋值（切年龄档、翻译页上自己选）。保存这一段
+  // 如果在启动时取一次值存着，家长换完档再收的每一句都会记着旧档位——
+  // 复习时给的提示就是按错档位写的，而且他永远不会知道为什么。
+  const { ctx, saved } = loadModule();
+  ctx.saveTranslatedPhrase({ id: "a", en: "Time for bed.", zh: "睡觉啦" });
+  ctx.translateAge = "3-4";
+  ctx.saveTranslatedPhrase({ id: "b", en: "Good night.", zh: "晚安" });
+  assert.equal(saved[0].age, "1-2");
+  assert.equal(saved[1].age, "3-4", "换完年龄档收的句子还记着旧档位");
+});
+
+test("收下一句之后就去给它补声音，不等家长再点一次", () => {
+  // 不补的话，这条永远是哑的，而且界面上什么都不会说。
+  const { ctx, calls } = loadModule();
+  ctx.saveTranslatedPhrase({ id: "a", en: "Time for bed.", zh: "睡觉啦" });
+  assert.equal(calls.requested.length, 1, "收完没有去补声音");
+  assert.equal(calls.requested[0].en, "Time for bed.", "补的不是刚收下的那一条");
+});
 
 // ══ 1. 每一句都有自己的身份 ═══════════════════════════════════════════
 

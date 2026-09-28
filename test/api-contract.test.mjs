@@ -112,7 +112,13 @@ const GOOD_TRANSLATION = { en: "Bath time, sweetie!", zh: "宝贝，洗澡啦！
 function loadTranslate(ctx) {
   // 2026-09-28（ADR 0009 第十三块）：邀请码搬进 access-code.js，仍用真的那一份。
   Object.assign(ctx, require(join(ROOT, "access-code.js")).create({ storage: ctx.llStorage }));
-  vm.runInContext(block("translate-save"), ctx);
+  // 2026-09-28（ADR 0009 第十五块）：翻译与保存搬进 translate-save.js，仍用真的那一份。
+  Object.assign(ctx, require(join(ROOT, "translate-save.js")).create({
+    api: ctx.llApi,
+    accessErrorMessage: (st) => ctx.accessErrorMessage(st),
+    getSaved: () => ctx.savedPhrases || [],
+    getAge: () => ctx.translateAge,
+  }));
   assert.equal(typeof ctx.translateChinese, "function", "页面里那段翻译代码不见了");
 }
 
@@ -183,7 +189,14 @@ function loadDictionary(ctx) {
   });
   // 2026-09-28（ADR 0009 第十三块）：邀请码搬进 access-code.js，仍用真的那一份。
   Object.assign(ctx, require(join(ROOT, "access-code.js")).create({ storage: ctx.llStorage }));
-  vm.runInContext(block("translate-save"), ctx);
+  // 2026-09-28（ADR 0009 第十五块）：翻译与保存搬进 translate-save.js。
+  Object.assign(ctx, require(join(ROOT, "translate-save.js")).create({
+    api: ctx.llApi,
+    accessErrorMessage: (st) => ctx.accessErrorMessage(st),
+    getSaved: () => ctx.savedPhrases,
+    getAge: () => ctx.translateAge,
+    onSaved: () => ctx.updateNavBadge(),
+  }));
   // 2026-09-27（ADR 0009 第七块）：dictionary-shared 块搬进 item-kind.js。
   // 这里照 index.html 的接法建实例并留别名——跑的仍是产品代码里那一份。
   Object.assign(ctx, itemKind.create({ scenarios: () => ctx.scenarios || {}, isCustomScenario: () => false }));

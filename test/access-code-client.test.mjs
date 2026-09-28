@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
+import { APP_SOURCE } from "./_app-source.mjs";   // index.html + 它加载的每个模块（见该文件开头）
 import { createRequire } from "node:module";
 import { injectStorage } from "./_storage-helper.mjs";   // 真正的 storage.js，接在本测试的 localStorage 假件上
 
@@ -192,8 +193,11 @@ test("both paid endpoints send the header — neither is left behind", () => {
   const client = readFileSync(join(ROOT, "api-client.js"), "utf8");
   assert.match(client, /X-LL-Access/, "api-client.js 不再加邀请码头——每一处付费调用都会忘了带码");
   for (const [label, marker] of [["translate", '"/api/translate"'], ["dictionary", '"/api/dictionary"']]) {
-    assert.ok(html.indexOf(`llApi.post(${marker}`) !== -1, `${label} call site must go through llApi.post()`);
-    assert.equal(html.indexOf(`fetch(${marker}`), -1, `${label} still has a bare fetch() — a call that builds its own headers is a call that forgets the code`);
+    // 2026-09-28（ADR 0009）：翻译的调用点搬到 translate-save.js 了。问的是「这个应用里」。
+    // 模块里这个客户端叫 api、index.html 里叫 llApi —— 验的是走不走它，不是局部变量叫什么。
+    assert.match(APP_SOURCE, new RegExp(`\\b(ll)?[aA]pi\\.post\\(${marker.replace(/\//g, "\\/")}`),
+      `${label} call site must go through the shared api client's post()`);
+    assert.equal(APP_SOURCE.indexOf(`fetch(${marker}`), -1, `${label} still has a bare fetch() — a call that builds its own headers is a call that forgets the code`);
   }
 });
 

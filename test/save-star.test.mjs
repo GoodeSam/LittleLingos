@@ -20,27 +20,37 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { injectPersistSaved } from "./_storage-helper.mjs";   // 真正的 persistSaved()，从 index.html 切出来
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:translate-save:start */";
-const END = "/* ll:translate-save:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
 function loadModule({ saved = [] } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
+  // 2026-09-28（ADR 0009 第十五块）：整块搬进 translate-save.js。
   const ctx = {
     console, savedPhrases: saved, translateAge: "1-2",
     safeSetItem: () => {}, updateNavBadge: () => {}, requestAudio: () => Promise.resolve(true),
   };
   vm.createContext(ctx);
   injectPersistSaved(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  ctx.accessErrorMessage = () => null;
+  ctx.llApi = { post: async () => ({ kind: "network" }) };   // 这一组测试不打网络
+  Object.assign(ctx, require(join(ROOT, "translate-save.js")).create({
+    api: ctx.llApi,
+    accessErrorMessage: (st) => ctx.accessErrorMessage(st),
+    getSaved: () => ctx.savedPhrases,
+    getAge: () => ctx.translateAge,
+    persistSaved: () => ctx.persistSaved(),
+    onSaved: () => ctx.updateNavBadge(),
+    requestAudio: (item) => ctx.requestAudio(item),
+  }));
   for (const fn of ["isAlreadySaved", "saveStar"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
@@ -91,8 +101,18 @@ test("收藏之后，同一句话就算收过了", async () => {
 
 test("拦重复收藏用的，和界面画星星用的，是同一个判断", async () => {
   // 两处各写一份的话，会出现「星星是实心但点下去说没收过」这种自相矛盾。
-  const at = html.indexOf("function saveTranslatedPhrase");
-  const body = html.slice(at, html.indexOf("\n}", at));
+  // 先验行为：收过的那一句，第二次收不进去，而星星同时是实心的。
+  const { ctx } = loadModule();
+  const r = { id: "t_1", en: "Wash your hands", zh: "洗手" };
+  assert.equal(ctx.saveTranslatedPhrase(r), true, "第一次该收得进去");
+  assert.equal(ctx.saveTranslatedPhrase({ id: "t_2", en: r.en, zh: "洗洗手" }), false,
+    "同一句英文收了第二次 —— 去重没起作用");
+  assert.equal(ctx.saveStar(ctx.isAlreadySaved(r.en)), "★", "行为说收过了，星星必须也说收过了");
+  // 再验结构：两处各写一份判断的话，行为一致只是暂时的。
+  // 2026-09-28（ADR 0009 第十五块）：这段代码搬进 translate-save.js 了。
+  const src = readFileSync(join(ROOT, "translate-save.js"), "utf8");
+  const at = src.indexOf("function saveTranslatedPhrase");
+  const body = src.slice(at, src.indexOf("\n    }", at));
   assert.match(body, /isAlreadySaved\(/,
     "去重必须走同一个判断，否则界面和行为会各说各的");
 });

@@ -37,6 +37,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
+import { APP_SOURCE } from "./_app-source.mjs";   // index.html + 它加载的每个模块
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -55,9 +56,12 @@ const ALLOWED_ORPHANS = {
 const stripComments = src =>
   src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
 
-const product = stripComments(html);
+// 2026-09-28（ADR 0009 第十五块）：查的范围从 index.html 扩到整个应用。
+// 原来只扫 index.html 里的 marker 块——每搬走一块，这道闸门就悄悄少看一块，
+// 而且不会红（第十五块搬完只剩 9 块，是那条 >= 10 的哨兵拦住的）。
+// 现在两边都扫：index.html 里剩下的 marker 块，加上每一个模块文件。
+const product = stripComments(APP_SOURCE);
 
-// Every marker block and the top-level functions it defines.
 const blocks = [];
 for (const m of html.matchAll(/\/\* (ll:[a-z-]+):start \*\//g)) {
   const name = m[1];
@@ -65,7 +69,16 @@ for (const m of html.matchAll(/\/\* (ll:[a-z-]+):start \*\//g)) {
   assert.ok(end !== -1, `${name} has a start marker but no end marker`);
   blocks.push({ name, src: html.slice(m.index, end) });
 }
-assert.ok(blocks.length >= 10, `only found ${blocks.length} marker blocks — extraction is wrong`);
+// 模块文件清单从 stamp-sw.mjs 的 SOURCES 现取，不另抄一份。
+const stampSrc = readFileSync(join(ROOT, "scripts/stamp-sw.mjs"), "utf8");
+const sourcesAt = stampSrc.indexOf("const SOURCES = [");
+for (const m of stampSrc.slice(sourcesAt, stampSrc.indexOf("]", sourcesAt)).matchAll(/"([^"]+\.js)"/g)) {
+  const f = m[1];
+  if (f === "sw.js") continue;
+  try { blocks.push({ name: f, src: readFileSync(join(ROOT, f), "utf8") }); }
+  catch (e) { assert.fail(`stamp-sw.mjs 的 SOURCES 里列了 ${f}，文件却不存在`); }
+}
+assert.ok(blocks.length >= 20, `only found ${blocks.length} blocks/modules — extraction is wrong`);
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }

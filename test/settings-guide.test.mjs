@@ -15,6 +15,7 @@
 //   2. 家长照着说明去找某个标签、某个按钮、某个图标，界面上真有，字一样。
 //   3. 家长想知道「什么东西会离开我的手机」，说明里讲得清，而且讲的是实话。
 import assert from "node:assert/strict";
+import { APP_SOURCE } from "./_app-source.mjs";   // index.html + 它加载的每个模块（见该文件开头）
 import vm from "node:vm";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -198,7 +199,8 @@ test("翻译时发出去的每一样，说明都点到了：中文、档位、�
   // 客户端真发的东西，从那次 fetch 调用整段里读：body 里的字段，加上 headers 走不走 accessHeaders()。
   // 2026-09-26（ADR 0009）：翻译改走 llApi.post("/api/translate", { … })，body 就是那个对象字面量；
   // 邀请码头由 api-client.js 统一加（有码才加）。读的位置跟着代码走，验的事没变。
-  const call = html.match(/llApi\.post\("\/api\/translate",\s*\{([^}]+)\}/);
+  // 2026-09-28（ADR 0009）：调用点搬进 translate-save.js，读整个应用的源码。
+  const call = APP_SOURCE.match(/\b(?:ll)?[aA]pi\.post\("\/api\/translate",\s*\{([^}]+)\}/);
   assert.ok(call, "找不到翻译请求的调用（应当是 llApi.post(\"/api/translate\", { … })）");
   const fields = call[1].split(",").map(f => f.trim().split(":")[0].trim()).filter(Boolean);
   const sendsCode = /X-LL-Access/.test(readFileSync(join(ROOT, "api-client.js"), "utf8"));

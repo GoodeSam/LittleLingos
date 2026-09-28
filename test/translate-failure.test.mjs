@@ -13,11 +13,13 @@
 //   5. 服务器回的英文原话，一个字都不许出现在给家长看的话里。
 import assert from "node:assert/strict";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { injectApi } from "./_storage-helper.mjs";
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 const tests = [];
@@ -45,7 +47,11 @@ function load({ fetchImpl, code = "abc" } = {}) {
   };
   vm.createContext(ctx);
   injectApi(ctx);
-  vm.runInContext(slice("const TRANSLATE_TIMEOUT_MS", "translateChinese"), ctx);
+  // 2026-09-28（ADR 0009 第十五块）：翻译搬进 translate-save.js，12 秒超时也在那里。
+  Object.assign(ctx, require(join(ROOT, "translate-save.js")).create({
+    api: ctx.llApi,
+    accessErrorMessage: (st) => ctx.accessErrorMessage(st),
+  }));
   const at = html.indexOf("function translateFailureNotice(");
   assert.ok(at !== -1, "还没有 translateFailureNotice()——「失败了对家长说什么」要收在一处");
   vm.runInContext(html.slice(at, html.indexOf("\n}", at) + 2), ctx);

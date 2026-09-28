@@ -13,7 +13,7 @@
 // phrase data, or a stale audio recording indefinitely even though
 // NETWORK_FIRST tries to refresh the shell/data opportunistically on every
 // online GET.
-const CACHE = 'll-148b2800';
+const CACHE = 'll-bb1b58cd';
 const SHELL = [
   './',
   './index.html',
@@ -30,6 +30,7 @@ const SHELL = [
   './audio-store.js',
   './audio-playback.js',
   './custom-scenarios.js',
+  './translate-save.js',
   './install-env.js',
   './audio-marks.js',
   './access-code.js',

@@ -248,10 +248,14 @@ function makeEnv({
   // and part of the same behavioural contract — the case for running the real
   // source rather than a double that would have to re-implement "is this
   // phrase already kept", which is exactly the decision that must exist once.
-  const ss = html.indexOf("/* ll:translate-save:start */");
-  const se = html.indexOf("/* ll:translate-save:end */");
-  assert.ok(ss !== -1 && se !== -1, "ll:translate-save markers not found");
-  vm.runInContext(html.slice(ss, se), ctx);
+  // 2026-09-28（ADR 0009 第十五块）：搬进 translate-save.js，仍跑真代码。
+  Object.assign(ctx, require(join(ROOT, "translate-save.js")).create({
+    getSaved: () => ctx.savedPhrases,
+    getAge: () => ctx.translateAge,
+    persistSaved: () => ctx.persistSaved && ctx.persistSaved(),
+    onSaved: () => ctx.updateNavBadge && ctx.updateNavBadge(),
+    requestAudio: (item) => ctx.requestAudio && ctx.requestAudio(item),
+  }));
 
   // 2026-09-28（ADR 0009 第十三块）：邀请码搬进 access-code.js，仍用真的那一份。
   Object.assign(ctx, require(join(ROOT, "access-code.js")).create({ storage: ctx.llStorage }));

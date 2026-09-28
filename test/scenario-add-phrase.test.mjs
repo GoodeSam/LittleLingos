@@ -21,14 +21,14 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { injectPersistSaved, injectApi } from "./_storage-helper.mjs";   // 真正的 persistSaved()，从 index.html 切出来
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
-const START = "/* ll:translate-save:start */";
-const END = "/* ll:translate-save:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -37,7 +37,7 @@ const TAG = "custom_s_1";
 const REPLY = { en: "Be brave, Mummy is here.", zh: "别怕，妈妈在这儿", tip: "蹲下来抱住他" };
 
 function loadModule({ saved = [], code = "CODE", fetchImpl } = {}) {
-  const s = html.indexOf(START), e = html.indexOf(END);
+  // 2026-09-28（ADR 0009 第十五块）：整块搬进 translate-save.js。
   const fetchCalls = [], requested = [];
   const ctx = {
     console, savedPhrases: saved, translateAge: "1-2",
@@ -59,7 +59,15 @@ function loadModule({ saved = [], code = "CODE", fetchImpl } = {}) {
   vm.createContext(ctx);
   injectApi(ctx);
   injectPersistSaved(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  Object.assign(ctx, require(join(ROOT, "translate-save.js")).create({
+    api: ctx.llApi,
+    accessErrorMessage: (st) => ctx.accessErrorMessage(st),
+    getSaved: () => ctx.savedPhrases,
+    getAge: () => ctx.translateAge,
+    persistSaved: () => ctx.persistSaved(),
+    onSaved: () => ctx.updateNavBadge(),
+    requestAudio: (item) => ctx.requestAudio(item),
+  }));
   for (const fn of ["translateChinese", "addPhraseToScenario"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }

@@ -108,6 +108,10 @@ test("index.html 里 typeof 守着的每个名字都有主人：本文件定义�
   const guarded = [...new Set([...html.matchAll(/typeof\s+([A-Za-z_$][\w$]*)\s*(?:!==|===)\s*["'](?:undefined|function|object)["']/g)].map(m => m[1]))];
   assert.ok(guarded.length >= 20, `只找到 ${guarded.length} 个 typeof 守卫，读法可能坏了`);
   const defined = new Set([...html.matchAll(/^(?:var|let|const|function|async function)\s+([A-Za-z_$][\w$]*)/gm)].map(m => m[1]));
+  // 2026-09-28（ADR 0009 app-state）：可变状态不再是顶层 let，而是 app-state 清单装到 window 上的访问器——
+  // 清单里的名字有主人，算「本文件定义」。清单从主脚本里现取，不另抄一份。
+  const stateList = html.match(/llAppStateLib\.create\(\[([^\]]+)\]\)/);
+  for (const m of (stateList ? stateList[1] : "").matchAll(/"([A-Za-z_$][\w$]*)"/g)) defined.add(m[1]);
   const browser = new Set(["window", "document", "navigator", "localStorage", "indexedDB", "speechSynthesis", "SpeechSynthesisUtterance",
     "Audio", "caches", "Notification", "PushManager", "crypto", "URL", "Blob", "fetch", "AbortController", "Intl", "history", "location",
     "structuredClone", "requestIdleCallback", "queueMicrotask", "MediaRecorder", "setTimeout", "clearTimeout", "performance", "Response",

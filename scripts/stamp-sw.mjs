@@ -46,6 +46,7 @@ const SOURCES = [
   "push-open.js",
   "tap-word.js",
   "review-queue.js",
+  "app-state.js",
   "install-env.js",
   "audio-marks.js",
   "access-code.js",

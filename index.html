@@ -652,6 +652,7 @@
 <script src="./push-open.js"></script>
 <script src="./tap-word.js"></script>
 <script src="./review-queue.js"></script>
+<script src="./app-state.js"></script>
 <script src="./install-env.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
@@ -699,6 +700,11 @@ window.llAudio.subscribe((st) => {
 </script>
 <script>
 // ── State ─────────────────────────────────────────────
+// 可变状态只有一个主人：app-state.js（ADR 0009 最后一步）。下面这 17 个名字装成
+// window 上的访问器——本文件里所有 `x = …` 的裸名读写一行没改，但每次写都经过
+// llState.set()，可订阅、测试里看得见。原来的 `let x = 初始值` 保持原位、原顺序，只去掉 let。
+var llState = llAppStateLib.create(["currentAge", "currentScenario", "translateAge", "currentTier", "savedPhrases", "usedToday", "todayId", "voicePreviewBusy", "cachedVoice", "browserVoiceNoted", "savedFilterScenario", "reviewQueue", "lastTranslateResult", "searchIndex", "dictLookupIndex", "dictLookupSession", "deferredInstallPrompt"]);
+llState.install(window);
 const AGE_KEYS = ["0-1", "1-2", "2-3", "3-6"];
 // 和 /api/translate 的 VALID_AGES 一一对应（没有 0-1）。"adult" 是给
 // 「不是对孩子说的话」留的出口：儿童档会把不合年龄的内容改写成幼儿话。
@@ -741,10 +747,10 @@ function loadStoredAge() {
   return AGE_KEYS.includes(v) ? v : "3-6";
 }
 
-let currentAge = loadStoredAge();
-let currentScenario = null;
-let translateAge = translateAgeForBand(currentAge);
-let currentTier = "all";
+currentAge = loadStoredAge();
+currentScenario = null;
+translateAge = translateAgeForBand(currentAge);
+currentTier = "all";
 
 // Drops non-object entries (e.g. a hand-edited or corrupted `[null]`) so the
 // migration and render paths below can dereference item fields without the
@@ -778,7 +784,7 @@ function saveUsedToday() {
   safeSetItem("ll_used_meta", JSON.stringify({ date: new Date().toDateString(), ids: usedToday }));
 }
 
-let savedPhrases = safeParseArray("ll_saved");
+savedPhrases = safeParseArray("ll_saved");
 
 // 收藏这一份数据的唯一写入口（ADR 0009）。原来 10 处各写各的
 // safeSetItem("ll_saved", JSON.stringify(savedPhrases))——改数据格式时必然漏一处。
@@ -828,7 +834,7 @@ var addPhraseToScenario = llTranslateSave.addPhraseToScenario;
 var saveStar = llTranslateSave.saveStar;
 var isAlreadySaved = llTranslateSave.isAlreadySaved;
 var saveTranslatedPhrase = llTranslateSave.saveTranslatedPhrase;
-let usedToday = loadUsedToday();
+usedToday = loadUsedToday();
 
 // Spaced-repetition intervals (days). rv.s = successful review count;
 // rv.due = next review timestamp. Entries saved before the review feature
@@ -848,7 +854,7 @@ let usedToday = loadUsedToday();
 
 // ── Today (day-since-epoch rotation across all 30); assigned once data is
 // confirmed loaded, inside llStartApp() below.
-let todayId = null;
+todayId = null;
 
 // ── Guard + startup: scenarios.js loads as a deferred external <script>
 // (offline first-paint finding, 2026-07-18 sweep) instead of a
@@ -1534,7 +1540,7 @@ function showVoiceStatus(msg) {
 // 试听是一次真的生成：家长当场听见的就是以后会听见的。也是唯一能证明
 // 这把嗓子在我们这个 Azure 区域真的可用的办法——不可用就当场说出来，
 // 而不是等到他存了句子才发现没有声音。
-let voicePreviewBusy = false;
+voicePreviewBusy = false;
 const VOICE_PREVIEW_OWNER = { kind: "voice-preview" };   // 试听在模块里的身份记号（它没有按钮）
 async function previewVoice(opt) {
   if (voicePreviewBusy) return;
@@ -1731,7 +1737,7 @@ function toggleCoach(id, type) {
 }
 
 // ── Speech ─────────────────────────────────────────────
-let cachedVoice = null;
+cachedVoice = null;
 // Monotonic playback session. stopAllAudio() bumps it, so media handlers
 // wired by an earlier speakPhrase() (late canplaythrough/error/ended from a
 // discarded element) check their captured session before touching shared
@@ -1778,7 +1784,7 @@ function resetPlayBtnState(btn) {
 // 取不到生成好的片段时会退回手机自带的语音合成。那是完全另一把嗓子，
 // 界面上一个字不说的话，家长只会觉得这软件时好时坏。一次会话只说一遍，
 // 说多了就成噪音。
-let browserVoiceNoted = false;
+browserVoiceNoted = false;
 function noteBrowserVoice() {
   if (browserVoiceNoted) return;
   browserVoiceNoted = true;
@@ -2097,7 +2103,7 @@ function renderSavedChips() {
 // Which scenario the 收藏 list is currently narrowed to, or null for all of
 // them. Lives outside renderSavedScreen so switching tabs does not reset it
 // mid-look, and so leaving via the header is one assignment.
-let savedFilterScenario = null;
+savedFilterScenario = null;
 
 function renderSavedScreen() {
   const list = document.getElementById("savedScreenList");
@@ -2335,7 +2341,7 @@ var dueReviews = llReviewQueue.dueReviews;
 var answerById = llReviewQueue.answerById;
 
 /* ll:review-engine:start */
-let reviewQueue = [];
+reviewQueue = [];
 
 // The review card's own answer. Keeps its queue semantics — take the head,
 // and on "还要练" put it back so it returns THIS session rather than merely
@@ -2583,7 +2589,7 @@ function localTranslate(zh) {
   return defaultTranslations[translateAge];
 }
 
-let lastTranslateResult = null;
+lastTranslateResult = null;
 
 // Related expressions come only from the AI path (translate.mjs). The local/
 // offline fallback (localTranslate) never fabricates them, so passing an
@@ -2884,7 +2890,7 @@ function saveTranslation() {
 }
 
 // ── Search: want-to-say → preset phrases ───────────────
-let searchIndex = null;
+searchIndex = null;
 
 function buildSearchIndex() {
   searchIndex = [];
@@ -2987,7 +2993,7 @@ var dictAudioSlug = llDict.dictAudioSlug;
 // static script-tag load, not a live data source, so there is nothing to
 // invalidate. Kept as its own module-scope variable (not stashed on
 // window) so a fresh vm context in tests always starts cold.
-let dictLookupIndex = null;
+dictLookupIndex = null;
 function getDictLookupIndex() {
   if (!dictLookupIndex) dictLookupIndex = buildDictionaryIndex(window.dictionaryWords);
   return dictLookupIndex;
@@ -3272,7 +3278,7 @@ function renderDictLookupPanel(panel, view) {
 // isCurrentDictSession() before touching the DOM. Guarantees a stale
 // in-flight response (superseded by a newer lookup, or by the parent typing
 // a new query in onSearchInput) can never overwrite a newer render.
-let dictLookupSession = 0;
+dictLookupSession = 0;
 function isCurrentDictSession(session) { return session === dictLookupSession; }
 
 // > the backend's own GEMINI_TIMEOUT_MS (6500ms, netlify/functions/
@@ -3948,7 +3954,7 @@ function importUserData(input) {
 // same value reused here so the SW-failure toast suppression and the
 // banner/sheet routing below can never disagree about which environment
 // this parent is in.
-let deferredInstallPrompt = null;
+deferredInstallPrompt = null;
 const isIOS = installEnv.isIOS;
 const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
                      window.navigator.standalone === true;

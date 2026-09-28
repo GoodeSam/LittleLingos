@@ -83,3 +83,10 @@ export function injectReview(ctx) {
   ctx.llReview = llReviewLib;
   return ctx;
 }
+
+// 真正的 dict-logic.js 进沙箱（纯模块，直接挂）。
+const llDictLib = require(join(dirname(fileURLToPath(import.meta.url)), "..", "dict-logic.js"));
+export function injectDict(ctx) {
+  ctx.llDict = llDictLib;
+  return ctx;
+}

@@ -32,6 +32,7 @@ const SOURCES = [
   "own-words.js",
   "transcript-mine.js",
   "item-kind.js",
+  "dict-logic.js",
   "scenarios.js",
   "dictionary-words.js",
   "manifest.json",

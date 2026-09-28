@@ -46,6 +46,20 @@ const END = "/* ll:audio-playback:end */";
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
 
+test("同时活着的地址有上限：超了就回收最老的那几条，内存不会一直涨", async () => {
+  // 每个活着的地址都把那段音频钉在内存里（约 52KB）。收藏页会把每一行都准备好，
+  // 没有上限的话，句子多的家长一打开收藏页就把整个库钉住。
+  // 2026-09-28 变异探测 ③ 抓到的：把上限那段循环去掉，原来没有任何测试会红。
+  const N = 130;   // 比上限（120）多一截
+  const ids = Array.from({ length: N }, (_, i) => "id" + i);
+  const { ctx, made, revoked } = loadModule({ store: { getAudio: async () => mp3() } });
+  for (const id of ids) await ctx.primeAudioUrl(id);
+  assert.equal(made.length, N, "每一条都该造过地址");
+  assert.ok(revoked.length >= N - 120, `超出上限的地址没被回收（只回收了 ${revoked.length} 条）`);
+  assert.equal(ctx.audioUrlFor(ids[N - 1]), made[N - 1].url, "刚准备好的那条必须还在");
+  assert.equal(ctx.audioUrlFor(ids[0]), null, "最早那条该被回收掉了");
+});
+
 test("取声音地址只在 audio-playback.js 里有一份：index.html 里的块删了，22 处调用点走别名，主脚本前加载，进了离线清单", () => {
   const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
   assert.ok(!html.includes(START), "index.html 里还有 ll:audio-playback 块——同一件事两份实现");

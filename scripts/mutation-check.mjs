@@ -93,8 +93,9 @@ const MUTANTS = [
   {
     name: "循环只认 IndexedDB 里的片段",
     why: "一个全是预设短语的收藏列表会被判定成「一条都不能播」—— 真实反馈过",
-    find: `loopQueue = (items || []).filter(it => playableUrlFor(it));`,
-    with: `loopQueue = (items || []).filter(it => it && it.id && audioUrlFor(it.id));`,
+    file: "audio-loop.js",   // ADR 0009 第十六块搬过来的
+    find: `      loopQueue = (items || []).filter(it => playableUrlFor(it));`,
+    with: `      loopQueue = (items || []).filter(it => it && it.id && audioUrlFor(it.id));`,
     kills: "test/audio-loop.test.mjs",
   },
   {
@@ -107,15 +108,17 @@ const MUTANTS = [
   {
     name: "保存时不认条目自己的场景",
     why: "在自建场景里加的句子会落进通用桶，家长在自己的场景里看不到它",
-    find: `    scenario: entry.scenario || "__translate__",`,
-    with: `    scenario: "__translate__",`,
+    file: "translate-save.js",   // ADR 0009 第十五块搬过来的
+    find: `        scenario: entry.scenario || "__translate__",`,
+    with: `        scenario: "__translate__",`,
     kills: "test/scenario-add-phrase.test.mjs",
   },
   {
     name: "已收藏的判断永远说「没收过」",
     why: "星标永远是空心，而点下去说已经收藏过了 —— 界面和行为各说各的",
-    find: `  return savedPhrases.some(p => p && p.en === en);`,
-    with: `  return false;`,
+    file: "translate-save.js",   // ADR 0009 第十五块搬过来的
+    find: `      return getSaved().some(function (p) { return p && p.en === en; });`,
+    with: `      return false;`,
     kills: "test/save-star.test.mjs",
   },
 ];

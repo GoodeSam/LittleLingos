@@ -2400,6 +2400,9 @@
 <script src="./voice.js"></script>
 <script src="./audio-provision.js"></script>
 <script src="./reminder.js"></script>
+<script src="./push-open.js"></script>
+<script src="./tap-word.js"></script>
+<script src="./review-queue.js"></script>
 <script src="./install-env.js"></script>
 <!-- 播放的唯一主人（ADR 0009 第一块）。module 脚本是 defer 的：它在
      DOMContentLoaded 之前执行完，而播放只在用户点击时发生，来得及。
@@ -4065,41 +4068,18 @@ function removeSaved(id) {
 // DOM-heavy renderers (updateNavBadge, renderReviewStrip, renderReviewArea,
 // renderReviewCard) stay below, outside the marker, referencing
 // dueReviews/reviewAnswer/reviewQueue by name exactly as before.
+// 到期与按 id 排期搬进 review-queue.js（ADR 0009 第十九块）。getSaved 传函数：收藏列表会被整个换掉。
+var llReviewQueue = llReviewQueueLib.create({
+  getSaved: function () { return savedPhrases; },
+  persistSaved: persistSaved,
+  review: llReview,
+  sortedBySavedAtDesc: function (a) { return sortedBySavedAtDesc(a); },
+});
+var dueReviews = llReviewQueue.dueReviews;
+var answerById = llReviewQueue.answerById;
+
 /* ll:review-engine:start */
 let reviewQueue = [];
-
-function dueReviews() {
-  const now = Date.now();
-  // Newest-saved due items first (render/queue-build-time sort only — see
-  // sortedBySavedAtDesc). reviewAnswer() still shift/push()es this queue in
-  // place for its own "answer again this session" logic; that in-session
-  // reordering is unaffected since it operates on the queue, not this sort.
-  return sortedBySavedAtDesc(llReview.dueItems(savedPhrases, now));
-}
-
-// Reschedule ONE phrase, named by id. This is the form the saved list needs:
-// reviewAnswer() below works on the head of the queue, and a list row wired
-// straight to it would reschedule the FIRST phrase when the parent tapped the
-// fifth — silently, with no error, discoverable only weeks later when the
-// wrong phrase stopped coming up.
-//
-// Returns whether anything was actually rescheduled. An id that is not in
-// savedPhrases changes nothing and writes nothing: the list can be a render
-// behind a deletion, and "not found, so adjust the first one" is the worst
-// possible reading of that.
-function answerById(id, remembered) {
-  if (!id) return false;
-  const item = savedPhrases.find(p => p.id === id);
-  if (!item) return false;
-  // Items saved by older versions, or restored by hand, may have no schedule
-  // at all. Give them one rather than throwing.
-  const now = Date.now();
-  if (!item.rv) item.rv = llReview.freshSchedule(now);
-  // 算法在 review-engine.js；这里原地写回（对象身份和格式 rv:{s,due} 都不变）。
-  Object.assign(item.rv, llReview.nextSchedule(item.rv, remembered, now));
-  persistSaved();
-  return true;
-}
 
 // The review card's own answer. Keeps its queue semantics — take the head,
 // and on "还要练" put it back so it returns THIS session rather than merely
@@ -4453,6 +4433,14 @@ function renderRelatedExpressions(related) {
   box.classList.add("show");
 }
 
+// 切词和常量搬进 tap-word.js（ADR 0009 第十九块）；下面留的是碰 DOM 的那一半。
+var TAP_WORD_PANEL_ID = llTapWordLib.TAP_WORD_PANEL_ID;
+var TAP_WORD_BODY_ID = llTapWordLib.TAP_WORD_BODY_ID;
+var TAP_WORD_NOTE_ID = llTapWordLib.TAP_WORD_NOTE_ID;
+var TAP_WORD_NOTE_TEXT = llTapWordLib.TAP_WORD_NOTE_TEXT;
+var TAP_WORD_TRIM_RE = llTapWordLib.TAP_WORD_TRIM_RE;
+var tokenizeForLookup = llTapWordLib.tokenizeForLookup;
+
 /* ll:tap-word:start */
 // 英文句子里一个词一个词都能点，点了就查——不用再去输入框打一遍。
 // 翻译结果、「还可以这样说」、场景里的预设句子卡，都走这一套。
@@ -4462,28 +4450,6 @@ function renderRelatedExpressions(related) {
 // 面板是点的时候临时造、插在被点的那一行底下，收起就整个删掉。不做固定占位：
 // 场景列表换年龄档会整体重画，占位元素挪进卡片后一重画就被销毁，之后再点词
 // 就没反应——第一版就是这么坏的。临时造的话，重画多少次都无所谓。
-const TAP_WORD_PANEL_ID = "wordLookupPanel";
-const TAP_WORD_BODY_ID = "wordLookupBody";
-const TAP_WORD_NOTE_ID = "wordLookupPrivacyNote";
-const TAP_WORD_NOTE_TEXT = "🔒 点句子里的词也是查词：已收录的词不联网；没收录的词会发送到在线词典服务。";
-// 首尾要剥掉的标点。词内的撇号（don't、let's）和连字符留着。
-const TAP_WORD_TRIM_RE = /^[^A-Za-z0-9']+|[^A-Za-z0-9']+$/g;
-
-// 把一句英文切成 [{ text, word }]：text 是屏幕上原样显示的（带标点），
-// word 是去掉首尾标点、转小写后拿去查的；纯标点的 token 没有 word。空白也是 token，
-// 这样整句拼回去一个字不差。
-function tokenizeForLookup(text) {
-  if (typeof text !== "string" || !text) return [];
-  const out = [];
-  for (const m of text.matchAll(/\s+|\S+/g)) {
-    const t = m[0];
-    if (/^\s+$/.test(t)) { out.push({ text: t, word: null }); continue; }
-    const core = t.replace(TAP_WORD_TRIM_RE, "").toLowerCase();
-    out.push({ text: t, word: /[a-z]/.test(core) ? core : null });
-  }
-  return out;
-}
-
 // 把 el 里的内容换成一串能点的词。
 function renderTappableEnglish(el, text) {
   if (!el) return;
@@ -5880,20 +5846,13 @@ window.addEventListener("online", () => { flushReminderReview(); });
 // App 本来开在后台，Service Worker 把它叫回前台，再发一条消息告诉它去哪。
 //
 // 公钥是公开的，可以写在这里；私钥只在 Netlify 的环境变量里。
-const PUSH_PUBLIC_KEY = "BBPXvT-rnKQYK-iXm6x_ocKfIyx5vfpbIFQWxYmPW44NBC4g7fykk_Fhu2f0FCzjag41AtfGNKm0xosX21HHMpw";
+// 公钥、解码、能力检测、点开去哪搬进 push-open.js（ADR 0009 第十九块）。
+var PUSH_PUBLIC_KEY = llPushLib.PUSH_PUBLIC_KEY;
+var pushKeyBytes = llPushLib.pushKeyBytes;
+function pushSupported() { return llPushLib.pushSupported(window); }
 
 // 试验期留下的本机日志（ll_push_spike_log），正式版不再用，清掉。
 llStorage.remove("ll_push_spike_log");
-
-function pushSupported() {
-  return !!navigator.serviceWorker && typeof PushManager !== "undefined" &&
-         typeof Notification !== "undefined" && typeof caches !== "undefined";
-}
-
-function pushKeyBytes(b64u) {
-  const s = atob(b64u.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64u.length + 3) % 4));
-  return Uint8Array.from(s, c => c.charCodeAt(0));
-}
 
 // 从通知进来之后。去连播时，像家长点了按钮一样启动；App 本来关着时 iOS 不让
 // 直接出声（tech-constraints C6，2026-09-17 实测），这时停掉，告诉家长点哪里，
@@ -5918,8 +5877,8 @@ function openFromPush(to) {
 
 // App 被通知新打开时，目标在地址里。处理完就把参数清掉，刷新不会再跳一次。
 function handlePushDeepLink(search) {
-  const to = new URLSearchParams(search || "").get("to");
-  if (!REMINDER_TARGETS.includes(to)) return false;
+  const to = llPushLib.deepLinkTarget(search, REMINDER_TARGETS);
+  if (!to) return false;
   try { history.replaceState(null, "", location.pathname); } catch (e) {}
   openFromPush(to);
   return true;

@@ -22,9 +22,11 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { injectPersistSaved, injectReview } from "./_storage-helper.mjs";   // 真正的 persistSaved()，从 index.html 切出来
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
@@ -61,6 +63,13 @@ function makeEnv({ savedPhrases = [] } = {}) {
   injectPersistSaved(ctx);
   const s = html.indexOf(START), e = html.indexOf(END);
   assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
+  // 2026-09-28（ADR 0009 第十九块）：dueReviews / answerById 搬进 review-queue.js，仍跑真代码。
+  Object.assign(ctx, require(join(ROOT, "review-queue.js")).create({
+    getSaved: () => ctx.savedPhrases,
+    persistSaved: () => ctx.persistSaved(),
+    review: ctx.llReview,
+    sortedBySavedAtDesc: (a) => ctx.sortedBySavedAtDesc(a),
+  }));
   vm.runInContext(html.slice(s, e + END.length), ctx);
   assert.equal(typeof ctx.dueReviews, "function", "module must define dueReviews()");
   assert.equal(typeof ctx.reviewAnswer, "function", "module must define reviewAnswer()");

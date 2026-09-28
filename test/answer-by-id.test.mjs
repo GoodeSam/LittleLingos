@@ -28,9 +28,11 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import assert from "node:assert/strict";
 import { injectPersistSaved, injectReview } from "./_storage-helper.mjs";   // 真正的 persistSaved()，从 index.html 切出来
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 
@@ -66,12 +68,31 @@ function loadModule(savedPhrases = []) {
   vm.createContext(ctx);
   injectReview(ctx);
   injectPersistSaved(ctx);
+  // 2026-09-28（ADR 0009 第十九块）：dueReviews / answerById 搬进 review-queue.js，仍跑真代码。
+  Object.assign(ctx, require(join(ROOT, "review-queue.js")).create({
+    getSaved: () => ctx.savedPhrases,
+    persistSaved: () => ctx.persistSaved(),
+    review: ctx.llReview,
+    sortedBySavedAtDesc: (a) => ctx.sortedBySavedAtDesc(a),
+  }));
   vm.runInContext(html.slice(s, e + END.length), ctx);
   for (const fn of ["answerById", "reviewAnswer", "dueReviews"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
   }
   return { ctx, calls, savedPhrases };
 }
+
+// ══ 0. 搬家之后必须仍然成立（ADR 0009 第十九块）═══════════════════════
+
+test("导完备份换了一整份收藏之后，点的那条改的是新的那一份，不是旧的", () => {
+  // index.html 里 `savedPhrases = merged` 是整个换掉。模块若在创建时存了一份引用，
+  // 之后就对着一个没人在看的旧数组排期——家长点「记住了」，界面上那条纹丝不动。
+  const { ctx } = loadModule([item("old")]);
+  ctx.savedPhrases = [item("a"), item("b")];
+  assert.equal(ctx.answerById("b", true), true, "换过收藏列表之后找不到被点的那条");
+  assert.equal(ctx.savedPhrases[1].rv.s, 1, "改的不是新列表里的那条");
+  assert.equal(ctx.answerById("old", true), false, "旧列表里的条目不该还能被改到");
+});
 
 // ══ 1. 改的必须是被点的那一条 ═════════════════════════════════════════
 

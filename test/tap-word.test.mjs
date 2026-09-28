@@ -15,10 +15,12 @@
 //      收时删，重画多少次都无所谓。
 import assert from "node:assert/strict";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const require = createRequire(import.meta.url);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
 const START = "/* ll:tap-word:start */", END = "/* ll:tap-word:end */";
@@ -99,6 +101,8 @@ function loadModule({ curated = ["hug", "bath"] } = {}) {
     getDictLookupIndex: () => new Map(curated.map(w => [w, { lemma: w }])),
   };
   vm.createContext(ctx);
+  // 2026-09-28（ADR 0009 第十九块）：切词和常量搬进 tap-word.js；块里留的是碰 DOM 的那一半。
+  Object.assign(ctx, require(join(ROOT, "tap-word.js")));
   vm.runInContext(html.slice(s, e + END.length), ctx);
   for (const fn of ["tokenizeForLookup", "renderTappableEnglish", "onTapWord", "collapseWordLookup"]) {
     assert.equal(typeof ctx[fn], "function", `模块里没有 ${fn}()`);

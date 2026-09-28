@@ -31,6 +31,7 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
+import { APP_SOURCE } from "./_app-source.mjs";   // index.html + 它加载的每个模块
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -80,7 +81,8 @@ test("顶部复习卡仍然能评分，一点没变", () => {
 
 test("按 id 评分那个函数还在，只是只有队列版调它", () => {
   // 它是排程逻辑的唯一实现，reviewAnswer 是它的队列包装。
-  assert.match(html, /function answerById/, "排程实现不该跟着按钮一起删掉");
+  // 2026-09-28（ADR 0009 第十九块）：按 id 排期搬进 review-queue.js；队列包装 reviewAnswer 仍在 index.html。
+  assert.match(APP_SOURCE, /function answerById/, "排程实现不该跟着按钮一起删掉");
   const at = html.indexOf("function reviewAnswer");
   const body = html.slice(at, html.indexOf("\n}", at));
   assert.match(body, /answerById\(/, "两处各写一份排程逻辑，迟早会分叉");

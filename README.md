@@ -12,7 +12,9 @@ Static frontend; one runtime dependency on the server side (`@netlify/blobs`, fo
 
 | File | Role |
 |---|---|
-| `index.html` | The whole app UI + logic (single file, inline script, ~5,500 lines of script) |
+| `index.html` | The app shell: markup, the 28 `<script src>` tags, and the UI orchestration that is not (yet) a module (~3,500 lines of script — down from ~5,500 before ADR 0009) |
+| `app.css` | All styling. Loaded synchronously from `<head>` (render-blocking, so no flash of unstyled content); part of the precached shell |
+| `*.js` modules (see below) | One owner per concern: playback, storage, API, review, audio store/provision/loop/marks, reminder, voice, translate-save, custom scenarios, dictionary logic, backup export, app state … |
 | `scenarios.js` | The product data: 30 scenarios of phrase objects (see `.claude/rules/03-phrase-schema.md`) |
 | `dictionary-words.js` | The curated word list the dictionary answers from before it ever asks the server |
 | `sw.js` | Service worker: precached shell, cache-first audio, network-first shell/data, push handling. `CACHE` is mechanically stamped — never hand-edit (see below) |
@@ -36,26 +38,46 @@ The request/response shapes between `index.html` and the first three are pinned 
 `test/api-contract.test.mjs`, which runs the page's real request through the real
 function and hands the real response back to the page's real parser.
 
-### Inside `index.html`
+### Inside `index.html` (after ADR 0009, 2026-09-28)
 
-About half the script lives in 19 marker blocks — `/* ll:<name>:start */ … /* ll:<name>:end */` —
-and 29 test files lift those blocks out by their markers and run them in a `node:vm` sandbox.
-Move or rename a marker and those tests stop finding their module.
+Every concern that could be given a single owner now lives in its own plain-script module,
+loaded before the main script, with a CommonJS export for Node and a `root.llXLib` global for
+the browser. Modules that need browser or app collaborators receive them through
+`create(deps)`; `index.html` builds the instance and leaves `var` aliases so call sites
+did not have to change. Tests `require()` the module directly instead of slicing text.
 
-What that does **not** give you:
+| Module | Owns | Takes via `create(deps)` |
+|---|---|---|
+| `audio-controller.mjs` | play / pause / resume / fallback-to-speech, one owner per playing thing | `Audio`, `speechSynthesis`, `SpeechSynthesisUtterance` |
+| `storage.js` | every `localStorage` read/write, the 11 `ll_*` keys | backend, `onWriteFailed` |
+| `api-client.js` | every `/api/*` call, status-code classification | `fetch`, `getAccessCode`, timers |
+| `app-state.js` | the 17 pieces of mutable state, installed as `window` accessors (`llState`) | — |
+| `review-engine.js` / `review-queue.js` | intervals + scheduling / due list + answer-by-id | `getSaved()`, `persistSaved`, review |
+| `audio-store.js` / `audio-playback.js` / `audio-provision.js` / `audio-marks.js` / `audio-loop.js` | IndexedDB clips (voice-keyed) / object-URL cache / generate-on-save / the 🔊⏳⚠ marks / continuous play with pause-resume | `indexedDB`, `getVoice`, `api`, `Audio`, timers … |
+| `voice.js` | the voice list, default (Andrew), preset voice (Jenny, bare storage keys) | `storage` |
+| `translate-save.js` / `custom-scenarios.js` / `own-words.js` / `transcript-mine.js` | translation ids + saving / self-made scenarios / own-words / transcript mining | `api`, `getSaved()`, `getAge()`, `persistSaved` … |
+| `dict-logic.js` / `item-kind.js` / `tap-word.js` | pure dictionary logic / preset-vs-custom classification / tokenising a sentence for tap-to-look-up | `scenarios`, `isCustomScenario` |
+| `reminder.js` / `push-open.js` | the scheduled-reminder client (enable / disable / sync after review) / VAPID key decode, deep-link target | `caches`, `Notification`, `serviceWorker`, `crypto`, timers … |
+| `access-code.js` / `first-value.js` / `install-env.js` / `data-export.js` | invite code / first-run pick / install environment / backup export & import | `storage` |
 
-- The sandbox only catches a missing collaborator on a path a test actually executes.
-- Several blocks reach outside themselves through `typeof x === "function"` guards
-  (13 at last count); those dependencies are invisible to the sandbox.
-- One block is nested inside another (`ll:voice` within `ll:audio-provision`).
-- **The other half of the script is in no block at all** — screen switching, the scenario
-  screen, saving, the saved list, review, and the translate screen. It is organised by
-  section comments and position, not by anything a test can isolate. The highest-coupling
-  spot is the saved list, which coordinates the loop, stored-clip addresses, audio marks
-  and rendering in one place.
+**Two rules that only exist because they were broken once** (full list: ADR 0009 迁移规矩, 11 rules):
 
-No plan to split the file for its length. The rule used here: carve out a block when a piece
-changes **for a different reason** than its neighbours, and give it a sandbox test when you do.
+- Any state a module needs that `index.html` **reassigns** (`savedPhrases`, `translateAge`,
+  `reviewQueue` …) is passed as a **getter function**, never as a value — otherwise the module
+  keeps working on an array nobody else is looking at after a backup import.
+- A `typeof x !== "undefined"` guard around a name that has since moved into a module
+  **silently disables the branch** (no error, no red test). `test/no-orphan-modules.test.mjs`
+  now refuses any guarded name without an owner; keep it that way.
+
+What is still in `index.html`, by design: screen switching, every `render*`, the scenario screen,
+the saved list, the review card, the translate screen, and five leftover marker blocks that hold
+the DOM half of a concern whose pure half moved out (`ll:first-value`, `ll:review-engine`,
+`ll:tap-word`, `ll:dictionary-lookup`, `ll:push-open`). Text-slicing tests still exist for those.
+State changes do **not** trigger repaints automatically; `llState.subscribe()` is the hook for
+that when a screen is ready to use it.
+
+Every new module must be added in three places or the offline install breaks: the `<script src>`
+tag, `SHELL` in `sw.js`, and `SOURCES` in `scripts/stamp-sw.mjs` (a test checks each).
 
 ## Development setup
 

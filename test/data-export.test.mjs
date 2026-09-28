@@ -26,6 +26,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+const require = createRequire(import.meta.url);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -35,6 +38,23 @@ const END = "/* ll:data-export:end */";
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
+
+test("备份/恢复只在 data-export.js 里有一份：index.html 里的块删了，8 处调用点走模块，主脚本前加载，进了离线清单", () => {
+  const code = html.replace(/<!--[\s\S]*?-->/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  assert.ok(!html.includes(START), "index.html 里还有 ll:data-export 块——备份这种事绝不能有两份实现");
+  for (const fn of ["buildExportPayload", "parseImportPayload", "mergeSaved", "buildCsvBackup", "parseCsvBackup"]) {
+    assert.ok(!code.includes(`function ${fn}(`), `index.html 里还定义着 ${fn}()`);
+    assert.ok(new RegExp(`var ${fn} = llExport\\.${fn};`).test(code), `缺别名 var ${fn} = llExport.${fn}（必须 var：沙箱里顶层 const 不挂上下文）`);
+  }
+  const tagAt = html.indexOf('<script src="./data-export.js"></script>');
+  assert.ok(tagAt !== -1 && tagAt < html.indexOf("\n<script>\n"), "data-export.js 要在主脚本之前加载");
+  const sw = readFileSync(join(ROOT, "sw.js"), "utf8");
+  assert.ok(sw.slice(sw.indexOf("const SHELL = ["), sw.indexOf("];", sw.indexOf("const SHELL = ["))).includes("data-export.js"), "sw.js 的 SHELL 里没有它");
+  const stamp = readFileSync(join(ROOT, "scripts/stamp-sw.mjs"), "utf8");
+  assert.ok(stamp.slice(stamp.indexOf("const SOURCES = ["), stamp.indexOf("]", stamp.indexOf("const SOURCES = ["))).includes("data-export.js"), "stamp-sw.mjs 的 SOURCES 里没有它");
+  const src = readFileSync(join(ROOT, "data-export.js"), "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  for (const bad of ["document.", "window.", "localStorage", "fetch("]) assert.ok(!src.includes(bad), `data-export.js 里出现了「${bad}」——它该是纯的`);
+});
 
 // Normalize across the vm realm boundary before a deep-equality assert.
 //
@@ -66,11 +86,10 @@ function test(name, fn) { tests.push({ name, fn }); }
 const sameRealm = v => structuredClone(v);
 
 function loadModule() {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
-  const ctx = { console };
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  // 2026-09-28（ADR 0009 第九块）：备份/恢复整块搬进 data-export.js，直接 require。
+  const p = join(ROOT, "data-export.js");
+  assert.ok(existsSync(p), "data-export.js 还不存在——这一块该搬出 index.html 了");
+  const ctx = require(p);
   assert.equal(typeof ctx.buildExportPayload, "function", "module must define buildExportPayload()");
   assert.equal(typeof ctx.parseImportPayload, "function", "module must define parseImportPayload()");
   assert.equal(typeof ctx.mergeSaved, "function", "module must define mergeSaved()");

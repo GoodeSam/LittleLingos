@@ -33,6 +33,7 @@ const SOURCES = [
   "transcript-mine.js",
   "item-kind.js",
   "dict-logic.js",
+  "data-export.js",
   "scenarios.js",
   "dictionary-words.js",
   "manifest.json",

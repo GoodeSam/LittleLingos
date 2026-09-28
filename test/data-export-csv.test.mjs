@@ -21,6 +21,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+const require = createRequire(import.meta.url);
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const html = readFileSync(join(ROOT, "index.html"), "utf8");
@@ -39,11 +42,10 @@ function test(name, fn) { tests.push({ name, fn }); }
 const sameRealm = v => structuredClone(v);
 
 function loadModule() {
-  const s = html.indexOf(START), e = html.indexOf(END);
-  assert.ok(s !== -1 && e !== -1, `index.html must contain ${START} … ${END} markers`);
-  const ctx = { console };
-  vm.createContext(ctx);
-  vm.runInContext(html.slice(s, e + END.length), ctx);
+  // 2026-09-28（ADR 0009 第九块）：备份/恢复整块搬进 data-export.js，直接 require。
+  const p = join(ROOT, "data-export.js");
+  assert.ok(existsSync(p), "data-export.js 还不存在——这一块该搬出 index.html 了");
+  const ctx = require(p);
   assert.equal(typeof ctx.buildCsvBackup, "function", "module must define buildCsvBackup()");
   assert.equal(typeof ctx.parseCsvBackup, "function", "module must define parseCsvBackup()");
   return ctx;

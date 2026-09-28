@@ -13,7 +13,7 @@
 // phrase data, or a stale audio recording indefinitely even though
 // NETWORK_FIRST tries to refresh the shell/data opportunistically on every
 // online GET.
-const CACHE = 'll-d5938bba';
+const CACHE = 'll-65e30008';
 const SHELL = [
   './',
   './index.html',
@@ -26,6 +26,7 @@ const SHELL = [
   './transcript-mine.js',
   './item-kind.js',
   './dict-logic.js',
+  './data-export.js',
   './scenarios.js',
   './dictionary-words.js',
   './manifest.json',

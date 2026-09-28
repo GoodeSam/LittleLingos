@@ -236,6 +236,11 @@ test("数据库打不开时，一切降级为「没有声音」而不是报错",
 test("浏览器里压根没有 IndexedDB 这个东西时也不崩", async () => {
   // 2026-09-28：改为不给 create() 传 indexedDB——和「这个浏览器没有它」是同一件事。
   const { ctx } = loadModule({ idb: null });
+  // 打开数据库这一步必须自己挡住「没有库」，不能指望后面的兜底：少了这道判断，
+  // 真浏览器里会对着 undefined 调 .open() 而抛（2026-09-28 变异探测 ④ 抓到的）。
+  assert.equal(await ctx.getAudio(ID), null, "没有本机数据库时读该给 null");
+  await assert.doesNotReject(() => ctx.deleteAudio(ID), "没有本机数据库时删不该抛");
+  assert.equal((await ctx.whichHaveAudio([ID])).size, 0, "没有本机数据库时批量查询该给空（它返回的是 Set）");
   assert.equal(await ctx.putAudio(ID, clip()), false);
   assert.equal(await ctx.getAudio(ID), null);
   assert.equal(await ctx.hasAudio(ID), false);

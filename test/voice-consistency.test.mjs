@@ -161,7 +161,11 @@ test("删一句话时，它的中文提示也一起删", () => {
   const keys = audioStore.create({
     indexedDB: null, getVoice: () => "v-a", defaultVoiceId: "v-default", voiceIds: ["v-default", "v-a"], cueVoiceId: "zh-cue",
   }).allClipKeys("b01");
-  assert.ok(keys.some(k => k.startsWith("zh:b01")), "删的时候把中文提示那份落下了");
+  // 中文提示有两份：没配中文嗓子时存的裸 "zh:id"，和配了之后的 "zh:id@嗓子"。
+  // 只验「有一条以 zh: 开头」是不够的——删掉其中一条，另一条还顶着，测试照绿
+  //（2026-09-28 变异探测 ③ 抓到的）。两条都要在。
+  assert.ok(keys.includes("zh:b01"), "删的时候落下了中文提示的裸键（没配中文嗓子时存的那份）");
+  assert.ok(keys.includes("zh:b01@zh-cue"), "删的时候落下了中文提示带嗓子的那份");
 });
 
 test("界面和服务端说的是同一把中文嘴", async () => {

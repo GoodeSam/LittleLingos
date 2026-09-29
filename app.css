@@ -997,6 +997,8 @@ button.age-opt { font: inherit; font-size: 16px; background: var(--white); color
 .unsave-btn {
   background: none; border: none; font-size: 20px; cursor: pointer; color: var(--accent-deep); padding: 0;
   touch-action: manipulation; user-select: none;
+  /* 2026-09-29：点击区最小 44×44（原来 19×37）。它挨着 🔊，手指一偏就删错行。字号不变，只把可点的范围撑开。 */
+  min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center;
 }
 /* Bumped 14px -> 16px: real message content (typography sweep, 2026-07-18). */
 .empty-state {
@@ -1376,6 +1378,8 @@ details.transcript[open] { padding-bottom: 12px; }
 .install-close {
   background: none; border: none; color: var(--ink-on-brand); opacity: .85;
   font-size: 20px; cursor: pointer; padding: 0 4px;
+  /* 2026-09-29：点击区最小 44×44（原来 27×37）。点不中，横幅就一直挡着。 */
+  min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center;
   touch-action: manipulation; user-select: none; /* touch hygiene, matching .back-btn / .phrase-card (2026-07-19 visual critique, Sev C) */
 }
 

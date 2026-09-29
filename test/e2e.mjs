@@ -1524,6 +1524,31 @@ check("复习卡：翻开英文后点一个词，释义在英文那一行底下�
 // 2026-09-28 真机报上来的：收藏行的 🔊 点了没声音（连播却有）。09-27 把 playReviewAudio 改成
 // 必须带按钮之后，行里的 🔊 一直没把按钮传过去——播放模块认不出主人，直接 return。
 // 两层单元测试都是假件、都没断言按钮传到了，所以只有在真浏览器里点一下才看得见。
+// 2026-09-29 在无头 Chrome 里按六个页面 × 大字体 × 横屏量出来的：两个 × 按钮不够 44×44——
+// 收藏行的「取消收藏 ×」19×37、安装横幅的关闭 × 27×37。上面那条「够得着」只查了清空按钮。
+// 取消收藏挨着 🔊，手指一偏就删错行；关闭横幅点不中，横幅就一直挡着。
+check("两个 × 按钮（取消收藏、关闭安装横幅）在真浏览器里量出来都 ≥ 44×44", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    openScenario("bath"); switchAge("0-1"); await tick();
+    const p = scenarios.bath.phrases["0-1"][0];
+    if (!savedPhrases.some(x => x.id === p.id)) toggleSave(p.id);
+    showTab("saved"); await tick();
+    const un = document.querySelector("#savedScreen .unsave-btn");
+    const banner = document.getElementById("installBanner");
+    banner.classList.add("show"); await tick();
+    const close = banner.querySelector(".install-close");
+    const size = el => { const b = el.getBoundingClientRect(); return { w: Math.round(b.width), h: Math.round(b.height) }; };
+    const out = { unsave: un ? size(un) : null, close: close ? size(close) : null };
+    banner.classList.remove("show");
+    return out;
+  });
+  assert.ok(r.unsave, "收藏页里找不到「取消收藏 ×」");
+  assert.ok(r.unsave.w >= 44 && r.unsave.h >= 44, `取消收藏 × 太小（${r.unsave.w}×${r.unsave.h}）——挨着 🔊，手指一偏就删错行`);
+  assert.ok(r.close, "安装横幅里找不到关闭 ×");
+  assert.ok(r.close.w >= 44 && r.close.h >= 44, `关闭安装横幅的 × 太小（${r.close.w}×${r.close.h}）——点不中就一直挡着`);
+});
+
 check("收藏列表：点一行的 🔊，播放模块接到的主人就是那个按钮，放的是录音", async (ev) => {
   const r = await ev(async () => {
     const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));

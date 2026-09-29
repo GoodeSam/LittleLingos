@@ -59,6 +59,33 @@ function load({ fetchImpl, code = "abc" } = {}) {
 }
 const resp = (status, body) => async () => ({ ok: status < 300, status, json: async () => JSON.parse(body) });
 
+test("贴了一大段中文（超过 200 字）：不发请求，说明说的是「太长、拆短」，不说服务器不可用", async () => {
+  // 2026-09-29 边缘情况：服务端 translate.mjs 有 200 字上限，客户端原来没有——超长照发，
+  // 服务器回 400，界面却说「AI 翻译暂时不可用（不是你的网络问题）」，家长会一直重试。
+  const calls = [];
+  const ctx = load({ fetchImpl: async (...a) => { calls.push(a); return resp(200, JSON.stringify({ en: "x", tip: "y" }))(); } });
+  const long = "今天我们一起去公园玩，然后回家吃饭。".repeat(12);   // 216 字
+  assert.ok(long.length > 200, "对照：这段确实超过 200 字");
+  const r = await ctx.translateChinese(long, "1-2");
+  assert.equal(r.ok, false);
+  assert.equal(r.error, "too-long", `超长没有被当成「太长」，而是 ${r.error}`);
+  assert.equal(calls.length, 0, "超长的还是发出去了——服务器必拒，钱和等待都白花");
+  const notice = ctx.translateFailureNotice("too-long");
+  assert.match(notice, /200/, "说明里没告诉家长上限是多少");
+  assert.match(notice, /拆|短/, "说明没告诉家长该怎么办（拆成短句）");
+  assert.doesNotMatch(notice, /不可用|网络/, "把家长自己的输入问题说成了服务器或网络问题");
+  // 正好 200 字要能发
+  const ok = await ctx.translateChinese("好".repeat(200), "1-2");
+  assert.equal(ok.ok, true, "正好 200 字被当成超长了");
+});
+
+test("客户端的上限和服务端 translate.mjs 的 MAX_INPUT_LEN 是同一个数——两边不一致时红", () => {
+  const server = readFileSync(join(ROOT, "netlify/functions/translate.mjs"), "utf8").match(/const MAX_INPUT_LEN = (\d+)/);
+  assert.ok(server, "服务端没有上限常量了？");
+  const client = require(join(ROOT, "translate-save.js")).TRANSLATE_MAX_LEN;
+  assert.equal(client, Number(server[1]), "客户端拦的长度和服务端拒的长度对不上——总有一段区间是发了也白发");
+});
+
 test("断网：归为「没有网络」，说明行说的是网络，并且给本地建议", async () => {
   const ctx = load({ fetchImpl: async () => { throw new TypeError("Failed to fetch"); } });
   const t = await ctx.translateChinese("洗手", "1-2");

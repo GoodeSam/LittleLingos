@@ -828,6 +828,7 @@ var llTranslateSave = llTranslateSaveLib.create({
   requestAudio: function (item) { return requestAudio(item); },
 });
 var TRANSLATE_TIMEOUT_MS = llTranslateSave.TRANSLATE_TIMEOUT_MS;
+var TRANSLATE_MAX_LEN = llTranslateSave.TRANSLATE_MAX_LEN;
 var newLocalId = llTranslateSave.newLocalId;
 var assignTranslationIds = llTranslateSave.assignTranslationIds;
 var translateChinese = llTranslateSave.translateChinese;
@@ -2570,6 +2571,8 @@ function syncTranslateCopy() {
 // 不受影响），这一行只负责把**原因**说准：断网 ≠ 太慢 ≠ 服务器出问题。
 // 服务器回的英文原话一个字都不进来——它们对家长没有意义，还会把人吓到。
 function translateFailureNotice(error) {
+  // 2026-09-29：超长是家长自己能改的事，得说清上限和怎么办；说成「服务器不可用」他会一直重试。
+  if (error === "too-long") return "✂️ 一次最多 " + TRANSLATE_MAX_LEN + " 字 — 把它拆成一两句短的再试（先给你本地匹配的建议）。";
   if (error === "network") return "📴 没有网络 — 这是本地匹配的建议，联网后可获得 AI 翻译。";
   if (error === "timeout") return "⏳ 服务器响应太慢 — 先给你本地匹配的建议，稍后再试一次。";
   // server / upstream / malformed / invalid / incomplete：都是那边的问题，不是他的网络
@@ -3667,6 +3670,8 @@ var llPlayback = llPlaybackLib.create({
   getAudio: (id) => llAudioStore.getAudio(id),
   isAudioBacked: (item) => llItemKind.isAudioBacked(item),
   URL: typeof URL !== "undefined" ? URL : null,
+  // 2026-09-29：地址上限跟着收藏条数走（至少 120）。死的 120 会让第 121 行起标着 🔊 却放机器音。
+  urlCap: function () { return Math.max(120, savedPhrases.length + 20); },
 });
 // 别名：块外 22 处调用点认的是这些名字（var，沙箱里 const 不挂上下文）。
 var audioUrlFor = llPlayback.audioUrlFor;

@@ -272,6 +272,36 @@ test("预设短语仍然走它自己那条路", async () => {
 
 // ── Runner ───────────────────────────────────────────────
 console.log("audio-playback tests");
+// ══ 收藏很长时，地址上限要跟着列表走 ═══════════════════════════════════
+// 2026-09-29 在线上量出来的：200 条都有声音的收藏，渲染后只有 120 条拿得到地址——
+// 另外 80 行标着 🔊、点了却退回机器音（iPhone 主屏幕版上常常是哑的）。
+// 上限 120 是防泄漏的，不该按死；列表多长就留多少，由 index.html 用 urlCap() 传进来。
+
+test("上限由 urlCap() 决定：收藏 200 条都有声音，备 200 条地址一条不丢", async () => {
+  const lib = require(join(ROOT, "audio-playback.js"));
+  const revoked = [];
+  const pb = lib.create({
+    getAudio: async (id) => new Blob([new Uint8Array(4)], { type: "audio/mpeg" }),
+    isAudioBacked: () => false,
+    URL: { createObjectURL: (b) => "blob:" + Math.random().toString(36).slice(2), revokeObjectURL: (u) => revoked.push(u) },
+    urlCap: () => 220,                       // index.html 传的是「收藏条数 + 20，至少 120」
+  });
+  const ids = Array.from({ length: 200 }, (_, i) => "t_" + i);
+  await Promise.all(ids.map(id => pb.primeAudioUrl(id)));
+  const missing = ids.filter(id => !pb.audioUrlFor(id));
+  assert.deepEqual(missing.slice(0, 5), [], `${missing.length} 条被挤掉了——那些行标着 🔊 却放机器音`);
+  assert.equal(revoked.length, 0, "没超上限也在回收");
+});
+
+test("index.html 传的上限跟着收藏条数走，且不低于 120", () => {
+  const html = readFileSync(join(ROOT, "index.html"), "utf8");
+  const at = html.indexOf("llPlaybackLib.create({");
+  const wiring = html.slice(at, html.indexOf("});", at));
+  assert.match(wiring, /urlCap:/, "index.html 没有把上限传给 audio-playback——还是死的 120");
+  assert.match(wiring, /savedPhrases\.length/, "上限没有跟着收藏条数走");
+  assert.match(wiring, /Math\.max\(120/, "上限可能低于 120");
+});
+
 let passed = 0, failed = 0;
 for (const t of tests) {
   try { await t.fn(); passed++; console.log(`  ✓ ${t.name}`); }

@@ -16,6 +16,9 @@
   "use strict";
 
   var TRANSLATE_TIMEOUT_MS = 12000;
+  // 和服务端 translate.mjs 的 MAX_INPUT_LEN 同一个数（测试钉着）。在这里就拦下，不发请求：
+  // 服务器必拒，发出去只是白等一趟；而且界面要能说「太长了」，不能说成「服务器不可用」。
+  var TRANSLATE_MAX_LEN = 200;
 
   function create(deps) {
     deps = deps || {};
@@ -66,6 +69,7 @@
     async function translateChinese(zh, age) {
       var clean = String(zh == null ? "" : zh).trim();
       if (!clean) return { ok: false, error: "empty" };
+      if (clean.length > TRANSLATE_MAX_LEN) return { ok: false, error: "too-long", max: TRANSLATE_MAX_LEN };
       var r = await api.post("/api/translate", { zh: clean, age: age }, { timeoutMs: TRANSLATE_TIMEOUT_MS });
       if (r.kind === "access") return { ok: false, error: "access", message: accessErrorMessage(r.status) };
       // 失败原因原样带出（network / timeout / server / upstream / malformed / invalid）：
@@ -148,6 +152,7 @@
 
     return {
       TRANSLATE_TIMEOUT_MS: TRANSLATE_TIMEOUT_MS,
+      TRANSLATE_MAX_LEN: TRANSLATE_MAX_LEN,
       newLocalId: newLocalId,
       assignTranslationIds: assignTranslationIds,
       translateChinese: translateChinese,
@@ -158,7 +163,7 @@
     };
   }
 
-  var api = { create: create, TRANSLATE_TIMEOUT_MS: TRANSLATE_TIMEOUT_MS };
+  var api = { create: create, TRANSLATE_TIMEOUT_MS: TRANSLATE_TIMEOUT_MS, TRANSLATE_MAX_LEN: TRANSLATE_MAX_LEN };
   if (typeof module !== "undefined" && module.exports) module.exports = api;   // Node（测试）
   else root.llTranslateSaveLib = api;                                          // 浏览器
 })(typeof globalThis !== "undefined" ? globalThis : this);

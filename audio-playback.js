@@ -42,6 +42,9 @@
     // every row, so without a ceiling a large library would hold all of it open at
     // once. Eviction is oldest-first; the Map keeps insertion order.
     const AUDIO_URL_CAP = 120;
+    // 上限可以由外面按需给（index.html 传「收藏条数 + 20」）：一个 200 条都有声音的收藏，
+    // 死的 120 会把 80 行的地址挤掉——那些行标着 🔊 却放机器音。不传就还是 120。
+    const urlCap = typeof deps.urlCap === "function" ? deps.urlCap : function () { return AUDIO_URL_CAP; };
 
     // Synchronous by design — see above. Returns null when nothing is ready, and
     // the caller falls back to speech synthesis exactly as it does today.
@@ -66,7 +69,7 @@
           if (!blob) return null;
           const url = URL.createObjectURL(blob);
           audioUrlCache.set(id, url);
-          while (audioUrlCache.size > AUDIO_URL_CAP) {
+          while (audioUrlCache.size > urlCap()) {
             const oldest = audioUrlCache.keys().next().value;
             if (oldest === id) break;               // never evict the one just made
             try { URL.revokeObjectURL(audioUrlCache.get(oldest)); } catch {}

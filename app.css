@@ -1721,6 +1721,13 @@ details.transcript[open] { padding-bottom: 12px; }
   color: var(--zh-ink); background: var(--card);
   border: 1px dashed var(--border); border-radius: 12px;
 }
+/* 2026-09-29：英文放的时候在中文下面亮出来。比中文小一号、用正文色，
+   中文仍是家长要盯着的那一行；提示阶段这一行是藏着的（hidden）。 */
+.loop-cue-en {
+  margin-top: 8px; font-size: 18px; line-height: 1.35;
+  color: var(--text, inherit); overflow-wrap: anywhere;
+}
+.loop-cue-en[hidden] { display: none; }
 
 
 /* The audio mark doubles as the play control on rows that have a clip.

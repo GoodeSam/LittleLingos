@@ -98,7 +98,25 @@ function fakeSpeech() {
   return { synth, Utterance };
 }
 
-async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [], speech = true } = {}) {
+// 锁屏 / 通知栏上的播放条（浏览器的 Media Session）。记下每个键的处理函数，
+// 测试用 press() 模拟家长在锁屏上按了一下。
+function fakeMediaSession() {
+  const handlers = {};
+  return {
+    metadata: null,
+    playbackState: "none",
+    setActionHandler(name, fn) { handlers[name] = fn; },
+    press(name) {
+      const h = handlers[name];
+      if (typeof h !== "function") throw new Error(`锁屏上没有「${name}」这个键`);
+      h({ action: name });
+    },
+  };
+}
+class FakeMediaMetadata { constructor(o) { Object.assign(this, o || {}); } }
+
+async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [], speech = true,
+                            mediaSession = null, silenceUrl = null, onLoopState = null, onLoopPhase = null } = {}) {
   // 2026-09-28（ADR 0009 第十六块）：整块搬进 audio-loop.js，九个依赖由 create(deps) 传入。
   const made = [];
   const timers = [];
@@ -145,6 +163,12 @@ async function loadModule({ withAudio = ["a", "b", "c"], presetIds = [], speech 
     playableUrlFor: (item) => ctx.playableUrlFor(item),
     stopAllAudio: () => ctx.stopAllAudio(),
     provisionLoopCues: (q) => ctx.provisionLoopCues && ctx.provisionLoopCues(q),
+    // 2026-09-29 熄屏也能放：三个新依赖，不传就和以前一样。
+    mediaSession: mediaSession,
+    MediaMetadata: mediaSession ? FakeMediaMetadata : null,
+    silenceUrl: silenceUrl,
+    onLoopState: onLoopState,
+    onLoopPhase: onLoopPhase,
   }));
   for (const fn of ["startAudioLoop", "stopAudioLoop", "audioLoopPlaying"]) {
     assert.equal(typeof ctx[fn], "function", `module must define ${fn}()`);
@@ -636,6 +660,199 @@ test("按停止时，正在念的中文也要停", async () => {
   ctx.stopAudioLoop();
   assert.equal(made[0].paused, true, "停止之后中文还在放");
   assert.ok(speech.cancels >= 1, "手机合成那条路也要一起停");
+});
+
+
+// ══ 熄屏也能放 ═══════════════════════════════════════════════════════
+// 2026-09-29 Victor：「让收藏下面的连续播放在手机熄屏的情况下也可以播放」。
+// 手机一熄屏，网页的计时器就不可靠了（iOS 会把页面挂起，安卓 Chrome 会把
+// 计时器拖慢），而连播里「中文念完 → 停 2 秒 → 英文」那 2 秒正是一个计时器。
+// 音频元素本身在放的东西，系统会让它放下去；停 2 秒时元素是闲着的，正是
+// 系统把页面挂起的时机。所以停顿改成用同一个元素放一段无声音频占住，靠它
+// 的 ended 接续——整轮从头到尾元素都在放，和一个播客 App 没有区别。
+// 另外把「现在放的是哪句」告诉系统的播放条（Media Session）：锁屏上能看到
+// 这句英文、能按暂停 / 播放，且系统会把这个页面当成正在放音乐的 App 对待。
+//
+// 这一组测试对应的用户情境（不含函数名）：
+//   1. 连播开着，锁屏上显示正在放的那句英文；念中文提示时只见中文、英文先不露。
+//   2. 在锁屏上按暂停，声音停住；再按播放，从停的地方接着放，屏幕上的按钮也跟着变。
+//   3. 停止之后锁屏上的播放条撤掉。
+//   4. 句间停顿不再空等，是一段无声音频在放；那段放不出来也不能卡住。
+//   5. 屏幕上：英文开始放时才把英文亮出来，中文提示阶段先不露（那 2 秒是让家长自己想的）。
+
+const ZH3 = [
+  { id: "a", en: "Wash your hands.", zh: "洗手" },
+  { id: "b", en: "Time for bed.", zh: "睡觉" },
+  { id: "c", en: "Let's eat.", zh: "吃饭" },
+];
+const WITH_ZH = ["a", "b", "c", "zh:a", "zh:b", "zh:c"];
+const flush = () => new Promise(r => setImmediate(r));
+
+test("连播一开始，锁屏 / 通知栏的播放条上就是正在放的这句英文", async () => {
+  const ms = fakeMediaSession();
+  const { ctx } = await loadModule({ mediaSession: ms });
+  ctx.startAudioLoop(ZH3, () => {});
+  assert.ok(ms.metadata, "系统的播放条上什么都没写——熄屏后家长不知道在放什么，也没有键可按");
+  assert.equal(ms.metadata.title, "Wash your hands.", "播放条的标题不是正在放的英文");
+  assert.equal(ms.playbackState, "playing", "没告诉系统「正在放」——锁屏上会显示成暂停");
+});
+
+test("念中文提示时，锁屏上只见中文；英文开始放了才换成英文", async () => {
+  const ms = fakeMediaSession();
+  const { ctx, made } = await loadModule({ mediaSession: ms, withAudio: WITH_ZH, silenceUrl: "blob:silence" });
+  ctx.startAudioLoop(ZH3, () => {});
+  const el = made[0];
+  el.fire("ended");                                    // 第一句英文放完 → 念第二句中文
+  assert.equal(el.src, "blob:zh:b", "对照：现在该在念第二句的中文");
+  assert.equal(ms.metadata.title, "睡觉", "念中文时播放条该显示这句中文——这是给家长的提示");
+  assert.ok(!Object.values(ms.metadata).includes("Time for bed."),
+    "中文提示阶段把英文写在播放条上了——答案提前露出来，那 2 秒就白停了");
+  el.fire("ended");                                    // 中文念完 → 无声停顿
+  el.fire("ended");                                    // 停顿过去 → 放英文
+  assert.equal(el.src, "blob:b", "对照：现在该在放第二句的英文");
+  assert.equal(ms.metadata.title, "Time for bed.", "英文放了，播放条还停在中文上");
+});
+
+test("锁屏上按暂停：声音停住、位置留着；再按播放：从停的地方接着放", async () => {
+  const ms = fakeMediaSession();
+  const { ctx, made } = await loadModule({ mediaSession: ms });
+  ctx.startAudioLoop(ZH3, () => {});
+  const el = made[0];
+  ms.press("pause");
+  assert.equal(el.paused, true, "锁屏上按了暂停，声音还在响");
+  assert.equal(ctx.audioLoopPlaying(), false);
+  assert.equal(ctx.audioLoopPaused(), true, "模块不知道自己被锁屏暂停了——屏幕上的按钮会写错");
+  assert.equal(ms.playbackState, "paused", "锁屏上的键还显示成「正在放」");
+  const before = el.played.length;
+  ms.press("play");
+  await flush();
+  assert.equal(el.paused, false, "锁屏上按了播放，没声音");
+  assert.equal(el.played.length, before + 1, "按播放之后元素没有再放");
+  assert.equal(el.src, "blob:a", "接着放的不是暂停时那一句");
+  assert.equal(ctx.audioLoopPlaying(), true);
+  assert.equal(ms.playbackState, "playing");
+});
+
+test("锁屏上按了暂停 / 播放，屏幕上的按钮也要跟着变", async () => {
+  // 按钮的字（⏸ 暂停 / ▶ 继续）是收藏页画的；锁屏那一下没经过按钮，
+  // 模块得主动说一声，不然回到屏幕上会看到「⏸ 暂停」而其实早停了。
+  const ms = fakeMediaSession();
+  const states = [];
+  const { ctx } = await loadModule({ mediaSession: ms, onLoopState: s => states.push(s) });
+  ctx.startAudioLoop(ZH3, () => {});
+  assert.deepEqual(states, ["playing"], "起播时该告诉屏幕一声（对照）");
+  ms.press("pause");
+  assert.equal(states.at(-1), "paused", "锁屏暂停了，屏幕没被告知");
+  ms.press("play");
+  assert.equal(states.at(-1), "playing", "锁屏继续了，屏幕没被告知");
+  ctx.stopAudioLoop();
+  assert.equal(states.at(-1), "stopped", "停掉了，屏幕没被告知");
+});
+
+test("停止连播之后，锁屏上的播放条撤掉", async () => {
+  const ms = fakeMediaSession();
+  const { ctx } = await loadModule({ mediaSession: ms });
+  ctx.startAudioLoop(ZH3, () => {});
+  assert.equal(ms.playbackState, "playing", "对照：起播后该是「正在放」");
+  ctx.stopAudioLoop();
+  assert.equal(ms.playbackState, "none", "停了，锁屏上还挂着一条像在放的播放条");
+});
+
+test("句间停顿是一段无声音频在放，不是空等一个计时器", async () => {
+  const { ctx, made, timers } = await loadModule({ withAudio: WITH_ZH, silenceUrl: "blob:silence" });
+  ctx.startAudioLoop(ZH3, () => {});
+  const el = made[0];
+  el.fire("ended");                                    // 英文 a 放完 → 中文 b
+  assert.equal(el.src, "blob:zh:b", "对照：该在念第二句中文");
+  el.fire("ended");                                    // 中文念完 → 停顿
+  assert.equal(el.played.at(-1), "blob:silence", "停顿没有用无声音频占住——熄屏后页面会在这 2 秒里被挂起");
+  assert.equal(timers.length, 0, "还是起了计时器——熄屏后它不会准时响");
+  assert.equal(made.length, 1, "无声那段另起了一个元素——iOS 上不是被点击解锁的那个放不出来");
+  el.fire("ended");                                    // 停顿过去 → 英文
+  assert.equal(el.played.at(-1), "blob:b", "无声放完没有接着放英文");
+});
+
+test("无声那段放不出来（被拒、出错），直接放英文，不能卡在停顿里", async () => {
+  const { ctx, made } = await loadModule({ withAudio: WITH_ZH, silenceUrl: "blob:silence" });
+  ctx.startAudioLoop(ZH3, () => {});
+  const el = made[0];
+  el.fire("ended");                                    // → 中文 b
+  el.rejectNextPlay = true;
+  el.fire("ended");                                    // 中文念完 → 无声被拒
+  await flush();
+  assert.equal(el.played.at(-1), "blob:b", "无声被拒之后没有放英文——整轮卡在这里，按钮还亮着");
+  el.fire("ended");                                    // 英文 b 放完 → 中文 c
+  el.fire("ended");                                    // 中文念完 → 无声
+  assert.equal(el.src, "blob:silence", "对照：该在放无声");
+  el.fire("error");                                    // 无声出错
+  assert.equal(el.played.at(-1), "blob:c", "无声出错之后没有放英文");
+});
+
+test("无声停顿里按了暂停，再按继续：接着停顿，然后放这句的英文，不跳过", async () => {
+  const { ctx, made } = await loadModule({ withAudio: WITH_ZH, silenceUrl: "blob:silence" });
+  ctx.startAudioLoop(ZH3, () => {});
+  const el = made[0];
+  el.fire("ended"); el.fire("ended");                  // → 无声停顿中
+  assert.equal(el.src, "blob:silence", "对照");
+  ctx.toggleAudioLoop(ZH3, () => {});                  // 暂停
+  assert.equal(el.paused, true);
+  ctx.toggleAudioLoop(ZH3, () => {});                  // 继续
+  await flush();
+  assert.equal(el.paused, false);
+  el.fire("ended");                                    // 停顿过去
+  assert.equal(el.played.at(-1), "blob:b", "继续之后跳过了这句的英文");
+});
+
+test("无声片段是一段合法的 WAV，长度正好是句间停顿那么久", async () => {
+  // 不随应用带文件：一段全零的 PCM 在代码里现做，几十行字节头。iOS 与安卓都认 WAV。
+  const lib = require(join(ROOT, "audio-loop.js"));
+  assert.equal(typeof lib.silenceWavUrl, "function", "没有造无声片段的办法");
+  let blob = null;
+  const url = lib.silenceWavUrl(2000, { Blob, URL: { createObjectURL: b => { blob = b; return "blob:silence"; } } });
+  assert.equal(url, "blob:silence");
+  assert.ok(blob && blob.type === "audio/wav", `不是 WAV（type=${blob && blob.type}）`);
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const tag = (at) => String.fromCharCode(...bytes.slice(at, at + 4));
+  assert.equal(tag(0), "RIFF"); assert.equal(tag(8), "WAVE"); assert.equal(tag(36), "data");
+  const view = new DataView(bytes.buffer);
+  const sampleRate = view.getUint32(24, true);
+  const dataLen = view.getUint32(40, true);
+  assert.equal(bytes.length, 44 + dataLen, "data 块长度和文件不符——播放器会报格式错");
+  assert.equal(dataLen, sampleRate * 2, `无声长度是 ${dataLen / sampleRate} 秒，不是 2 秒`);
+});
+
+// ══ 屏幕上显示正在放的英文 ═══════════════════════════════════════════
+// 2026-09-29 Victor：「当下正在播放的那一条的英文文字也显示出来」。
+// 显示的时机跟着声音走：中文提示阶段只给中文（那 2 秒是让家长自己先说的，
+// 英文先露出来就没得想了），英文一开始放，就把英文亮出来。
+
+test("第一句英文开始放时，屏幕上就能看到这句英文", async () => {
+  const phases = [];
+  const { ctx } = await loadModule({ onLoopPhase: (it, phase) => phases.push([it.id, phase]) });
+  ctx.startAudioLoop(ZH3, () => {});
+  assert.deepEqual(phases.at(-1), ["a", "en"], "起播时没有告诉屏幕「正在放 a 的英文」");
+});
+
+test("之后每句：先只给中文提示，英文开始放时才把英文亮出来", async () => {
+  const phases = [];
+  const { ctx, made } = await loadModule({ withAudio: WITH_ZH, silenceUrl: "blob:silence",
+                                            onLoopPhase: (it, phase) => phases.push([it.id, phase]) });
+  ctx.startAudioLoop(ZH3, () => {});
+  const el = made[0];
+  el.fire("ended");                                    // → 念第二句中文
+  assert.deepEqual(phases.at(-1), ["b", "zh"], "念中文时没有告诉屏幕这是提示阶段");
+  assert.ok(!phases.some(c => c[0] === "b" && c[1] === "en"), "英文还没放就把英文亮出来了");
+  el.fire("ended"); el.fire("ended");                  // 中文念完、停顿过去 → 英文
+  assert.deepEqual(phases.at(-1), ["b", "en"], "英文放了，屏幕上没有亮出英文");
+});
+
+test("收藏页把英文接到了屏幕上，且中文提示阶段不露英文", () => {
+  const at = html.indexOf("function renderSavedScreen");
+  const body = html.slice(at, html.indexOf("\nfunction ", at + 10));
+  assert.match(body, /loop-cue-en/, "循环报了英文，收藏页却没地方显示它，等于没做");
+  // 画字的那个函数可以在 renderSavedScreen 外面，但得真的取这句的英文
+  assert.match(html, /loop-cue-en[\s\S]{0,600}\.en\b/, "收藏页没有取这句的英文来显示");
+  assert.match(html, /onLoopPhase\s*:/, "index.html 没把「此刻放到哪一段」接给屏幕");
 });
 
 console.log("audio-loop tests");

@@ -10,10 +10,22 @@
 //   playableUrlFor(item)         —— 这一句现在能不能放、放哪个地址
 //   stopAllAudio()               —— 起播前把别处正在放的停掉
 //   provisionLoopCues(queue)     —— 按需生成中文提示
+//   mediaSession / MediaMetadata —— 系统的播放条（锁屏、通知栏）。2026-09-29 起，
+//                                  熄屏也能放靠它：告诉系统现在放的是哪句、
+//                                  接住锁屏上的暂停 / 播放键
+//   silenceUrl                   —— 一段和句间停顿一样长的无声音频的地址。
+//                                  停顿改成放它，而不是空等一个计时器（见下）
+//   onLoopState(state)           —— "playing" | "paused" | "stopped"。锁屏那一下
+//                                  没经过屏幕上的按钮，按钮得靠这个跟上
+//   onLoopPhase(item, phase)     —— 此刻出声的是哪句的哪一段："zh" 提示阶段、
+//                                  "en" 英文正在放。和 onCue（这句上场了，一句
+//                                  一次）分开：屏幕靠它决定什么时候把英文亮出来
 //
 // 不碰 document / window / 网络，也不自己 new Audio。普通脚本 + CommonJS 出口。
 (function (root) {
   "use strict";
+
+  var LOOP_PAUSE_MS_DEFAULT = 2000;    // 句间停顿；无声片段也按这个长度做
 
   function create(deps) {
     deps = deps || {};
@@ -26,6 +38,11 @@
     var playableUrlFor = deps.playableUrlFor || function () { return null; };
     var stopAllAudio = deps.stopAllAudio || function () {};
     var provisionLoopCues = deps.provisionLoopCues || function () {};
+    var mediaSession = deps.mediaSession || null;
+    var MediaMetadata = deps.MediaMetadata || null;
+    var silenceUrl = typeof deps.silenceUrl === "string" && deps.silenceUrl ? deps.silenceUrl : null;
+    var onLoopState = typeof deps.onLoopState === "function" ? deps.onLoopState : null;
+    var onLoopPhase = typeof deps.onLoopPhase === "function" ? deps.onLoopPhase : null;
 
     // One tap, and every saved phrase plays in turn, over and over.
     //
@@ -66,7 +83,15 @@
     // 拿不到中文音频时仍退回手机自带的合成，但接续也改成等 onend；有的内核不发
     // onend，所以留一个兜底计时，而那个兜底把停顿也算进去了——绝不会卡在人还在
     // 念的时候开口。
-    var LOOP_PAUSE_MS = 2000;          // 中文念完之后给家长的反应时间
+    // 2026-09-29 熄屏也能放。手机一熄屏，页面的计时器就不可靠：iOS 会把没在出声的
+    // 页面挂起，安卓 Chrome 会把后台计时器拖慢。「中文念完 → 停 2 秒 → 英文」那
+    // 2 秒原来正是一个计时器，元素闲着——恰好是系统挂起页面的时机，连播就停在
+    // 那个缝里。现在停顿改成用同一个元素放一段无声音频（silenceUrl），靠它的
+    // ended 接续：从头到尾元素都在放，系统眼里这就是一个播客 App。拿不到无声
+    // 片段（老环境、测试）时退回计时器。
+    // 同时把「现在放的是哪句」写进系统的播放条（Media Session）：锁屏上看得到这句
+    // 英文，能按暂停 / 播放；系统也因此把页面当成正在放音乐的 App。
+    var LOOP_PAUSE_MS = LOOP_PAUSE_MS_DEFAULT;   // 中文念完之后给家长的反应时间
     var LOOP_CUE_MIN_MS = 3200;        // 退回手机合成时，兜底计时的下限
     var LOOP_CUE_MAX_MS = 9000;
 
@@ -76,7 +101,7 @@
     var loopTimer = null;
     var loopOn = false;
     var loopOnCue = null;
-    var loopPhase = "en";                // "zh" 正在念中文 | "en" 正在放英文
+    var loopPhase = "en";                // "zh" 正在念中文 | "gap" 无声停顿 | "en" 正在放英文
     var loopCueGuard = null;
     // 暂停着（按钮自己那一下）。和「停掉」不同：队列、位置、当前阶段都留着，
     // 再按一下从停的地方接着放。2026-09-28 真机报上来：原来第二下是停掉，
@@ -93,8 +118,39 @@
     // Tell the screen which phrase is up, then say its Chinese if the device can.
     // The screen comes first: a phone with no zh voice must still show the cue,
     // or the pause is just silence with nothing to retrieve.
+    // 这句上场了：一句只报一次（屏幕据此换中文）。同时按提示阶段写播放条。
     function cueLoopItem(item) {
       if (typeof loopOnCue === "function") { try { loopOnCue(item); } catch (e) {} }
+      notifyPhase(item, "zh");
+    }
+    // 此刻出声的是哪一段。"zh" 提示阶段只给中文——那 2 秒是让家长自己先说的，
+    // 英文不能先露；"en" 英文开始放了，这时才把英文亮出来。
+    function notifyPhase(item, phase) {
+      if (onLoopPhase) { try { onLoopPhase(item, phase); } catch (e) {} }
+      paintMediaSession(item, phase);
+    }
+    // 锁屏 / 通知栏上的那一条。提示阶段标题是中文，英文阶段标题换成英文、中文降到副标题。
+    function paintMediaSession(item, phase) {
+      if (!mediaSession || !MediaMetadata || !item) return;
+      var zh = typeof item.zh === "string" ? item.zh : "";
+      var en = typeof item.en === "string" ? item.en : "";
+      var meta = phase === "en"
+        ? { title: en || zh, artist: zh, album: "LittleLingos 连播" }
+        : { title: zh || "…", artist: "先自己说一遍", album: "LittleLingos 连播" };
+      try { mediaSession.metadata = new MediaMetadata(meta); } catch (e) {}
+    }
+    // "playing" | "paused" | "stopped"：先告诉系统的播放条，再告诉屏幕。
+    function setLoopState(state) {
+      if (mediaSession) {
+        try { mediaSession.playbackState = state === "stopped" ? "none" : state; } catch (e) {}
+      }
+      if (onLoopState) { try { onLoopState(state); } catch (e) {} }
+    }
+    // 锁屏上的暂停 / 播放键。只在有播放条的环境装；装不上（老内核不认某个键）就算了。
+    function bindMediaSession() {
+      if (!mediaSession || typeof mediaSession.setActionHandler !== "function") return;
+      try { mediaSession.setActionHandler("pause", function () { pauseAudioLoop(); }); } catch (e) {}
+      try { mediaSession.setActionHandler("play", function () { resumeAudioLoop(); }); } catch (e) {}
     }
     function speakLoopCue(item, onDone) {
       const zh = item && typeof item.zh === "string" ? item.zh.trim() : "";
@@ -155,13 +211,17 @@
         // 同一个元素先放中文再放英文，所以 ended 要看现在是哪一段。
         loopEl.addEventListener("ended", () => {
           if (!loopOn) return;
-          if (loopPhase === "zh") afterLoopCue(); else advanceAndCue();
+          if (loopPhase === "zh") afterLoopCue();
+          else if (loopPhase === "gap") playCurrentLoopClip();
+          else advanceAndCue();
         });
         // A clip whose address was evicted from the cache must not end the
         // session — that reads as the loop stopping for no reason.
         loopEl.addEventListener("error", () => {
           if (!loopOn) return;
-          if (loopPhase === "zh") afterLoopCue(); else advanceAndCue();
+          if (loopPhase === "zh") afterLoopCue();
+          else if (loopPhase === "gap") playCurrentLoopClip();   // 无声放不出来：直接放英文，别卡在停顿里
+          else advanceAndCue();
         });
       }
       loopIndex = 0;
@@ -169,6 +229,8 @@
       loopPhase = "en";
       // 中文提示按需生成：这一轮没备好的就退回手机合成，转回来时就有了。
       try { provisionLoopCues(loopQueue); } catch (e) {}
+      bindMediaSession();
+      setLoopState("playing");
       cueLoopItem(loopQueue[0]);   // shown, not spoken: the English starts now
       playCurrentLoopClip();
       return true;
@@ -182,6 +244,8 @@
       // 就删掉了，两处调用留在原地——踩上去抛 ReferenceError，连播就此哑掉，
       // 而按钮仍然显示正在放。往下走的那个函数现在叫 advanceAndCue()。
       if (!url) { advanceAndCue(); return; }
+      loopPhase = "en";
+      notifyPhase(item, "en");   // 英文开始放了：这时才把英文亮出来
       loopEl.src = url;
       const p = loopEl.play();
       // A rejected play (autoplay refused, element torn down) must not strand the
@@ -226,8 +290,16 @@
     // 中文念完了。停 2 秒——这是家长自己先说一遍的时间——再放英文。
     function afterLoopCue() {
       clearLoopCueGuard();
+      if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
+      if (silenceUrl && loopEl) {
+        // 熄屏也要接得上：停顿用无声音频占住元素，放完（ended）再放英文。
+        loopPhase = "gap";
+        loopEl.src = silenceUrl;
+        const p = loopEl.play();
+        if (p && typeof p.catch === "function") p.catch(() => { if (loopOn) playCurrentLoopClip(); });
+        return;
+      }
       loopPhase = "en";
-      if (loopTimer) clearTimeout(loopTimer);
       loopTimer = setTimeout(() => {
         loopTimer = null;
         if (loopOn) playCurrentLoopClip();
@@ -244,6 +316,7 @@
       if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
       if (loopEl) { try { loopEl.pause(); } catch (e) {} }
       silenceLoopCue();
+      setLoopState("paused");
     }
 
     // 接着放。元素放到一半的（英文，或 Azure 生成的中文提示）：从停的地方续；
@@ -253,6 +326,7 @@
       if (!loopPaused || !loopQueue.length) return false;
       loopPaused = false;
       loopOn = true;
+      setLoopState("playing");
       var item = loopQueue[loopIndex];
       var how = pausedDuring; pausedDuring = null;
       if (how === "speech-cue") { cueLoopItem(item); startLoopCue(item); return true; }
@@ -273,6 +347,7 @@
     }
 
     function stopAudioLoop() {
+      var wasActive = loopOn || loopPaused;
       loopOn = false;
       loopPaused = false;
       pausedDuring = null;
@@ -283,6 +358,7 @@
       // the parent pressed stop — and a Chinese cue mid-sentence, likewise.
       if (loopEl) { try { loopEl.pause(); } catch (e) {} }
       silenceLoopCue();
+      if (wasActive) setLoopState("stopped");   // 起播前的例行清场不算一次「停掉」
     }
 
     function toggleAudioLoop(items, onCue) {
@@ -320,7 +396,23 @@
     };
   }
 
-  var api = { create: create };
+  // 一段全零的 PCM WAV：44 字节头 + 数据。8 kHz、单声道、8 位，2 秒只有 16 KB，
+  // iOS 与安卓的音频元素都认。不随应用带文件，运行时现做成 blob 地址。
+  function silenceWavUrl(ms, env) {
+    var BlobCtor = env && env.Blob, URLObj = env && env.URL;
+    if (!BlobCtor || !URLObj || typeof URLObj.createObjectURL !== "function") return null;
+    var rate = 8000, samples = Math.round(rate * (ms / 1000)), dataLen = samples;
+    var buf = new ArrayBuffer(44 + dataLen), v = new DataView(buf);
+    var tag = function (at, str) { for (var i = 0; i < 4; i++) v.setUint8(at + i, str.charCodeAt(i)); };
+    tag(0, "RIFF"); v.setUint32(4, 36 + dataLen, true); tag(8, "WAVE");
+    tag(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    tag(36, "data"); v.setUint32(40, dataLen, true);
+    for (var i = 0; i < dataLen; i++) v.setUint8(44 + i, 128);   // 8 位 PCM 的静音是 128，不是 0
+    try { return URLObj.createObjectURL(new BlobCtor([buf], { type: "audio/wav" })); } catch (e) { return null; }
+  }
+
+  var api = { create: create, silenceWavUrl: silenceWavUrl, LOOP_PAUSE_MS: LOOP_PAUSE_MS_DEFAULT };
   if (typeof module !== "undefined" && module.exports) module.exports = api;   // Node（测试）
   else root.llAudioLoopLib = api;                                              // 浏览器
 })(typeof globalThis !== "undefined" ? globalThis : this);

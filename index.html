@@ -401,7 +401,7 @@
         </ul>
         <p><strong>放到一半想停</strong>：按钮上写着 ⏸ 的时候再点一下就是暂停，声音停在那里；再点一次从停的地方接着放，不是从头。场景卡上的进度条也停在原处。</p>
         <p>没有生成好的句子，会先用手机自带的声音念，音色会不一样，屏幕上会提示一次。<strong>用手机自带声音念的那种没法接着放</strong>：点第二下是停下来，再点是从头念一遍。</p>
-        <p>收藏页顶上的【连续播放全部】会把收藏里<strong>已经有声音的</strong>句子一句接一句放（还没生成出声音的会跳过）：第一句直接放英文，之后每句先念中文提示，停几秒让你自己试着说，再放英文。放的时候按一下是<strong>暂停</strong>，再按一下从停的地方接着放，不会从头来。适合做饭、洗碗、开车时听。</p>
+        <p>收藏页顶上的【连续播放全部】会把收藏里<strong>已经有声音的</strong>句子一句接一句放（还没生成出声音的会跳过）：第一句直接放英文，之后每句先念中文提示，停几秒让你自己试着说，再放英文。放的时候按一下是<strong>暂停</strong>，再按一下从停的地方接着放，不会从头来。屏幕上先只显示这句的中文提示，英文开始放时才显示英文。<strong>手机熄屏也会接着放</strong>，锁屏上能看到正在放的英文、能按暂停和播放；还没生成好中文提示音的那几句，熄屏时提示可能听不到，下一轮就有了。适合做饭、洗碗、开车时听。</p>
       </div>
     </details>
 
@@ -2160,22 +2160,24 @@ function renderSavedScreen() {
   const loopBtn = document.createElement('button');
   loopBtn.type = 'button';
   loopBtn.className = 'loop-btn';
-  const paintLoopBtn = () => {
-    // 三种状态：在放 / 暂停着 / 没放。2026-09-28：按钮自己那一下是暂停，再按接着放。
-    loopBtn.textContent = audioLoopPlaying() ? '⏸ 暂停连续播放' : audioLoopPaused() ? '▶ 继续连续播放' : '连续播放全部';
-    loopBtn.setAttribute('aria-label', loopBtn.textContent);
-  };
+  const paintLoopBtn = () => paintLoopBtnLabel(loopBtn);
   paintLoopBtn();
   // The phrase on deck, in Chinese. This is what the parent is trying to say
   // during the pause; a phone without a Chinese voice has only this to go on.
+  // 2026-09-29：下面多一行英文，英文开始放的时候才亮出来（提示阶段不露答案）。
+  // 中文换字走这里（一句一次）；英文什么时候亮由 onLoopPhase 决定，见 llAudioLoop 那里。
   const loopCue = document.createElement('div');
   loopCue.className = 'loop-cue';
   loopCue.setAttribute('aria-live', 'polite');
   loopCue.hidden = true;
-  const paintLoopCue = item => {
-    loopCue.hidden = !item;
-    loopCue.textContent = item ? (item.zh || '（这句没有中文）') : '';
-  };
+  const loopCueZh = document.createElement('div');
+  loopCueZh.className = 'loop-cue-zh';
+  const loopCueEn = document.createElement('div');
+  loopCueEn.className = 'loop-cue-en';
+  loopCueEn.hidden = true;
+  loopCue.appendChild(loopCueZh);
+  loopCue.appendChild(loopCueEn);
+  const paintLoopCue = item => paintLoopCueBox(loopCue, item, 'zh');
   loopBtn.onclick = () => {
     const started = toggleAudioLoop(rows, paintLoopCue);
     if (started === false && !audioLoopPlaying()) {
@@ -3636,6 +3638,28 @@ window.addEventListener('online',  () => showOfflineToast('✅ 已恢复网络�
 // 连播搬进 audio-loop.js（ADR 0009 第十六块）。
 // 依赖里有几个定义在本文件更下方（audioUrlFor / playableUrlFor / stopAllAudio /
 // provisionLoopCues），所以包一层函数再传——实例化时它们还不存在，调用时才查。
+
+// 连播按钮的字：在放 / 暂停着 / 没放。收藏页画按钮时用，锁屏上按了暂停 / 播放
+// 之后也用（那一下没经过按钮，得有人替它改字）。
+function paintLoopBtnLabel(btn) {
+  if (!btn) return;
+  btn.textContent = audioLoopPlaying() ? '⏸ 暂停连续播放' : audioLoopPaused() ? '▶ 继续连续播放' : '连续播放全部';
+  btn.setAttribute('aria-label', btn.textContent);
+}
+// 连播提示框的两行。phase 'zh'：这句上场了，只给中文，英文藏起来（那 2 秒是让家长
+// 自己先说的）；phase 'en'：英文开始放了，把英文亮出来。item 为空就整个收起。
+function paintLoopCueBox(box, item, phase) {
+  if (!box) return;
+  const zhEl = box.querySelector('.loop-cue-zh');
+  const enEl = box.querySelector('.loop-cue-en');
+  box.hidden = !item;
+  if (zhEl) zhEl.textContent = item ? (item.zh || '（这句没有中文）') : '';
+  if (enEl) {
+    const showEn = !!item && phase === 'en' && typeof item.en === 'string' && item.en.trim();
+    enEl.hidden = !showEn;
+    enEl.textContent = showEn ? item.en : '';
+  }
+}
 var llAudioLoop = llAudioLoopLib.create({
   Audio: typeof Audio !== "undefined" ? Audio : null,
   speech: typeof speechSynthesis !== "undefined" ? speechSynthesis : null,
@@ -3646,6 +3670,19 @@ var llAudioLoop = llAudioLoopLib.create({
   playableUrlFor: function (item) { return playableUrlFor(item); },
   stopAllAudio: function () { if (typeof stopAllAudio === "function") stopAllAudio(); },
   provisionLoopCues: function (q) { if (typeof provisionLoopCues === "function") provisionLoopCues(q); },
+  // 2026-09-29 熄屏也能放：系统的播放条（锁屏 / 通知栏）、句间停顿用的无声片段、
+  // 锁屏上按了暂停 / 播放之后让屏幕上的按钮跟上、英文什么时候亮出来。
+  mediaSession: (typeof navigator !== "undefined" && navigator.mediaSession) ? navigator.mediaSession : null,
+  MediaMetadata: (typeof window !== "undefined" && window.MediaMetadata) ? window.MediaMetadata : null,
+  silenceUrl: (typeof Blob !== "undefined" && typeof URL !== "undefined")
+    ? llAudioLoopLib.silenceWavUrl(llAudioLoopLib.LOOP_PAUSE_MS, { Blob: Blob, URL: URL }) : null,
+  onLoopState: function (state) {
+    paintLoopBtnLabel(document.querySelector('#savedScreenList .loop-btn'));
+    if (state === 'stopped') paintLoopCueBox(document.querySelector('#savedScreenList .loop-cue'), null, 'zh');
+  },
+  onLoopPhase: function (item, phase) {
+    paintLoopCueBox(document.querySelector('#savedScreenList .loop-cue'), item, phase);
+  },
 });
 var LOOP_PAUSE_MS = llAudioLoop.LOOP_PAUSE_MS;
 var audioLoopPlaying = llAudioLoop.audioLoopPlaying;

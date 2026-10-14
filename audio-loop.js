@@ -8,6 +8,8 @@
 //                                  是「练习」和「背景噪音」的分界，必须可验
 //   audioUrlFor(id)              —— 中文提示的地址
 //   playableUrlFor(item)         —— 这一句现在能不能放、放哪个地址
+//   primeUrl(item)               —— 地址没了时从本机把声音取回来（异步，给地址或 null）。
+//                                  2026-10-14 加：不传就和以前一样，没地址直接跳过
 //   stopAllAudio()               —— 起播前把别处正在放的停掉
 //   provisionLoopCues(queue)     —— 按需生成中文提示
 //   mediaSession / MediaMetadata —— 系统的播放条（锁屏、通知栏）。2026-09-29 起，
@@ -38,6 +40,7 @@
     var playableUrlFor = deps.playableUrlFor || function () { return null; };
     var stopAllAudio = deps.stopAllAudio || function () {};
     var provisionLoopCues = deps.provisionLoopCues || function () {};
+    var primeUrl = typeof deps.primeUrl === "function" ? deps.primeUrl : null;
     var mediaSession = deps.mediaSession || null;
     var MediaMetadata = deps.MediaMetadata || null;
     var silenceUrl = typeof deps.silenceUrl === "string" && deps.silenceUrl ? deps.silenceUrl : null;
@@ -103,6 +106,7 @@
     var loopOnCue = null;
     var loopPhase = "en";                // "zh" 正在念中文 | "gap" 无声停顿 | "en" 正在放英文
     var loopCueGuard = null;
+    var loopFetch = null;                // 正在从本机取回某句英文（见 playCurrentLoopClip）；停 / 暂停时作废
     // 暂停着（按钮自己那一下）。和「停掉」不同：队列、位置、当前阶段都留着，
     // 再按一下从停的地方接着放。2026-09-28 真机报上来：原来第二下是停掉，
     // 第三下从第一句重来——家长在第七句被叫走，回来得从头听六句。
@@ -243,7 +247,20 @@
       // 2026-09-28 修：原来叫 scheduleNextLoopClip()，那个函数 09-11 重做时序时
       // 就删掉了，两处调用留在原地——踩上去抛 ReferenceError，连播就此哑掉，
       // 而按钮仍然显示正在放。往下走的那个函数现在叫 advanceAndCue()。
-      if (!url) { advanceAndCue(); return; }
+      // 2026-10-14：没地址不等于没声音——地址可能被回收了，声音还在手机里。先取回来，
+      // 取不回来才往下走。连播里这个元素早被点击解锁过，晚一拍再放不受 iOS 那条限制。
+      if (!url) {
+        if (!primeUrl) { advanceAndCue(); return; }
+        var fetch = loopFetch = {};
+        Promise.resolve().then(function () { return primeUrl(item); }).then(
+          function (u) { if (loopFetch !== fetch) return; loopFetch = null; if (u) playLoopUrl(item, u); else advanceAndCue(); },
+          function () { if (loopFetch !== fetch) return; loopFetch = null; advanceAndCue(); });
+        return;
+      }
+      playLoopUrl(item, url);
+    }
+
+    function playLoopUrl(item, url) {
       loopPhase = "en";
       notifyPhase(item, "en");   // 英文开始放了：这时才把英文亮出来
       loopEl.src = url;
@@ -309,7 +326,9 @@
     // 暂停：声音停住，位置留着。记下停在哪一步，接着放时才知道该怎么续。
     function pauseAudioLoop() {
       if (!loopOn) return;
-      pausedDuring = loopCueGuard ? "speech-cue" : (loopTimer ? "gap" : "element");
+      // 正在从本机取英文时暂停，和停在停顿里一样：接着放时直接放这句英文。
+      pausedDuring = loopCueGuard ? "speech-cue" : ((loopTimer || loopFetch) ? "gap" : "element");
+      loopFetch = null;
       loopOn = false;
       loopPaused = true;
       clearLoopCueGuard();
@@ -339,8 +358,12 @@
     function audioLoopPaused() { return loopPaused; }
 
     // 暂停期间收藏列表变没变：变了就不能接着旧队列，会放出一句已经删掉的。
+    // 2026-10-14：已经在这一轮里的句子，此刻没地址（被回收了）也照算——地址没了不等于
+    // 删了，不然一回收就被当成「列表变了」，继续变成从第一句重来。
     function sameQueue(items) {
-      var next = (items || []).filter(function (it) { return playableUrlFor(it); }).map(function (it) { return it && it.id; });
+      var inQueue = {};
+      for (var q = 0; q < loopQueue.length; q++) inQueue[loopQueue[q].id] = true;
+      var next = (items || []).filter(function (it) { return playableUrlFor(it) || (it && inQueue[it.id]); }).map(function (it) { return it && it.id; });
       if (next.length !== loopQueue.length) return false;
       for (var i = 0; i < next.length; i++) if (next[i] !== loopQueue[i].id) return false;
       return true;
@@ -351,6 +374,7 @@
       loopOn = false;
       loopPaused = false;
       pausedDuring = null;
+      loopFetch = null;
       loopPhase = "en";
       clearLoopCueGuard();
       if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }

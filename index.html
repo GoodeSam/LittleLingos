@@ -3668,6 +3668,8 @@ var llAudioLoop = llAudioLoopLib.create({
   clearTimeout: function (t) { return clearTimeout(t); },
   audioUrlFor: function (id) { return audioUrlFor(id); },
   playableUrlFor: function (item) { return playableUrlFor(item); },
+  // 地址没了（被回收、被释放）但声音还在手机里：从本机取回来再放，不跳过。
+  primeUrl: function (item) { return item && item.id ? primeAudioUrl(item.id) : null; },
   stopAllAudio: function () { if (typeof stopAllAudio === "function") stopAllAudio(); },
   provisionLoopCues: function (q) { if (typeof provisionLoopCues === "function") provisionLoopCues(q); },
   // 2026-09-29 熄屏也能放：系统的播放条（锁屏 / 通知栏）、句间停顿用的无声片段、
@@ -3708,7 +3710,10 @@ var llPlayback = llPlaybackLib.create({
   isAudioBacked: (item) => llItemKind.isAudioBacked(item),
   URL: typeof URL !== "undefined" ? URL : null,
   // 2026-09-29：地址上限跟着收藏条数走（至少 120）。死的 120 会让第 121 行起标着 🔊 却放机器音。
-  urlCap: function () { return Math.max(120, savedPhrases.length + 20); },
+  // 2026-10-14：每句再算一份中文提示。连播一开始就给每句的中文提示备地址，和英文挤
+  // 同一个池子；只数英文的话，80 条收藏就要回收 40 个，回收的正是最早备好的——收藏页
+  // 最新在前，于是最新收藏的那几句只念中文、英文被跳过。
+  urlCap: function () { return Math.max(120, savedPhrases.length * 2 + 20); },
 });
 // 别名：块外 22 处调用点认的是这些名字（var，沙箱里 const 不挂上下文）。
 var audioUrlFor = llPlayback.audioUrlFor;

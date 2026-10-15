@@ -401,7 +401,7 @@
         </ul>
         <p><strong>放到一半想停</strong>：按钮上写着 ⏸ 的时候再点一下就是暂停，声音停在那里；再点一次从停的地方接着放，不是从头。场景卡上的进度条也停在原处。</p>
         <p>没有生成好的句子，会先用手机自带的声音念，音色会不一样，屏幕上会提示一次。<strong>用手机自带声音念的那种没法接着放</strong>：点第二下是停下来，再点是从头念一遍。</p>
-        <p>收藏页顶上的【连续播放全部】会把收藏里<strong>已经有声音的</strong>句子一句接一句放（还没生成出声音的会跳过）：第一句直接放英文，之后每句先念中文提示，停几秒让你自己试着说，再放英文。放的时候按一下是<strong>暂停</strong>，再按一下从停的地方接着放，不会从头来。屏幕上先只显示这句的中文提示，英文开始放时才显示英文。<strong>手机熄屏也会接着放</strong>，锁屏上能看到正在放的英文、能按暂停和播放；还没生成好中文提示音的那几句，熄屏时提示可能听不到，下一轮就有了。适合做饭、洗碗、开车时听。</p>
+        <p>收藏页顶上的【连续播放全部】会把收藏里<strong>已经有声音的</strong>句子一句接一句放（还没生成出声音的会跳过）：第一句直接放英文，之后每句先念中文提示，停几秒让你自己试着说，再放英文。放的时候按一下是<strong>暂停</strong>，再按一下从停的地方接着放，不会从头来。按钮下面的<strong>滑块</strong>可以选从第几句开始：拖到哪句，点开始就从哪句放；正在放的时候拖，就跳到那一句（先念它的中文提示）。屏幕上先只显示这句的中文提示，英文开始放时才显示英文。<strong>手机熄屏也会接着放</strong>，锁屏上能看到正在放的英文、能按暂停和播放；还没生成好中文提示音的那几句，熄屏时提示可能听不到，下一轮就有了。适合做饭、洗碗、开车时听。</p>
       </div>
     </details>
 
@@ -2178,8 +2178,44 @@ function renderSavedScreen() {
   loopCue.appendChild(loopCueZh);
   loopCue.appendChild(loopCueEn);
   const paintLoopCue = item => paintLoopCueBox(loopCue, item, 'zh');
+  // 2026-10-14：起点滑块。拖到哪句就从哪句放；正在放 / 暂停着时拖，就跳过去。
+  // 放的时候它跟着当前那句走（onLoopPhase 里），所以停下再点是接着放，不是从头来。
+  // 只有一句的时候没什么可选，不画。
+  loopSeekRows = rows;
+  let loopSeek = null;
+  if (rows.length > 1) {
+    loopSeek = document.createElement('div');
+    loopSeek.className = 'loop-seek';
+    const seekLabel = document.createElement('div');
+    seekLabel.className = 'loop-seek-label';
+    const seekRange = document.createElement('input');
+    seekRange.type = 'range';
+    seekRange.className = 'loop-seek-range';
+    seekRange.min = '1';
+    seekRange.max = String(rows.length);
+    seekRange.step = '1';
+    seekRange.setAttribute('aria-label', '从第几句开始连续播放');
+    loopSeek.appendChild(seekLabel);
+    loopSeek.appendChild(seekRange);
+    const pickedRow = () => rows[Number(seekRange.value) - 1];
+    seekRange.oninput = () => {
+      loopSeekDragging = true;                    // 手指还按着：别让正在放的那句把滑块拽回去
+      const r = pickedRow();
+      if (r) loopSeekId = r.id;
+      paintLoopSeek();
+    };
+    seekRange.onchange = () => {
+      loopSeekDragging = false;
+      const r = pickedRow();
+      if (!r) return;
+      loopSeekId = r.id;
+      if (audioLoopPlaying() || audioLoopPaused()) jumpAudioLoop(r.id);
+      paintLoopSeek();
+      paintLoopBtn();
+    };
+  }
   loopBtn.onclick = () => {
-    const started = toggleAudioLoop(rows, paintLoopCue);
+    const started = toggleAudioLoop(rows, paintLoopCue, loopSeekId);
     if (started === false && !audioLoopPlaying()) {
       // Distinguish "stopped on purpose" from "nothing here can be played" —
       // a button that does nothing and says nothing reads as broken.
@@ -2190,7 +2226,9 @@ function renderSavedScreen() {
     paintLoopBtn();
   };
   list.appendChild(loopBtn);
+  if (loopSeek) list.appendChild(loopSeek);
   list.appendChild(loopCue);
+  paintLoopSeek();
   // Ready every visible row's clip now so a tap can start it synchronously —
   // the same iOS reason renderReviewCard() primes its one item. Not awaited:
   // the list paints immediately, and a tap arriving first falls back to speech
@@ -3660,6 +3698,27 @@ function paintLoopCueBox(box, item, phase) {
     enEl.textContent = showEn ? item.en : '';
   }
 }
+// 连播起点滑块（收藏页）。位置只记在这次打开里，不写存储：
+//   loopSeekId       —— 滑块指着哪一句（id）。拖动时改，放的时候跟着当前那句改
+//   loopSeekRows     —— 收藏页这一次画出来的列表（滑块的第 k 格 = 第 k 行）
+//   loopSeekDragging —— 手指还按在滑块上：这时别让正在放的那句把它拽回去
+var loopSeekId = null;
+var loopSeekRows = [];
+var loopSeekDragging = false;
+function paintLoopSeek() {
+  const box = document.querySelector('#savedScreenList .loop-seek');
+  if (!box) return;
+  const range = box.querySelector('.loop-seek-range');
+  const label = box.querySelector('.loop-seek-label');
+  const n = loopSeekRows.length;
+  let at = loopSeekRows.findIndex(r => r.id === loopSeekId);
+  if (at < 0) at = 0;
+  if (range && !loopSeekDragging) range.value = String(at + 1);
+  const k = range ? Number(range.value) : at + 1;
+  const row = loopSeekRows[k - 1];
+  const busy = audioLoopPlaying() || audioLoopPaused();
+  if (label) label.textContent = (busy ? '第 ' : '从第 ') + k + ' / ' + n + ' 句' + (busy ? '' : '开始') + (row && row.zh ? '：' + row.zh : '');
+}
 var llAudioLoop = llAudioLoopLib.create({
   Audio: typeof Audio !== "undefined" ? Audio : null,
   speech: typeof speechSynthesis !== "undefined" ? speechSynthesis : null,
@@ -3681,9 +3740,11 @@ var llAudioLoop = llAudioLoopLib.create({
   onLoopState: function (state) {
     paintLoopBtnLabel(document.querySelector('#savedScreenList .loop-btn'));
     if (state === 'stopped') paintLoopCueBox(document.querySelector('#savedScreenList .loop-cue'), null, 'zh');
+    paintLoopSeek();   // 「从第 k 句开始」↔「第 k 句」
   },
   onLoopPhase: function (item, phase) {
     paintLoopCueBox(document.querySelector('#savedScreenList .loop-cue'), item, phase);
+    if (item && item.id) { loopSeekId = item.id; paintLoopSeek(); }   // 滑块跟着当前那句走
   },
 });
 var LOOP_PAUSE_MS = llAudioLoop.LOOP_PAUSE_MS;
@@ -3693,6 +3754,7 @@ var startAudioLoop = llAudioLoop.startAudioLoop;
 var stopAudioLoop = llAudioLoop.stopAudioLoop;
 var toggleAudioLoop = llAudioLoop.toggleAudioLoop;
 var loopAudible = llAudioLoop.loopAudible;
+var jumpAudioLoop = llAudioLoop.jumpAudioLoop;
 var audioLoopPaused = llAudioLoop.audioLoopPaused;
 
 // 声音标记怎么显示在 audio-marks.js（llAudioMarks）。四个依赖传进去，不让它抓全局。

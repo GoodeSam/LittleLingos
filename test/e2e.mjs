@@ -1578,6 +1578,47 @@ check("收藏列表：点一行的 🔊，播放模块接到的主人就是那�
   assert.equal(r.mode, "clip", `该放的是录音，实际 mode=${r.mode}`);
 });
 
+check("收藏页连播的滑块：拖到第 3 句再点开始，从第 3 句放；放着时拖到别句就跳过去；列表重画后位置还在", async (ev) => {
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    stopAudioLoop(); stopAllAudio();
+    openScenario("bath"); switchAge("1-2"); await tick();
+    for (const p of scenarios.bath.phrases["1-2"].slice(0, 5)) if (!savedPhrases.some(x => x.id === p.id)) toggleSave(p.id);
+    showTab("saved"); await tick();
+    const zhOfRow = k => document.querySelectorAll("#savedScreenList .saved-item-zh")[k - 1].innerText.trim();
+    const seek = () => document.querySelector("#savedScreenList input.loop-seek-range");
+    const label = () => document.querySelector("#savedScreenList .loop-seek-label");
+    const cueZh = () => document.querySelector("#savedScreenList .loop-cue-zh").innerText.trim();
+    const drag = (k, final) => { const s = seek(); s.value = String(k); s.dispatchEvent(new Event("input", { bubbles: true }));
+                                 if (final) s.dispatchEvent(new Event("change", { bubbles: true })); };
+    const out = { hasSeek: !!seek() };
+    if (!out.hasSeek) return out;
+    const n = document.querySelectorAll("#savedScreenList .saved-item").length;
+    out.max = Number(seek().max); out.n = n;
+    out.tall = seek().getBoundingClientRect().height;
+    drag(3, true); await tick();
+    out.labelSays3 = label().innerText.includes("3") && label().innerText.includes(zhOfRow(3));
+    renderSavedScreen(); await tick();                       // 声音标记一变就会重画
+    out.keptAfterRender = seek().value === "3";
+    document.querySelector("#savedScreenList .loop-btn").click(); await tick();
+    out.playing = audioLoopPlaying();
+    out.startedAt3 = cueZh() === zhOfRow(3);
+    drag(5, true); await new Promise(res => setTimeout(res, 300));
+    out.jumpedTo5 = cueZh() === zhOfRow(5) && audioLoopPlaying();
+    out.row3 = zhOfRow(3); out.cue = cueZh();
+    stopAudioLoop(); stopAllAudio(); showTab("home");
+    return out;
+  });
+  assert.equal(r.hasSeek, true, "收藏页连播那里没有滑块");
+  assert.equal(r.max, r.n, `滑块的格数（${r.max}）和收藏条数（${r.n}）对不上`);
+  assert.ok(r.tall >= 44, `滑块只有 ${r.tall}px 高，抱着孩子的手点不准`);
+  assert.equal(r.labelSays3, true, "拖到第 3 句，旁边没写「第 3 句」和那句的中文");
+  assert.equal(r.keptAfterRender, true, "列表一重画，滑块就跳回开头了");
+  assert.equal(r.playing, true, "点开始，连播没起来");
+  assert.equal(r.startedAt3, true, `没从第 3 句开始（屏幕上是「${r.cue}」，第 3 句是「${r.row3}」）`);
+  assert.equal(r.jumpedTo5, true, "放着的时候拖到第 5 句，没跳过去");
+});
+
 check("收藏列表：点「显示英文」之后，英文里的词能点，释义在那一行底下；别的行不受影响", async (ev) => {
   await ev(WORD_TAP_FETCH);
   const r = await ev(async () => {

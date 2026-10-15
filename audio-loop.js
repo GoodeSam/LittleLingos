@@ -201,7 +201,26 @@
     // is nothing to play, so the caller can say why rather than leaving the parent
     // tapping a button that appears dead. `onCue(item)` is called whenever the
     // phrase on deck changes, so the screen can show its Chinese.
-    function startAudioLoop(items, onCue) {
+    // 2026-10-14：起点可选（收藏页的滑块）。startId 是列表里某一句的 id：从它开始，
+    // 它没声音就从它往后第一句有声音的开始；不给、或已不在列表里，就从第一句。
+    function startIndexFor(items, startId) {
+      if (startId == null) return 0;
+      var list = items || [];
+      var from = -1;
+      for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === startId) { from = i; break; }
+      if (from < 0) return 0;
+      for (var k = from; k < list.length; k++) {
+        var qi = queuePos(list[k] && list[k].id);
+        if (qi >= 0) return qi;
+      }
+      return 0;
+    }
+    function queuePos(id) {
+      for (var i = 0; i < loopQueue.length; i++) if (loopQueue[i].id === id) return i;
+      return -1;
+    }
+
+    function startAudioLoop(items, onCue, startId) {
       stopAudioLoop();
       stopAllAudio();   // 播放键正在放的那段要停，否则两个声音一起响
       loopQueue = (items || []).filter(it => playableUrlFor(it));
@@ -228,14 +247,14 @@
           else advanceAndCue();
         });
       }
-      loopIndex = 0;
+      loopIndex = startIndexFor(items, startId);
       loopOn = true;
       loopPhase = "en";
       // 中文提示按需生成：这一轮没备好的就退回手机合成，转回来时就有了。
       try { provisionLoopCues(loopQueue); } catch (e) {}
       bindMediaSession();
       setLoopState("playing");
-      cueLoopItem(loopQueue[0]);   // shown, not spoken: the English starts now
+      cueLoopItem(loopQueue[loopIndex]);   // shown, not spoken: the English starts now
       playCurrentLoopClip();
       return true;
     }
@@ -357,6 +376,27 @@
 
     function audioLoopPaused() { return loopPaused; }
 
+    // 放着或暂停着的时候拖滑块：跳到这一轮里的那一句。放着就马上停掉当前这段，
+    // 先念那句的中文提示再放英文（和平常每一句一样，不因为是跳过来的就先露答案）；
+    // 暂停着只挪位置，按继续时从那句的中文提示开始。没在放、或那句不在这一轮里：
+    // 什么也不做，返回 false。
+    function jumpAudioLoop(id) {
+      if (!loopOn && !loopPaused) return false;
+      var qi = queuePos(id);
+      if (qi < 0) return false;
+      clearLoopCueGuard();
+      if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
+      loopFetch = null;
+      loopIndex = qi;
+      var item = loopQueue[qi];
+      if (loopEl) { try { loopEl.pause(); } catch (e) {} }
+      silenceLoopCue();
+      cueLoopItem(item);
+      if (loopPaused) { pausedDuring = "speech-cue"; return true; }
+      startLoopCue(item);
+      return true;
+    }
+
     // 暂停期间收藏列表变没变：变了就不能接着旧队列，会放出一句已经删掉的。
     // 2026-10-14：已经在这一轮里的句子，此刻没地址（被回收了）也照算——地址没了不等于
     // 删了，不然一回收就被当成「列表变了」，继续变成从第一句重来。
@@ -385,13 +425,13 @@
       if (wasActive) setLoopState("stopped");   // 起播前的例行清场不算一次「停掉」
     }
 
-    function toggleAudioLoop(items, onCue) {
+    function toggleAudioLoop(items, onCue, startId) {
       if (loopOn) { pauseAudioLoop(); return false; }
       if (loopPaused && sameQueue(items)) {
         loopOnCue = typeof onCue === "function" ? onCue : loopOnCue;   // 列表重画后回调换了一份
         return resumeAudioLoop();
       }
-      return startAudioLoop(items, onCue);
+      return startAudioLoop(items, onCue, startId);
     }
 
     return {
@@ -417,6 +457,7 @@
       resumeAudioLoop: resumeAudioLoop,
       audioLoopPaused: audioLoopPaused,
       toggleAudioLoop: toggleAudioLoop,
+      jumpAudioLoop: jumpAudioLoop,
     };
   }
 

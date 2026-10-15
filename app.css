@@ -1712,6 +1712,17 @@ details.transcript[open] { padding-bottom: 12px; }
   background: var(--card); color: inherit; cursor: pointer;
 }
 .loop-btn:active { opacity: .6; }
+/* 2026-10-14：连播起点滑块。夹在按钮和中文提示之间；滑轨本身细，但整条
+   至少 44px 高，抱着孩子的手也拖得住。文字一行放不下就换行，不撑破。 */
+.loop-seek { margin: -6px 0 14px; }
+.loop-seek-label {
+  font-size: 15px; line-height: 1.4; opacity: .75;
+  overflow-wrap: anywhere;
+}
+.loop-seek-range {
+  display: block; width: 100%; min-height: 44px; margin: 0;
+  accent-color: var(--accent, currentColor); cursor: pointer;
+}
 /* The Chinese on deck during the loop: big enough to read from arm's
    length while holding a child, and it sits where the eye already is —
    right under the button that started it. */

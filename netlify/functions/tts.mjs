@@ -91,7 +91,12 @@ function buildSSML(text, voice) {
   const lang = localeOf(voice);
   // 英文那句刻意放慢 20%、略微提高音高：家长要照着念给孩子听。中文只是一句
   // 提示，不是要模仿的对象，放慢一点点就够，音高不动。
-  const prosody = lang === "en-US" ? `rate='-20%' pitch='+5%'` : `rate='-10%'`;
+  // 2026-10-15：两种语言都大声 50%（Victor 跑步时听不清）。随应用下发的录音已经整批
+  // 放大 1.5 倍，这里不跟上的话，同一轮连播里自己存的句子会比预设句轻。实打过：
+  // volume='+50%' 让 Andrew 从 -23.4 到 -18.5 LUFS、中文提示从 -21.4 到 -17.9，和放大后
+  // 的预设（中位约 -17.5）基本一样响；'x-loud' 几乎不变，不能用。
+  const louder = `volume='+50%'`;
+  const prosody = lang === "en-US" ? `rate='-20%' pitch='+5%' ${louder}` : `rate='-10%' ${louder}`;
   return `<speak version='1.0' xml:lang='${lang}'><voice xml:lang='${lang}' name='${voice}'>`
        + `<prosody ${prosody}>${safe}</prosody></voice></speak>`;
 }

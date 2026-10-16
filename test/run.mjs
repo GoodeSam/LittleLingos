@@ -96,6 +96,16 @@ step("L0 · marks survive a restart (test/marks-after-reload.test.mjs)", () => r
 step("L0 · one-tap looping playback (test/audio-loop.test.mjs)", () => run("node", ["test/audio-loop.test.mjs"]));
 step("L0 · loop plays every saved phrase's English, even after its address was reclaimed (test/loop-new-saved-audio.test.mjs)", () => run("node", ["test/loop-new-saved-audio.test.mjs"]));
 step("L0 · loop starts / jumps at the phrase the slider points to (test/loop-start-position.test.mjs)", () => run("node", ["test/loop-start-position.test.mjs"]));
+// 随应用下发的录音够响、不破音（2026-10-15 整批放大 1.5 倍）。要用 ffmpeg 量；
+// 没有就大声跳过——和 Chrome 那一层同一个理由。
+let hasFfmpeg = false;
+try { execFileSync("ffmpeg", ["-version"], { stdio: "ignore" }); hasFfmpeg = true; } catch {}
+if (hasFfmpeg) {
+  step("L0 · shipped clips are loud enough and do not clip (test/audio-loudness.test.mjs)", () => run("node", ["test/audio-loudness.test.mjs"]));
+} else {
+  skip("L0 · shipped clips are loud enough and do not clip (test/audio-loudness.test.mjs)",
+       "这台机器上没有 ffmpeg —— 随应用下发的录音够不够响、破不破音，这次没人量");
+}
 step("L0 · bottom tab labels (test/nav-labels.test.mjs)", () => run("node", ["test/nav-labels.test.mjs"]));
 step("L0 · tabs reachable from every screen (test/nav-everywhere.test.mjs)", () => run("node", ["test/nav-everywhere.test.mjs"]));
 step("L0 · first-value path for a new parent (test/first-value-path.test.mjs)", () => run("node", ["test/first-value-path.test.mjs"]));

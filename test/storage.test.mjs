@@ -64,6 +64,7 @@ test("九个键名一个都没变——家长升级之后所有东西都还在",
     voice: "ll_voice", reminder: "ll_reminder", usedMeta: "ll_used_meta", audio: "ll_audio",
     installDismissed: "ll_install_dismissed", iosInstallDismissed: "ll_ios_install_dismissed",
     wechatInstallDismissed: "ll_wechat_install_dismissed",
+    loopRepeat: "ll_loop_repeat",
   }, "键名表和上线版本对不上——改了键名等于把家长的数据弄丢");
   assert.ok(Object.isFrozen(KEYS), "键名表要冻结，不许运行时被改");
 });

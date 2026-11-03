@@ -1,7 +1,7 @@
 // 连播（ADR 0009 第十六块；原 ll:audio-loop 块）。
 // 一次点击，收藏过的句子一句接一句放下去，中间留出让家长自己先说的停顿。
 //
-// 九个依赖从 create(deps) 传进来，之前都是直接抓全局：
+// 十个依赖从 create(deps) 传进来，之前都是直接抓全局：
 //   Audio / speech / Utterance   —— 浏览器零件（Audio 构造器、speechSynthesis、
 //                                  SpeechSynthesisUtterance）
 //   setTimeout / clearTimeout    —— 时钟。测试要能驱动它：句子之间那段停顿
@@ -17,6 +17,8 @@
 //                                  接住锁屏上的暂停 / 播放键
 //   silenceUrl                   —— 一段和句间停顿一样长的无声音频的地址。
 //                                  停顿改成放它，而不是空等一个计时器（见下）
+//   getEnglishRepeat()           —— 每句英文放几遍：返回 2 才放两遍，其余按一遍。
+//                                  每句开始放英文前现读（2026-11-03 加）
 //   onLoopState(state)           —— "playing" | "paused" | "stopped"。锁屏那一下
 //                                  没经过屏幕上的按钮，按钮得靠这个跟上
 //   onLoopPhase(item, phase)     —— 此刻出声的是哪句的哪一段："zh" 提示阶段、
@@ -46,6 +48,12 @@
     var silenceUrl = typeof deps.silenceUrl === "string" && deps.silenceUrl ? deps.silenceUrl : null;
     var onLoopState = typeof deps.onLoopState === "function" ? deps.onLoopState : null;
     var onLoopPhase = typeof deps.onLoopPhase === "function" ? deps.onLoopPhase : null;
+    // 每句英文放几遍：只认 2，其余（没传、读不到、乱值）都按 1。每句开始放英文前现读，
+    // 家长中途改了设置，下一句起生效。2026-11-03 加。
+    var getEnglishRepeat = typeof deps.getEnglishRepeat === "function" ? deps.getEnglishRepeat : null;
+    function readRepeat() {
+      try { return getEnglishRepeat && getEnglishRepeat() === 2 ? 2 : 1; } catch (e) { return 1; }
+    }
 
     // One tap, and every saved phrase plays in turn, over and over.
     //
@@ -104,14 +112,24 @@
     var loopTimer = null;
     var loopOn = false;
     var loopOnCue = null;
-    var loopPhase = "en";                // "zh" 正在念中文 | "gap" 无声停顿 | "en" 正在放英文
+    var loopPhase = "en";                // "zh" 正在念中文 | "gap" 无声停顿 | "en" 正在放英文 | "gap2" 两遍英文之间的停顿
+    var loopPass = 0;                    // 这句英文正在放第几遍（0 = 还没开始放英文）
+    var loopPassesTotal = 1;             // 这句英文一共放几遍（1 或 2）
+    var loopRepeating = false;           // 正在为第二遍做准备（含从本机取回声音的那一拍）
+    var gap2Tok = null;                  // 两遍之间这一次停顿的一次性守卫，见 afterEnglishPass
+    var clipTok = null;                  // 此刻这段英文的一次性守卫：放完、被拒、报错，只有第一个算数
+    // 两遍之间那段无声片段被丢下之后（退回计时器、跳句、停止），它迟到的 ended / error
+    // 不能再推进状态机。只在这种情况下才查，正常路径一律不查（C21：正常路径要在
+    // ended 回调里同步切 src）。真浏览器里，迟到的 ended 到的时候元素已换了片段，
+    // ended 属性是 false；迟到的 error 到的时候元素身上没有 error 对象。
+    var staleCheck = false;
     var loopCueGuard = null;
     var loopFetch = null;                // 正在从本机取回某句英文（见 playCurrentLoopClip）；停 / 暂停时作废
     // 暂停着（按钮自己那一下）。和「停掉」不同：队列、位置、当前阶段都留着，
     // 再按一下从停的地方接着放。2026-09-28 真机报上来：原来第二下是停掉，
     // 第三下从第一句重来——家长在第七句被叫走，回来得从头听六句。
     var loopPaused = false;
-    var pausedDuring = null;             // "element" 元素放到一半 | "speech-cue" 手机在念中文 | "gap" 中文念完的停顿里
+    var pausedDuring = null;             // "element" 元素放到一半 | "speech-cue" 手机在念中文 | "gap" 中文念完的停顿里 | "gap2" 两遍英文之间的停顿里
 
     function audioLoopPlaying() { return loopOn; }
     // 此刻有没有真的在出声。和 audioLoopPlaying() 不同：那个是「这一轮开着」，
@@ -234,22 +252,29 @@
         // 同一个元素先放中文再放英文，所以 ended 要看现在是哪一段。
         loopEl.addEventListener("ended", () => {
           if (!loopOn) return;
+          if (staleCheck) { if (loopEl.ended === false) return; staleCheck = false; }
           if (loopPhase === "zh") afterLoopCue();
           else if (loopPhase === "gap") playCurrentLoopClip();
-          else advanceAndCue();
+          else if (loopPhase === "gap2") finishGap2();                // 两遍之间的 2 秒放完：放第二遍
+          else if (loopPass < loopPassesTotal) { clipTok = null; afterEnglishPass(); }   // 第一遍放完，还要放第二遍
+          else { clipTok = null; advanceAndCue(); }
         });
         // A clip whose address was evicted from the cache must not end the
         // session — that reads as the loop stopping for no reason.
         loopEl.addEventListener("error", () => {
           if (!loopOn) return;
+          if (staleCheck && !loopEl.error) return;
           if (loopPhase === "zh") afterLoopCue();
           else if (loopPhase === "gap") playCurrentLoopClip();   // 无声放不出来：直接放英文，别卡在停顿里
-          else advanceAndCue();
+          else if (loopPhase === "gap2") gap2Fallback(gap2Tok);   // 无声片段放不出来：退回计时器
+          else failClip(clipTok);
         });
       }
       loopIndex = startIndexFor(items, startId);
       loopOn = true;
       loopPhase = "en";
+      loopPass = 0;
+      loopRepeating = false; gap2Tok = null;
       // 中文提示按需生成：这一轮没备好的就退回手机合成，转回来时就有了。
       try { provisionLoopCues(loopQueue); } catch (e) {}
       bindMediaSession();
@@ -259,7 +284,11 @@
       return true;
     }
 
-    function playCurrentLoopClip() {
+    // repeating 为真：放同一句英文的第二遍（不重新读设置、不重画屏幕）。
+    function playCurrentLoopClip(repeating) {
+      loopRepeating = !!repeating;
+      gap2Tok = null;
+      if (!repeating) { loopPassesTotal = readRepeat(); loopPass = 0; }
       const item = loopQueue[loopIndex];
       const url = playableUrlFor(item);
       // 这一句没地址了（浏览器把它清掉了）：往下走，不是停在这里。
@@ -281,12 +310,22 @@
 
     function playLoopUrl(item, url) {
       loopPhase = "en";
-      notifyPhase(item, "en");   // 英文开始放了：这时才把英文亮出来
+      loopPass += 1;
+      // 英文开始放了：这时才把英文亮出来。第二遍不再重画——屏幕和锁屏都不动，不闪。
+      if (loopPass === 1) notifyPhase(item, "en");
+      var ct = clipTok = {};
       loopEl.src = url;
       const p = loopEl.play();
       // A rejected play (autoplay refused, element torn down) must not strand the
       // session on a phrase that never sounds.
-      if (p && typeof p.catch === "function") p.catch(() => { if (loopOn) advanceAndCue(); });
+      // 被拒和报错可能先后都到：只有第一个往下走，不连跳两句；第一遍被拒绝不进第二遍。
+      if (p && typeof p.catch === "function") p.catch(() => failClip(ct));
+    }
+    function failClip(ct) {
+      if (!loopOn || !ct || clipTok !== ct) return;
+      clipTok = null;
+      staleCheck = true;   // 这段英文被丢下了，它同一次失败的另一个事件晚到也不算数
+      advanceAndCue();
     }
 
     // Cue the next phrase now, play its English after the pause. The pause is the
@@ -297,9 +336,42 @@
       if (loopTimer) clearTimeout(loopTimer);
       clearLoopCueGuard();
       loopIndex = (loopIndex + 1) % loopQueue.length;
+      loopPass = 0; loopRepeating = false; gap2Tok = null; clipTok = null;
       const item = loopQueue[loopIndex];
       cueLoopItem(item);
       startLoopCue(item);
+    }
+
+    // 第一遍英文放完、还要放第二遍：停 2 秒再放。和句首那 2 秒一样，优先用同一个元素
+    // 放无声片段占住（C21：元素不能有空档），放不了才退回计时器。
+    // 这段时间不通知屏幕、不动锁屏播放条：英文原样留着。
+    // 无声片段临场放不出来（play 被拒、或元素报 error）时退回计时器，两遍之间仍是 2 秒。
+    // 被拒和报错可能先后都到，所以每次停顿一张一次性的牌（gap2Tok）：只有第一个到的
+    // 能改走计时器，晚到的、以及已经放完往下走的，一律不再动。
+    function afterEnglishPass() {
+      loopPhase = "gap2";
+      var tok = gap2Tok = { failed: false };
+      if (silenceUrl && loopEl) {
+        loopEl.src = silenceUrl;
+        const p = loopEl.play();
+        if (p && typeof p.catch === "function") p.catch(() => gap2Fallback(tok));
+        return;
+      }
+      gap2Fallback(tok);
+    }
+    function gap2Fallback(tok) {
+      if (!loopOn || !tok || gap2Tok !== tok || tok.failed) return;
+      tok.failed = true;
+      staleCheck = true;   // 这段无声片段被丢下了，它迟到的事件不算数
+      loopTimer = setTimeout(() => {
+        loopTimer = null;
+        if (loopOn && gap2Tok === tok) playCurrentLoopClip(true);
+      }, LOOP_PAUSE_MS);
+    }
+    function finishGap2() {
+      var tok = gap2Tok;
+      if (!tok || tok.failed) return;   // 已经改走计时器了，元素这边的 ended 不算数
+      playCurrentLoopClip(true);
     }
 
     // 念中文。有生成好的音频就用它——同一个元素，靠 ended 接续，时序是准的。
@@ -346,7 +418,9 @@
     function pauseAudioLoop() {
       if (!loopOn) return;
       // 正在从本机取英文时暂停，和停在停顿里一样：接着放时直接放这句英文。
-      pausedDuring = loopCueGuard ? "speech-cue" : ((loopTimer || loopFetch) ? "gap" : "element");
+      pausedDuring = loopCueGuard ? "speech-cue"
+        : loopPhase === "gap2" ? "gap2"
+        : ((loopTimer || loopFetch) ? "gap" : "element");
       loopFetch = null;
       loopOn = false;
       loopPaused = true;
@@ -368,7 +442,8 @@
       var item = loopQueue[loopIndex];
       var how = pausedDuring; pausedDuring = null;
       if (how === "speech-cue") { cueLoopItem(item); startLoopCue(item); return true; }
-      if (how === "gap") { loopPhase = "en"; playCurrentLoopClip(); return true; }
+      if (how === "gap2") { playCurrentLoopClip(true); return true; }
+      if (how === "gap") { loopPhase = "en"; playCurrentLoopClip(loopRepeating); return true; }
       var p = loopEl ? loopEl.play() : null;
       if (p && typeof p.catch === "function") p.catch(function () { if (loopOn) advanceAndCue(); });
       return true;
@@ -387,6 +462,8 @@
       clearLoopCueGuard();
       if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
       loopFetch = null;
+      if (gap2Tok || loopPhase === "gap2") staleCheck = true;
+      loopPass = 0; loopRepeating = false; gap2Tok = null; clipTok = null;
       loopIndex = qi;
       var item = loopQueue[qi];
       if (loopEl) { try { loopEl.pause(); } catch (e) {} }
@@ -415,7 +492,9 @@
       loopPaused = false;
       pausedDuring = null;
       loopFetch = null;
+      if (gap2Tok || loopPhase === "gap2") staleCheck = true;
       loopPhase = "en";
+      loopPass = 0; loopRepeating = false; gap2Tok = null; clipTok = null;
       clearLoopCueGuard();
       if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
       // Cancelling only the schedule would leave the current phrase sounding after

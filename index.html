@@ -1952,7 +1952,6 @@ function toggleSave(id) {
   const phrase = findPhrase(id);
   if (!phrase) return;
   const idx = savedPhrases.findIndex(s => s.id === id);
-  const added = idx === -1;
   if (idx > -1) {
     savedPhrases.splice(idx, 1);
   } else {
@@ -1960,12 +1959,7 @@ function toggleSave(id) {
                         savedAt: Date.now(), rv: { s: 0, due: Date.now() } });
   }
   persistSaved();
-  // 只在「加」的时候说。从两条取消到剩一条也会让计数等于 1，
-  // 那时再弹一次「收好了」，说的是一件没发生的事。
-  if (added) {
-    const notice = firstSaveNotice(savedPhrases.length);
-    if (notice) showOfflineToast(notice);
-  }
+  // 2026-11-03 Victor 要求：收藏后不再弹提示（firstSaveNotice 留着，只是不再调用）。
   const btn = document.getElementById("save-" + id);
   if (btn) {
     const isSaved = savedPhrases.some(s => s.id === id);
@@ -2226,8 +2220,35 @@ function renderSavedScreen() {
     paintLoopBtn();
   };
   list.appendChild(loopBtn);
+  // 每句英文放几遍：一次 / 两次（两次时两遍之间隔 2 秒）。选择存本机，下次打开还在。
+  const loopRepeat = document.createElement('div');
+  loopRepeat.className = 'loop-repeat';
+  loopRepeat.setAttribute('role', 'group');
+  loopRepeat.setAttribute('aria-label', '每句英文播放几遍');
+  const repeatLabel = document.createElement('span');
+  repeatLabel.className = 'loop-repeat-label';
+  repeatLabel.textContent = '每句英文放';
+  loopRepeat.appendChild(repeatLabel);
+  const paintRepeat = () => {
+    loopRepeat.querySelectorAll('button').forEach(b => {
+      b.setAttribute('aria-pressed', String(Number(b.dataset.repeat) === readLoopRepeat()));
+    });
+  };
+  [['1', '一次'], ['2', '两次']].forEach(([n, label]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'loop-repeat-btn';
+    b.dataset.repeat = n;
+    b.textContent = label;
+    b.onclick = () => { loopRepeatMem = n === '2' ? 2 : 1; llStorage.write(llStorage.KEYS.loopRepeat, n); paintRepeat(); };
+    loopRepeat.appendChild(b);
+  });
+  paintRepeat();
+  list.appendChild(loopRepeat);
   if (loopSeek) list.appendChild(loopSeek);
   list.appendChild(loopCue);
+  // 页面被重画时（声音标记一变就会）新盒子是空的：放着或暂停着就按当前阶段补回来
+  if ((audioLoopPlaying() || audioLoopPaused()) && loopCueItem) paintLoopCueBox(loopCue, loopCueItem, loopCuePhaseNow());
   paintLoopSeek();
   // Ready every visible row's clip now so a tap can start it synchronously —
   // the same iOS reason renderReviewCard() primes its one item. Not awaited:
@@ -2929,8 +2950,7 @@ function saveTranslation() {
   // alternative carries its own.
   if (!r.zh) r.zh = document.getElementById("zhInput").value.trim();
   if (!saveTranslatedPhrase(r)) { alert("已经收藏过了。"); paintSaveBtn(); return; }
-  paintSaveBtn();
-  alert("已收藏！去「收藏 · 复习」页可以反复练习。");
+  paintSaveBtn();   // 按钮变成「已收藏」就是反馈，不再弹对话框
 }
 
 // ── Search: want-to-say → preset phrases ───────────────
@@ -3686,6 +3706,10 @@ function paintLoopBtnLabel(btn) {
 }
 // 连播提示框的两行。phase 'zh'：这句上场了，只给中文，英文藏起来（那 2 秒是让家长
 // 自己先说的）；phase 'en'：英文开始放了，把英文亮出来。item 为空就整个收起。
+// 提示框此刻该画哪个阶段：暂停在放英文时是 'both'，其余照当前阶段。
+function loopCuePhaseNow() {
+  return audioLoopPaused() && loopCuePhase === 'en' ? 'both' : loopCuePhase;
+}
 function paintLoopCueBox(box, item, phase) {
   if (!box) return;
   const zhEl = box.querySelector('.loop-cue-zh');
@@ -3693,9 +3717,12 @@ function paintLoopCueBox(box, item, phase) {
   box.hidden = !item;
   if (zhEl) zhEl.textContent = item ? (item.zh || '（这句没有中文）') : '';
   if (enEl) {
-    const showEn = !!item && phase === 'en' && typeof item.en === 'string' && item.en.trim();
+    const showEn = !!item && (phase === 'en' || phase === 'both') && typeof item.en === 'string' && item.en.trim();
     enEl.hidden = !showEn;
     enEl.textContent = showEn ? item.en : '';
+    // 2026-11-03：放英文时只看英文——中文收起（hidden，文字留着），其余时候中文照常。
+    // phase 'both'：暂停在放英文的时候——中文英文都给看，和 2026-11-03 之前一样。
+    if (zhEl) zhEl.hidden = !!showEn && phase === 'en';
   }
 }
 // 连播起点滑块（收藏页）。位置只记在这次打开里，不写存储：
@@ -3719,6 +3746,15 @@ function paintLoopSeek() {
   const busy = audioLoopPlaying() || audioLoopPaused();
   if (label) label.textContent = (busy ? '第 ' : '从第 ') + k + ' / ' + n + ' 句' + (busy ? '' : '开始') + (row && row.zh ? '：' + row.zh : '');
 }
+// 提示框此刻对应的句子与阶段：暂停 / 接着放时据此重画
+var loopCueItem = null, loopCuePhase = 'zh';
+// 连播里每句英文放一遍还是两遍。默认一遍；存不进去只影响这次打开。
+// 这次打开期间的选择先记在内存里：存储写失败（隐私模式、存满）时按钮和实际遍数仍一致。
+var loopRepeatMem = null;
+function readLoopRepeat() {
+  if (loopRepeatMem !== null) return loopRepeatMem;
+  return llStorage.readString(llStorage.KEYS.loopRepeat, '1') === '2' ? 2 : 1;
+}
 var llAudioLoop = llAudioLoopLib.create({
   Audio: typeof Audio !== "undefined" ? Audio : null,
   speech: typeof speechSynthesis !== "undefined" ? speechSynthesis : null,
@@ -3737,12 +3773,18 @@ var llAudioLoop = llAudioLoopLib.create({
   MediaMetadata: (typeof window !== "undefined" && window.MediaMetadata) ? window.MediaMetadata : null,
   silenceUrl: (typeof Blob !== "undefined" && typeof URL !== "undefined")
     ? llAudioLoopLib.silenceWavUrl(llAudioLoopLib.LOOP_PAUSE_MS, { Blob: Blob, URL: URL }) : null,
+  // 每句英文放几遍：设置存在 ll_loop_repeat，每句开始放英文前现读
+  getEnglishRepeat: function () { return readLoopRepeat(); },
   onLoopState: function (state) {
     paintLoopBtnLabel(document.querySelector('#savedScreenList .loop-btn'));
-    if (state === 'stopped') paintLoopCueBox(document.querySelector('#savedScreenList .loop-cue'), null, 'zh');
+    const cueBox = document.querySelector('#savedScreenList .loop-cue');
+    if (state === 'stopped') { loopCueItem = null; paintLoopCueBox(cueBox, null, 'zh'); }
+    // 暂停在放英文时中英文都给看；接着放时回到暂停前的那一段（放英文就只剩英文）
+    else if (loopCueItem) paintLoopCueBox(cueBox, loopCueItem, loopCuePhaseNow());
     paintLoopSeek();   // 「从第 k 句开始」↔「第 k 句」
   },
   onLoopPhase: function (item, phase) {
+    loopCueItem = item; loopCuePhase = phase;
     paintLoopCueBox(document.querySelector('#savedScreenList .loop-cue'), item, phase);
     if (item && item.id) { loopSeekId = item.id; paintLoopSeek(); }   // 滑块跟着当前那句走
   },

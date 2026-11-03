@@ -51,6 +51,8 @@ const ALLOWED_ORPHANS = {
   deleteAudio:
     "删掉某条的音频。取消收藏时刻意不删——重新收藏同一句话时能免费复用" +
     "（ADR 0003：省钱是这套设计的目的）。",
+  firstSaveNotice:
+    "2026-11-03 Victor 决定收藏后不再弹提示；函数与 first-value-path 三条测试保留，以便将来恢复。",
 };
 
 const stripComments = src =>

@@ -22,6 +22,7 @@
     access: "ll_access",               // 邀请码
     age: "ll_age",                     // 当前年龄档
     voice: "ll_voice",                 // 朗读音色
+    loopRepeat: "ll_loop_repeat",      // 连播里每句英文放几遍："1"（默认）或 "2"
     reminder: "ll_reminder",           // 到点提醒设置
     usedMeta: "ll_used_meta",          // 今天用了（带日期）
     audio: "ll_audio",                 // 音频相关标记

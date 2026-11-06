@@ -215,8 +215,16 @@ const openSaved = async (ev) => ev(async () => {
   showTab("saved"); await tick();
   return true;
 });
+// 2026-11-06：「每句英文放几遍」从收藏页搬到设置页（Victor 要）。下面所有找按钮的地方
+// 跟着换到 #settingsScreen；断言本身没有动。
+const openSettings = async (ev) => ev(async () => {
+  const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+  stopAudioLoop(); stopAllAudio();
+  showTab("settings"); await tick();
+  return true;
+});
 const repeatState = () => {
-  const box = document.querySelector("#savedScreenList .loop-repeat");
+  const box = document.querySelector("#settingsScreen .loop-repeat");
   if (!box) return { missing: true };
   const pressed = Array.from(box.querySelectorAll("button[data-repeat]"))
     .filter(b => b.getAttribute("aria-pressed") === "true").map(b => b.dataset.repeat);
@@ -225,20 +233,20 @@ const repeatState = () => {
 };
 
 check("英语播放次数：默认「一次」；点「两次」，重新打开页面还是「两次」；再点回「一次」也记得住", async (ev) => {
-  await openSaved(ev);
+  await openSettings(ev);
   const first = await ev(repeatState);
-  assert.ok(!first.missing, "收藏页连播那里没有「英语放几次」的选项");
+  assert.ok(!first.missing, "设置页里没有「每句英文放几遍」的选项");
   assert.equal(first.count, 2, "选项不是两个");
   assert.deepEqual(first.pressed, ["1"], `默认选中的不是「一次」：${first.pressed}`);
   assert.ok(first.minH >= 44, `选项按钮只有 ${first.minH}px 高，抱着孩子点不准`);
-  await ev(() => { document.querySelector('#savedScreenList .loop-repeat button[data-repeat="2"]').click(); return true; });
+  await ev(() => { document.querySelector('#settingsScreen .loop-repeat button[data-repeat="2"]').click(); return true; });
   assert.deepEqual((await ev(repeatState)).pressed, ["2"], "点了「两次」，界面没跟上");
   await reload(ev);
-  await openSaved(ev);
+  await openSettings(ev);
   assert.deepEqual((await ev(repeatState)).pressed, ["2"], "重新打开页面后，「两次」没记住");
-  await ev(() => { document.querySelector('#savedScreenList .loop-repeat button[data-repeat="1"]').click(); return true; });
+  await ev(() => { document.querySelector('#settingsScreen .loop-repeat button[data-repeat="1"]').click(); return true; });
   await reload(ev);
-  await openSaved(ev);
+  await openSettings(ev);
   assert.deepEqual((await ev(repeatState)).pressed, ["1"], "改回「一次」后，重新打开页面没记住");
 });
 
@@ -288,7 +296,7 @@ check("连播放英文时：提示框里只有英文，字比原来（18px）大
 
 // ── 存储写失败：按钮不能看起来坏了 ──────────────────────────────────────
 check("存储写不进去：点「两次」按钮仍变成选中，实际遍数也是两遍，且只提示一次「无法保存到本机」", async (ev) => {
-  await openSaved(ev);
+  await openSettings(ev);
   const r = await ev(async () => {
     const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
     const realSet = Storage.prototype.setItem, realToast = window.showOfflineToast;
@@ -296,8 +304,8 @@ check("存储写不进去：点「两次」按钮仍变成选中，实际遍数�
     window.showOfflineToast = m => { toasts.push(String(m)); };
     Storage.prototype.setItem = function () { throw new Error("QuotaExceededError"); };
     try {
-      const click = n => document.querySelector(`#savedScreenList .loop-repeat button[data-repeat="${n}"]`).click();
-      const pressed = () => Array.from(document.querySelectorAll("#savedScreenList .loop-repeat button"))
+      const click = n => document.querySelector(`#settingsScreen .loop-repeat button[data-repeat="${n}"]`).click();
+      const pressed = () => Array.from(document.querySelectorAll("#settingsScreen .loop-repeat button"))
         .filter(b => b.getAttribute("aria-pressed") === "true").map(b => b.dataset.repeat);
       click("2"); await tick();
       const out = { pressed2: pressed(), actual2: readLoopRepeat() };
@@ -315,6 +323,149 @@ check("存储写不进去：点「两次」按钮仍变成选中，实际遍数�
   assert.deepEqual(r.pressedAgain, ["2"]);
   assert.equal(r.actualAgain, 2);
   assert.equal(r.warn, 1, `「无法保存到本机」提示了 ${r.warn} 次，应该只一次`);
+});
+
+
+// ── 2026-11-06：入口搬家 ─────────────────────────────────────────────────
+check("收藏页里不再有「每句英文放一次/两次」；设置页里有，且设置里的选择管着连播的实际遍数", async (ev) => {
+  await openSaved(ev);
+  const onSaved = await ev(() => ({ group: !!document.querySelector("#savedScreenList .loop-repeat"),
+                                    btns: document.querySelectorAll("#savedScreenList .loop-repeat-btn").length,
+                                    loopBtn: !!document.querySelector("#savedScreenList .loop-btn") }));
+  assert.equal(onSaved.loopBtn, true, "前提不成立：收藏页连续播放按钮都没了");
+  assert.equal(onSaved.group, false, "收藏页里还留着「每句英文放几遍」");
+  assert.equal(onSaved.btns, 0, "收藏页里还留着一/两次的按钮");
+  await openSettings(ev);
+  const st = await ev(repeatState);
+  assert.ok(!st.missing, "设置页里没有这个选项");
+  await ev(() => { document.querySelector('#settingsScreen .loop-repeat button[data-repeat="2"]').click(); return true; });
+  assert.equal(await ev(() => readLoopRepeat()), 2, "设置里选了两次，连播实际读到的不是两遍");
+  await ev(() => { document.querySelector('#settingsScreen .loop-repeat button[data-repeat="1"]').click(); return true; });
+  assert.equal(await ev(() => readLoopRepeat()), 1, "设置里改回一次，连播实际读到的不是一遍");
+});
+
+// ── 2026-11-06：连播时取消收藏掌握了的句子 ──────────────────────────────
+check("连播提示框右上角有个 ×（够大、贴着右上角、有名字）；没在连播时提示框收着，× 也看不见", async (ev) => {
+  await openSaved(ev);
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const box = () => document.querySelector("#savedScreenList .loop-cue");
+    const x = () => box() && box().querySelector(".loop-cue-remove");
+    const out = { idleHasX: !!x(), idleVisible: !!x() && x().getClientRects().length > 0 };
+    document.querySelector("#savedScreenList .loop-btn").click(); await tick();
+    const b = box().getBoundingClientRect(), xr = x() ? x().getBoundingClientRect() : null;
+    out.playing = audioLoopPlaying();
+    out.visible = !!xr && xr.width > 0;
+    if (xr) Object.assign(out, { w: xr.width, h: xr.height, dRight: b.right - xr.right, dTop: xr.top - b.top,
+                                 label: x().getAttribute("aria-label"), type: x().type });
+    stopAudioLoop(); stopAllAudio(); showTab("home");
+    return out;
+  });
+  assert.equal(r.playing, true, "前提不成立：连播没起来");
+  assert.equal(r.idleVisible, false, "没在连播，× 却看得见");
+  assert.equal(r.visible, true, "放着时提示框里没有 ×");
+  assert.ok(r.w >= 44 && r.h >= 44, `× 只有 ${r.w}×${r.h}px，抱着孩子点不准`);
+  assert.ok(r.dRight >= 0 && r.dRight <= 16, `× 不在右边（离提示框右边 ${Math.round(r.dRight)}px）`);
+  assert.ok(r.dTop >= 0 && r.dTop <= 16, `× 不在上边（离提示框上边 ${Math.round(r.dTop)}px）`);
+  assert.ok(/取消收藏/.test(r.label || ""), `× 的名字是「${r.label}」，读屏和人都看不出它是取消收藏`);
+  assert.equal(r.type, "button");
+});
+
+check("连播放着时点 ×：这一句从收藏里没了、列表少一行，连播不停，屏幕换成下一句；其余收藏原封不动", async (ev) => {
+  await openSaved(ev);
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    document.querySelector("#savedScreenList .loop-btn").click(); await tick();
+    const cur = loopCueItem && loopCueItem.id;
+    const before = savedPhrases.map(s => s.id);
+    document.querySelector("#savedScreenList .loop-cue-remove").click(); await tick();
+    const after = savedPhrases.map(s => s.id);
+    const box = document.querySelector("#savedScreenList .loop-cue");
+    const out = { cur, before, after, playing: audioLoopPlaying(), paused: audioLoopPaused(),
+                  nowId: loopCueItem && loopCueItem.id,
+                  rows: document.querySelectorAll("#savedScreenList .saved-item").length,
+                  boxShown: !!box && box.getClientRects().length > 0,
+                  persisted: JSON.parse(localStorage.getItem(llStorage.KEYS.saved) || "[]").map(s => s.id) };
+    stopAudioLoop(); stopAllAudio(); showTab("home");
+    return out;
+  });
+  assert.ok(r.cur && r.before.includes(r.cur), "前提不成立：没拿到正在放的那句");
+  assert.ok(!r.after.includes(r.cur), "× 点了，这一句还在收藏里");
+  assert.deepEqual(r.after, r.before.filter(id => id !== r.cur), "× 把别的收藏也动了");
+  assert.deepEqual(r.persisted, r.after, "这一句只在界面上没了，没写进本机存储（重开又回来）");
+  assert.equal(r.rows, r.after.length, "列表没有跟着少一行");
+  assert.equal(r.playing, true, "点 × 之后连播停了");
+  assert.ok(r.nowId && r.nowId !== r.cur && r.after.includes(r.nowId), `屏幕上不是下一句（${r.nowId}）`);
+  assert.equal(r.boxShown, true, "点 × 之后提示框收起了");
+});
+
+check("连播暂停着点 ×：这一句取消收藏，仍是暂停、没出声；按继续，放的是下一句", async (ev) => {
+  await openSaved(ev);
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const loopBtn = () => document.querySelector("#savedScreenList .loop-btn");
+    loopBtn().click(); await tick();
+    loopBtn().click(); await tick();                              // 暂停
+    const cur = loopCueItem && loopCueItem.id;
+    document.querySelector("#savedScreenList .loop-cue-remove").click(); await tick();
+    const out = { cur, gone: !savedPhrases.some(s => s.id === cur), paused: audioLoopPaused(), playing: audioLoopPlaying(),
+                  audible: loopAudible(), nowId: loopCueItem && loopCueItem.id };
+    loopBtn().click(); await tick();                              // 继续
+    out.resumed = audioLoopPlaying(); out.resumedId = loopCueItem && loopCueItem.id;
+    stopAudioLoop(); stopAllAudio(); showTab("home");
+    return out;
+  });
+  assert.equal(r.gone, true, "暂停着点 ×，这一句还在收藏里");
+  assert.equal(r.paused, true, "点 × 把暂停弄没了");
+  assert.equal(r.audible, false, "暂停着点 ×，却出声了");
+  assert.ok(r.nowId && r.nowId !== r.cur, "屏幕上没换成下一句");
+  assert.equal(r.resumed, true, "继续不起来");
+  assert.equal(r.resumedId, r.nowId, "继续之后放的不是屏幕上那一句");
+});
+
+check("收藏只剩正放着的这一句时点 ×：收藏清空、连播停、提示框收起，页面是「去场景里收藏」的空状态，不报错", async (ev) => {
+  await openSaved(ev);
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    savedPhrases = savedPhrases.slice(0, 1); persistSaved(); renderSavedScreen(); await tick();
+    const errors = []; const onErr = e => errors.push(String(e.message || e));
+    window.addEventListener("error", onErr);
+    document.querySelector("#savedScreenList .loop-btn").click(); await tick();
+    const started = audioLoopPlaying();
+    document.querySelector("#savedScreenList .loop-cue-remove").click(); await tick();
+    window.removeEventListener("error", onErr);
+    const out = { started, left: savedPhrases.length, playing: audioLoopPlaying(), paused: audioLoopPaused(),
+                  empty: !!document.querySelector("#savedScreenList .empty-state"), errors };
+    stopAudioLoop(); stopAllAudio(); showTab("home");
+    return out;
+  });
+  assert.equal(r.started, true, "前提不成立：连播没起来");
+  assert.equal(r.left, 0, "最后一句没取消收藏");
+  assert.equal(r.playing, false, "收藏空了连播还开着");
+  assert.equal(r.paused, false, "收藏空了停在暂停上");
+  assert.equal(r.empty, true, "收藏空了，页面没有显示空状态");
+  assert.deepEqual(r.errors, [], `页面报错：${JSON.stringify(r.errors)}`);
+});
+
+check("连播时点收藏列表里正放着那一行的 ×（不是提示框的）：连播同样马上换到下一句，不会继续放这句", async (ev) => {
+  await openSaved(ev);
+  const r = await ev(async () => {
+    const tick = () => new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    document.querySelector("#savedScreenList .loop-btn").click(); await tick();
+    const cur = loopCueItem && loopCueItem.id;
+    const rowIdx = sortedBySavedAtDesc(phrasesInScenario(savedFilterScenario)).findIndex(p => p.id === cur);
+    const rowX = document.querySelectorAll("#savedScreenList .saved-item .unsave-btn")[rowIdx];
+    if (!rowX) return { noRowX: true, cur, rowIdx };
+    rowX.click(); await tick();
+    const out = { cur, gone: !savedPhrases.some(s => s.id === cur), playing: audioLoopPlaying(),
+                  nowId: loopCueItem && loopCueItem.id };
+    stopAudioLoop(); stopAllAudio(); showTab("home");
+    return out;
+  });
+  assert.ok(!r.noRowX, `前提不成立：列表里找不到正放着那一行的 ×（第 ${r.rowIdx} 行）`);
+  assert.equal(r.gone, true, "行里的 × 没把这一句取消收藏");
+  assert.equal(r.playing, true, "删掉正放着的那句，连播停了");
+  assert.ok(r.nowId && r.nowId !== r.cur, `连播还停在被删的这一句上（${r.nowId}）`);
 });
 
 let srv, chrome, profile, client;

@@ -96,6 +96,7 @@ step("L0 · marks survive a restart (test/marks-after-reload.test.mjs)", () => r
 step("L0 · one-tap looping playback (test/audio-loop.test.mjs)", () => run("node", ["test/audio-loop.test.mjs"]));
 step("L0 · loop plays every saved phrase's English, even after its address was reclaimed (test/loop-new-saved-audio.test.mjs)", () => run("node", ["test/loop-new-saved-audio.test.mjs"]));
 step("L0 · loop starts / jumps at the phrase the slider points to (test/loop-start-position.test.mjs)", () => run("node", ["test/loop-start-position.test.mjs"]));
+step("L0 · removing a phrase mid-loop moves on / keeps place / stops when empty (test/loop-remove-current.test.mjs)", () => run("node", ["test/loop-remove-current.test.mjs"]));
 step("L0 · loop repeats each English clip once or twice, 2s apart, screen shows English only (test/loop-repeat.test.mjs)", () => run("node", ["test/loop-repeat.test.mjs"]));
 step("L0 · newly generated voice is asked for 50% louder (test/tts-volume.test.mjs)", () => run("node", ["test/tts-volume.test.mjs"]));
 // 随应用下发的录音够响、不破音（2026-10-15 整批放大 1.5 倍）。要用 ffmpeg 量；
@@ -166,7 +167,7 @@ const CHROME_PATHS = [
 ];
 if (CHROME_PATHS.some(p => existsSync(p))) {
   step("L2 · 真浏览器走一遍 (test/e2e.mjs)", () => run("node", ["test/e2e.mjs"]));
-  step("L2 · 连播次数 / 只看英文 / 收藏不弹提示，真浏览器 (test/loop-repeat-e2e.mjs)", () => run("node", ["test/loop-repeat-e2e.mjs"]));
+  step("L2 · 连播次数（设置里）/ 只看英文 / 收藏不弹提示 / 连播时点 × 取消收藏，真浏览器 (test/loop-repeat-e2e.mjs)", () => run("node", ["test/loop-repeat-e2e.mjs"]));
 } else {
   skip("L2 · 真浏览器走一遍 (test/e2e.mjs)",
        "这台机器上没有 Chrome —— 样式级联、真实布局、事件接线这一层这次没人验");

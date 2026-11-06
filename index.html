@@ -304,6 +304,19 @@
     <div class="backup-status" id="voiceStatus" hidden></div>
   </div>
 
+  <!-- 2026-11-06：「每句英文放几遍」从收藏页搬到这里。设置一次，连播一直照这个放。 -->
+  <div class="backup-section" id="loopRepeatSection">
+    <div class="backup-title">连续播放</div>
+    <p class="backup-note">
+      收藏页点【连续播放全部】时，每句英文放几遍。放两遍时，两遍之间隔 2 秒。
+    </p>
+    <div class="loop-repeat" role="group" aria-label="每句英文播放几遍">
+      <span class="loop-repeat-label">每句英文放</span>
+      <button type="button" class="loop-repeat-btn" data-repeat="1" onclick="setLoopRepeat('1')">一次</button>
+      <button type="button" class="loop-repeat-btn" data-repeat="2" onclick="setLoopRepeat('2')">两次</button>
+    </div>
+  </div>
+
   <!-- 到点提醒（ADR 0008）。服务器只记这台手机的推送地址、上次复习/发送时间、
        时区和设备口令的指纹；「点开去哪」只存在手机上。 -->
   <div class="backup-section" id="reminderSection">
@@ -1388,6 +1401,7 @@ function showTab(tab) {
     syncAccessCodeInput();
     paintStandaloneNote();
     renderVoiceOptions();
+    paintLoopRepeat();
     paintReminder();
   } else if (tab === "help") {
     document.getElementById("helpScreen").classList.add("open");
@@ -2171,6 +2185,15 @@ function renderSavedScreen() {
   loopCueEn.hidden = true;
   loopCue.appendChild(loopCueZh);
   loopCue.appendChild(loopCueEn);
+  // 2026-11-06：右上角的 ×。连播时听到已经掌握的句子，点一下就把这一句取消收藏，
+  // 连播接着放下一句。做的事和收藏行里的 × 一样（removeSaved），只是对象是「正在放的这句」。
+  const loopCueRemove = document.createElement('button');
+  loopCueRemove.type = 'button';
+  loopCueRemove.className = 'loop-cue-remove';
+  loopCueRemove.textContent = '×';
+  loopCueRemove.setAttribute('aria-label', '取消收藏这一句');
+  loopCueRemove.onclick = () => { if (loopCueItem && loopCueItem.id) removeSaved(loopCueItem.id); };
+  loopCue.appendChild(loopCueRemove);
   const paintLoopCue = item => paintLoopCueBox(loopCue, item, 'zh');
   // 2026-10-14：起点滑块。拖到哪句就从哪句放；正在放 / 暂停着时拖，就跳过去。
   // 放的时候它跟着当前那句走（onLoopPhase 里），所以停下再点是接着放，不是从头来。
@@ -2220,31 +2243,7 @@ function renderSavedScreen() {
     paintLoopBtn();
   };
   list.appendChild(loopBtn);
-  // 每句英文放几遍：一次 / 两次（两次时两遍之间隔 2 秒）。选择存本机，下次打开还在。
-  const loopRepeat = document.createElement('div');
-  loopRepeat.className = 'loop-repeat';
-  loopRepeat.setAttribute('role', 'group');
-  loopRepeat.setAttribute('aria-label', '每句英文播放几遍');
-  const repeatLabel = document.createElement('span');
-  repeatLabel.className = 'loop-repeat-label';
-  repeatLabel.textContent = '每句英文放';
-  loopRepeat.appendChild(repeatLabel);
-  const paintRepeat = () => {
-    loopRepeat.querySelectorAll('button').forEach(b => {
-      b.setAttribute('aria-pressed', String(Number(b.dataset.repeat) === readLoopRepeat()));
-    });
-  };
-  [['1', '一次'], ['2', '两次']].forEach(([n, label]) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'loop-repeat-btn';
-    b.dataset.repeat = n;
-    b.textContent = label;
-    b.onclick = () => { loopRepeatMem = n === '2' ? 2 : 1; llStorage.write(llStorage.KEYS.loopRepeat, n); paintRepeat(); };
-    loopRepeat.appendChild(b);
-  });
-  paintRepeat();
-  list.appendChild(loopRepeat);
+  // 每句英文放几遍：2026-11-06 起在「设置 → 连续播放」里选，收藏页不再放这个。
   if (loopSeek) list.appendChild(loopSeek);
   list.appendChild(loopCue);
   // 页面被重画时（声音标记一变就会）新盒子是空的：放着或暂停着就按当前阶段补回来
@@ -2377,6 +2376,9 @@ function refreshAudioMarks() {
 function removeSaved(id) {
   savedPhrases = savedPhrases.filter(s => s.id !== id);
   persistSaved();
+  // 连播这一轮里还留着它的话，会接着放一句已经取消收藏的（2026-11-06）。先拿掉，
+  // 再重画：拿掉时连播会把「正在放哪句」换成下一句，重画才画得对。
+  if (typeof llAudioLoop !== "undefined" && llAudioLoop) llAudioLoop.removeFromLoop(id);
   renderSavedScreen();
   renderReviewArea();
 }
@@ -3751,6 +3753,17 @@ var loopCueItem = null, loopCuePhase = 'zh';
 // 连播里每句英文放一遍还是两遍。默认一遍；存不进去只影响这次打开。
 // 这次打开期间的选择先记在内存里：存储写失败（隐私模式、存满）时按钮和实际遍数仍一致。
 var loopRepeatMem = null;
+// 设置页「连续播放」里那两个按钮：选中的那个 aria-pressed="true"。
+function paintLoopRepeat() {
+  document.querySelectorAll('#settingsScreen .loop-repeat button[data-repeat]').forEach(b => {
+    b.setAttribute('aria-pressed', String(Number(b.dataset.repeat) === readLoopRepeat()));
+  });
+}
+function setLoopRepeat(n) {
+  loopRepeatMem = n === '2' ? 2 : 1;
+  llStorage.write(llStorage.KEYS.loopRepeat, n === '2' ? '2' : '1');
+  paintLoopRepeat();
+}
 function readLoopRepeat() {
   if (loopRepeatMem !== null) return loopRepeatMem;
   return llStorage.readString(llStorage.KEYS.loopRepeat, '1') === '2' ? 2 : 1;

@@ -1738,6 +1738,17 @@ details.transcript[open] { padding-bottom: 12px; }
   margin-top: 8px; font-size: 24px; line-height: 1.35;
   color: var(--text, inherit); overflow-wrap: anywhere;
 }
+/* 2026-11-06：提示框右上角的 ×（取消收藏这一句）。44px 点击区，字不变大，贴着角落；
+   提示框收起（hidden）时它跟着看不见。 */
+.loop-cue { position: relative; }
+.loop-cue-remove {
+  position: absolute; top: 0; right: 0;
+  min-width: 44px; min-height: 44px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; cursor: pointer;
+  font-size: 22px; line-height: 1; color: var(--accent-deep);
+  touch-action: manipulation; user-select: none;
+}
 .loop-cue-en[hidden] { display: none; }
 .loop-cue-zh[hidden] { display: none; }
 /* 每句英文放一次 / 两次：两个并排的分段按钮，44px 高，抱着孩子也点得准 */

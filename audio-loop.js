@@ -459,6 +459,12 @@
       if (!loopOn && !loopPaused) return false;
       var qi = queuePos(id);
       if (qi < 0) return false;
+      moveToIndex(qi);
+      return true;
+    }
+    // 把这一轮挪到第 qi 句：停掉手头这一段，先念它的中文提示再放英文。
+    // 暂停着只挪位置。jumpAudioLoop 与 removeFromLoop 共用。
+    function moveToIndex(qi) {
       clearLoopCueGuard();
       if (loopTimer) { clearTimeout(loopTimer); loopTimer = null; }
       loopFetch = null;
@@ -469,8 +475,24 @@
       if (loopEl) { try { loopEl.pause(); } catch (e) {} }
       silenceLoopCue();
       cueLoopItem(item);
-      if (loopPaused) { pausedDuring = "speech-cue"; return true; }
+      if (loopPaused) { pausedDuring = "speech-cue"; return; }
       startLoopCue(item);
+    }
+
+    // 2026-11-06：这一句被收藏删掉了（连播提示框右上角的 ×，或收藏行的 ×）。
+    // 把它从这一轮里拿掉：删的是正放着的这一句，就马上接下一句（先念中文提示）；
+    // 删的是别的句子，正在放的不受打扰，只把位置跟着挪准；拿掉后一句不剩就停下来。
+    // 没在连播、或这句不在这一轮里：什么也不做，返回 false。
+    function removeFromLoop(id) {
+      if (!loopOn && !loopPaused) return false;
+      var qi = queuePos(id);
+      if (qi < 0) return false;
+      var wasCurrent = qi === loopIndex;
+      if (loopQueue.length === 1) { loopQueue = []; stopAudioLoop(); return true; }
+      loopQueue.splice(qi, 1);
+      if (qi < loopIndex) { loopIndex -= 1; return true; }
+      if (!wasCurrent) return true;
+      moveToIndex(loopIndex % loopQueue.length);   // 后面一句顶上来了；删的是最后一句就转回第 1 句
       return true;
     }
 
@@ -537,6 +559,7 @@
       audioLoopPaused: audioLoopPaused,
       toggleAudioLoop: toggleAudioLoop,
       jumpAudioLoop: jumpAudioLoop,
+      removeFromLoop: removeFromLoop,
     };
   }
 
